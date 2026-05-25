@@ -670,6 +670,24 @@ export function registerServiceWorker() {
   }
 }
 
+// Turns Firebase/Firestore errors into short user-facing text.
+export function getFirebaseErrorMessage(error) {
+  const code = error?.code || "";
+  if (code === "permission-denied") {
+    return "Permission denied. Deploy firestore.rules from this project to Firebase.";
+  }
+  if (code === "unavailable") {
+    return "Firestore is offline or unreachable. Check internet connection.";
+  }
+  if (code === "auth/invalid-api-key" || code === "auth/api-key-not-valid") {
+    return "Invalid Firebase API key. Update CONFIG.FIREBASE from Firebase Console.";
+  }
+  if (code.includes("api-key")) {
+    return "Firebase API key problem. Check Google Cloud Credentials for this project.";
+  }
+  return error?.message || "Unknown error. Please refresh and try again.";
+}
+
 // Displays a short floating message.
 export function showToast(message) {
   const toast = document.createElement("div");

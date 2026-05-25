@@ -45,9 +45,13 @@ They **can** still (by design, for QR ordering):
 So the benefit is **database rules + Firebase Auth**, not hiding the JavaScript. Create **one strong staff password** in Firebase only. If you previously committed a password to GitHub, **change it in Firebase Auth** immediately.
 
 ### Checklist
-1. Deploy `firestore.rules`
-2. Enable Email/Password auth; create one staff user with a strong password (not in code)
-3. Do not link `admin.html` on customer-facing posters (counter/kitchen URL only for staff)
+1. Deploy `firestore.rules` (required for customer QR orders after security update):
+   ```bash
+   firebase deploy --only firestore:rules
+   ```
+2. Google Cloud → Credentials → Browser API key → enable **Cloud Firestore API** and **Identity Toolkit API** (or use no API restriction for testing)
+3. Enable Email/Password auth; create one staff user with a strong password (not in code)
+4. Do not link `admin.html` on customer-facing posters (counter/kitchen URL only for staff)
 
 ## Features
 

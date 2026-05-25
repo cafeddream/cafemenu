@@ -6,6 +6,7 @@ import {
   claimPaymentDone,
   fetchMenu,
   formatCurrency,
+  getFirebaseErrorMessage,
   getMenuCacheSavedAt,
   listenToOrder,
   placeOrAppendOrder,
@@ -216,7 +217,9 @@ async function placeOrder() {
     showScreen("payment");
   } catch (error) {
     console.error("Order placement failed.", error);
-    showError("Connection error", "Connection error, please refresh");
+    const detail = getFirebaseErrorMessage(error);
+    showError("Order failed", detail);
+    showToast(detail);
   } finally {
     elements.placeOrderBtn.disabled = false;
   }

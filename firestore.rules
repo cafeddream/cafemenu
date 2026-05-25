@@ -14,8 +14,23 @@ service cloud.firestore {
       return items is list && items.size() > 0 && items.size() <= 80;
     }
 
+    function validCustomerStatus() {
+      let status = request.resource.data.status;
+      return status == 'new' || status == 'preparing' || status == 'served';
+    }
+
+    function customerPlacesOrder() {
+      let data = request.resource.data;
+      return data.tableId == tableId
+        && data.placedBy == 'customer'
+        && validOrderItems(data.items)
+        && validCustomerStatus()
+        && data.status != 'paid';
+    }
+
     function customerPaymentUpdate() {
       return resource != null
+        && request.resource.data.placedBy == resource.data.placedBy
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly([
             'paymentStatus',
@@ -26,22 +41,13 @@ service cloud.firestore {
           ]);
     }
 
-    function customerOrderWrite() {
-      let data = request.resource.data;
-      return data.tableId == tableId
-        && data.placedBy == 'customer'
-        && data.status in ['new', 'preparing', 'served']
-        && validOrderItems(data.items)
-        && data.paymentStatus in ['pending', 'customer_claimed_paid', 'cash_at_counter'];
-    }
-
     match /orders/{tableId}/current/order {
       allow read: if validTable(tableId);
-      allow create: if validTable(tableId) && customerOrderWrite();
+      allow create: if validTable(tableId) && (isStaff() || customerPlacesOrder());
       allow update: if validTable(tableId) && (
-        (isStaff()) ||
-        (customerPaymentUpdate()) ||
-        (customerOrderWrite())
+        isStaff() ||
+        customerPlacesOrder() ||
+        customerPaymentUpdate()
       );
       allow delete: if validTable(tableId) && isStaff();
     }
