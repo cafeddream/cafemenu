@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#FF6B35">
+  <title>Cafe D Dream Counter</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body class="admin-page">
+  <header class="admin-header">
+    <div>
+      <h1 class="brand-title" id="adminRestaurant">Cafe D Dream</h1>
+      <div class="subtle" id="clock">--:--</div>
+    </div>
+    <div class="summary-bar">
+      <span id="activeTables">Active Tables: 0</span>
+      <span id="todayCollection">Today's Collection: ₹0</span>
+    </div>
+  </header>
+
+  <main class="table-grid" id="tableGrid" aria-live="polite"></main>
+
+  <script type="module" src="./admin.js"></script>
+</body>
+</html>
