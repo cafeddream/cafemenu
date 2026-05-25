@@ -163,19 +163,17 @@ function renderTables(flashTableId = null) {
 function tableCardHtml(tableId, order, flash = false) {
   if (!order) {
     return `
-      <article class="table-card ${flash ? "flash" : ""}">
+      <article class="table-card table-card-orderable ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}" tabindex="0" aria-label="Take order for ${escapeHtml(tableId)}">
         <div class="table-head">
           <span class="table-id">${escapeHtml(tableId)}</span>
           <span class="badge">Empty</span>
-        </div>
-        <div class="card-actions" data-table="${escapeHtml(tableId)}">
-          <button class="primary-btn" type="button" data-action="order">Take Order</button>
         </div>
       </article>
     `;
   }
 
   const status = order.status || "new";
+  const canOrder = status !== "paid";
   const paymentClaimed = order.paymentStatus === "customer_claimed_paid";
   const cashRequested = order.paymentStatus === "cash_at_counter";
   const lines = (order.items || []).map((item) => `
@@ -183,7 +181,7 @@ function tableCardHtml(tableId, order, flash = false) {
   `).join("");
 
   return `
-    <article class="table-card status-${escapeHtml(status)} ${flash ? "flash" : ""}">
+    <article class="table-card status-${escapeHtml(status)} ${canOrder ? "table-card-orderable" : ""} ${flash ? "flash" : ""}" ${canOrder ? `data-table="${escapeHtml(tableId)}" tabindex="0" aria-label="Add items for ${escapeHtml(tableId)}"` : ""}>
       <div class="table-head">
         <span class="table-id">${escapeHtml(tableId)}</span>
         <span class="badge">${escapeHtml(STATUS_LABELS[status] || status)}</span>
@@ -196,7 +194,6 @@ function tableCardHtml(tableId, order, flash = false) {
         <span>${formatTime(order.timestamp)}</span>
       </div>
       <div class="card-actions" data-table="${escapeHtml(tableId)}" data-status="${escapeHtml(status)}">
-        ${status !== "paid" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"order\">Add Items</button>" : ""}
         ${status === "new" ? "<button class=\"secondary-btn\" type=\"button\" data-action=\"preparing\">Mark Preparing</button>" : ""}
         ${status === "new" || status === "preparing" ? "<button class=\"secondary-btn\" type=\"button\" data-action=\"served\">Mark Served</button>" : ""}
         ${status === "served" || status === "preparing" ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Mark Paid</button>" : ""}
@@ -206,20 +203,27 @@ function tableCardHtml(tableId, order, flash = false) {
   `;
 }
 
-// Adds click handlers to all visible card action buttons.
+// Adds click handlers to orderable table cards and status action buttons.
 function bindCardActions() {
-  elements.tableGrid.querySelectorAll("[data-action]").forEach((button) => {
-    button.addEventListener("click", async () => {
+  elements.tableGrid.querySelectorAll(".table-card-orderable").forEach((card) => {
+    const openOrder = () => openAdminOrderModal(card.dataset.table);
+    card.addEventListener("click", openOrder);
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openOrder();
+      }
+    });
+  });
+
+  elements.tableGrid.querySelectorAll(".card-actions [data-action]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
       const tableId = button.closest(".card-actions").dataset.table;
       const action = button.dataset.action;
       button.disabled = true;
 
       try {
-        if (action === "order") {
-          button.disabled = false;
-          openAdminOrderModal(tableId);
-          return;
-        }
         if (action === "preparing") await updateOrderStatus(tableId, "preparing");
         if (action === "served") await updateOrderStatus(tableId, "served");
         if (action === "paid") {
@@ -400,7 +404,8 @@ function closeAdminMenu() {
 async function openAdminOrderModal(tableId) {
   state.orderTableId = tableId;
   state.cart.clear();
-  elements.adminOrderTitle.textContent = `Take Order — ${tableId}`;
+  const hasOrder = state.orders.has(tableId);
+  elements.adminOrderTitle.textContent = hasOrder ? `Add Items — ${tableId}` : `Take Order — ${tableId}`;
   elements.adminOrderModal.hidden = false;
   showAdminOrderScreen("menu");
   updateAdminOrderFooter();

@@ -735,8 +735,27 @@ button:disabled {
   flex: 0 1 auto;
 }
 
-.table-card .card-actions [data-action="order"] {
-  flex: 1 1 100%;
+.table-card-orderable {
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.table-card-orderable:hover {
+  box-shadow: 0 12px 28px rgba(20, 25, 32, 0.1);
+}
+
+.table-card-orderable:focus-visible {
+  outline: 3px solid rgba(255, 107, 53, 0.45);
+  outline-offset: 2px;
+}
+
+.table-card-orderable .card-actions,
+.table-card-orderable .card-actions button {
+  cursor: default;
+}
+
+.table-card-orderable .card-actions button {
+  cursor: pointer;
 }
 
 .payment-method-modal {
