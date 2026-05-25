@@ -54,7 +54,7 @@ export const CONFIG = {
   KITCHEN_TIMER_MINUTES: 20,
   TABLES: ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12", "T13", "T14", "T15"],
   FIREBASE: {
-    apiKey: "AIzaSyCTgoPUmZgPwPWF_GUB_bI_7ULIYgE_PU8",
+    apiKey: "AIzaSyCTooPUmZqPwPWF_GUB_bI_7ULIYqE_PU8",
     authDomain: "cafe-d-dream.firebaseapp.com",
     projectId: "cafe-d-dream",
     storageBucket: "cafe-d-dream.firebasestorage.app",

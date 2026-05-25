@@ -93,8 +93,17 @@ function showStaffLoginModal(onSuccess) {
       await signInStaff(emailInput.value.trim(), passwordInput.value);
       backdrop.hidden = true;
       onSuccess();
-    } catch {
-      errorEl.textContent = "Sign in failed. Check email/password in Firebase Auth.";
+    } catch (error) {
+      const code = error?.code || "";
+      if (code === "auth/invalid-api-key" || code === "auth/api-key-not-valid") {
+        errorEl.textContent = "Invalid Firebase API key. Update CONFIG.FIREBASE in firebase.js from Firebase Console.";
+      } else if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") {
+        errorEl.textContent = "Wrong email or password. Check Firebase Authentication → Users.";
+      } else if (code === "auth/unauthorized-domain") {
+        errorEl.textContent = "Add cafeddream.github.io to Firebase Auth → Settings → Authorized domains.";
+      } else {
+        errorEl.textContent = `Sign in failed (${code || "unknown"}). Check Firebase setup.`;
+      }
       errorEl.hidden = false;
     }
   };
