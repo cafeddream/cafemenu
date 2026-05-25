@@ -785,14 +785,6 @@ button:disabled {
   text-decoration: none;
 }
 
-.menu-cache-banner {
-  margin: 0 16px 8px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: #fff3cb;
-  color: #8a6100;
-}
-
 .staff-login-form input {
   width: 100%;
 }

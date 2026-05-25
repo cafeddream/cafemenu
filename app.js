@@ -7,7 +7,6 @@ import {
   fetchMenu,
   formatCurrency,
   getFirebaseErrorMessage,
-  getMenuCacheSavedAt,
   listenToOrder,
   placeOrAppendOrder,
   registerServiceWorker,
@@ -37,7 +36,6 @@ const state = {
 const elements = {
   restaurantName: document.querySelector("#restaurantName"),
   tableLabel: document.querySelector("#tableLabel"),
-  menuCacheBanner: document.querySelector("#menuCacheBanner"),
   categoryRow: document.querySelector("#categoryRow"),
   menuList: document.querySelector("#menuList"),
   menuScreen: document.querySelector("#menuScreen"),
@@ -74,7 +72,6 @@ const elements = {
 async function init() {
   registerServiceWorker();
   elements.restaurantName.textContent = CONFIG.RESTAURANT_NAME;
-  updateMenuCacheBanner();
 
   const params = new URLSearchParams(window.location.search);
   const tableId = params.get("table");
@@ -90,17 +87,6 @@ async function init() {
   await loadMenu();
 }
 
-function updateMenuCacheBanner() {
-  if (!elements.menuCacheBanner) return;
-  const savedAt = getMenuCacheSavedAt();
-  if (!savedAt) {
-    elements.menuCacheBanner.hidden = true;
-    return;
-  }
-  elements.menuCacheBanner.hidden = false;
-  elements.menuCacheBanner.textContent = `Offline menu available (saved ${new Date(savedAt).toLocaleString()})`;
-}
-
 async function loadMenu() {
   try {
     showScreen("menu");
@@ -110,7 +96,6 @@ async function loadMenu() {
     state.groupedMenu = menuState.groupedMenu;
     state.categories = menuState.categories;
     state.activeCategory = menuState.activeCategory;
-    updateMenuCacheBanner();
 
     if (!state.activeCategory) {
       showError("Menu unavailable", "Menu unavailable, please ask staff", true);

@@ -9,7 +9,6 @@ import {
   fetchTableHistory,
   formatCurrency,
   formatTime,
-  getMenuCacheSavedAt,
   getTodayKey,
   listenToOrder,
   listenToTodaySummary,
@@ -52,7 +51,6 @@ const elements = {
   tableGrid: document.querySelector("#tableGrid"),
   menuButton: document.querySelector("#menuButton"),
   signOutBtn: document.querySelector("#signOutBtn"),
-  menuCacheBanner: document.querySelector("#menuCacheBanner"),
   adminMenuModal: document.querySelector("#adminMenuModal"),
   closeMenu: document.querySelector("#closeMenu"),
   salesTab: document.querySelector("#salesTab"),
@@ -104,7 +102,6 @@ function startAdminApp() {
   subscribeToTables();
   subscribeToSummary();
   preloadMenu();
-  updateMenuCacheBanner();
 }
 
 function bindUi() {
@@ -146,16 +143,6 @@ function setDefaultReportDates() {
   elements.reportEndDate.value = today;
 }
 
-function updateMenuCacheBanner() {
-  const savedAt = getMenuCacheSavedAt();
-  if (!savedAt) {
-    elements.menuCacheBanner.hidden = true;
-    return;
-  }
-  elements.menuCacheBanner.hidden = false;
-  elements.menuCacheBanner.textContent = `Menu cache saved ${new Date(savedAt).toLocaleString()}`;
-}
-
 async function preloadMenu() {
   try {
     const items = await fetchMenu();
@@ -164,7 +151,6 @@ async function preloadMenu() {
     state.categories = menuState.categories;
     state.activeCategory = menuState.activeCategory;
     state.menuLoaded = Boolean(state.activeCategory);
-    updateMenuCacheBanner();
   } catch {
     // Menu loads again when opening order modal.
   }
@@ -513,7 +499,6 @@ async function openAdminOrderModal(tableId) {
       state.categories = menuState.categories;
       state.activeCategory = menuState.activeCategory;
       state.menuLoaded = Boolean(state.activeCategory);
-      updateMenuCacheBanner();
       if (!state.menuLoaded) {
         elements.adminMenuList.innerHTML = "<p class=\"subtle\">Menu unavailable. Check Google Sheet URL.</p>";
         return;
