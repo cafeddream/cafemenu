@@ -10,37 +10,15 @@
   <link rel="stylesheet" href="./style.css">
 </head>
 <body class="kitchen-page">
-  <section class="auth-screen dark-auth" id="authScreen">
-    <form class="auth-card" id="loginForm">
-      <h1>Kitchen Login</h1>
-      <p class="subtle">Staff login required for kitchen access.</p>
-      <label>
-        Email
-        <input id="loginEmail" type="email" autocomplete="username" required>
-      </label>
-      <label>
-        Password
-        <input id="loginPassword" type="password" autocomplete="current-password" required>
-      </label>
-      <button class="primary-btn" type="submit">Login</button>
-      <p class="auth-error" id="authError" role="alert"></p>
-    </form>
-  </section>
+  <header class="kitchen-header">
+    <div>
+      <h1 class="brand-title">Kitchen Display</h1>
+      <div class="subtle" id="kitchenClock">--:--</div>
+    </div>
+    <strong id="pendingCount">0 Orders Pending</strong>
+  </header>
 
-  <div id="protectedApp" hidden>
-    <header class="kitchen-header">
-      <div>
-        <h1 class="brand-title">Kitchen Display</h1>
-        <div class="subtle" id="kitchenClock">--:--</div>
-      </div>
-      <div class="kitchen-header-actions">
-        <strong id="pendingCount">0 Orders Pending</strong>
-        <button class="ghost-btn menu-btn" id="logoutButton" type="button">Logout</button>
-      </div>
-    </header>
-
-    <main id="kitchenMain" aria-live="polite"></main>
-  </div>
+  <main id="kitchenMain" aria-live="polite"></main>
 
   <script type="module" src="./kitchen.js"></script>
 </body>

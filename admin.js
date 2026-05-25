@@ -10,35 +10,24 @@ import {
   listenToOrder,
   listenToTodaySummary,
   markOrderPaid,
-  onStaffAuthState,
   registerServiceWorker,
   showToast,
-  signInStaff,
-  signOutStaff,
   updateOrderStatus
 } from "./firebase.js";
 
 const state = {
   orders: new Map(),
   knownOccupied: new Set(),
-  appStarted: false,
   pendingPaidTable: null
 };
 
 const elements = {
-  authScreen: document.querySelector("#authScreen"),
-  protectedApp: document.querySelector("#protectedApp"),
-  loginForm: document.querySelector("#loginForm"),
-  loginEmail: document.querySelector("#loginEmail"),
-  loginPassword: document.querySelector("#loginPassword"),
-  authError: document.querySelector("#authError"),
   restaurant: document.querySelector("#adminRestaurant"),
   clock: document.querySelector("#clock"),
   activeTables: document.querySelector("#activeTables"),
   todayCollection: document.querySelector("#todayCollection"),
   tableGrid: document.querySelector("#tableGrid"),
   menuButton: document.querySelector("#menuButton"),
-  logoutButton: document.querySelector("#logoutButton"),
   adminMenuModal: document.querySelector("#adminMenuModal"),
   closeMenu: document.querySelector("#closeMenu"),
   salesTab: document.querySelector("#salesTab"),
@@ -60,23 +49,6 @@ const elements = {
 // Starts the counter view with real-time table subscriptions.
 function init() {
   registerServiceWorker();
-  bindAuthEvents();
-  onStaffAuthState((user) => {
-    if (user) {
-      elements.authScreen.hidden = true;
-      elements.protectedApp.hidden = false;
-      startAdminApp();
-    } else {
-      elements.authScreen.hidden = false;
-      elements.protectedApp.hidden = true;
-    }
-  });
-}
-
-// Starts protected admin behavior once after staff login.
-function startAdminApp() {
-  if (state.appStarted) return;
-  state.appStarted = true;
   elements.restaurant.textContent = CONFIG.RESTAURANT_NAME;
   populateSalesTableSelect();
   renderEmptyCards();
@@ -98,29 +70,6 @@ function startAdminApp() {
   startClock();
   subscribeToTables();
   subscribeToSummary();
-}
-
-// Handles staff login and logout controls.
-function bindAuthEvents() {
-  elements.loginForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    elements.authError.textContent = "";
-    const button = elements.loginForm.querySelector("button");
-    button.disabled = true;
-
-    try {
-      await signInStaff(elements.loginEmail.value.trim(), elements.loginPassword.value);
-    } catch {
-      elements.authError.textContent = "Login failed. Check email and password.";
-    } finally {
-      button.disabled = false;
-    }
-  });
-
-  elements.logoutButton.addEventListener("click", async () => {
-    await signOutStaff();
-    window.location.reload();
-  });
 }
 
 // Updates the live clock every second.

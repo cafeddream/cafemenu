@@ -21,12 +21,6 @@ Print one QR code per table.
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import {
-  getAuth,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut
-} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-import {
   collection,
   deleteDoc,
   doc,
@@ -63,7 +57,6 @@ export const CONFIG = {
 
 const app = initializeApp(CONFIG.FIREBASE);
 export const db = getFirestore(app);
-export const auth = getAuth(app);
 
 export const STATUS_LABELS = {
   new: "New Order",
@@ -90,21 +83,6 @@ export function paymentRef(orderId, dateKey = getTodayKey()) {
 // Returns the saved history document for one completed table order.
 export function tableHistoryOrderRef(tableId, orderId) {
   return doc(db, "tableHistory", tableId, "orders", orderId);
-}
-
-// Signs staff into Firebase Auth for protected admin and kitchen screens.
-export function signInStaff(email, password) {
-  return signInWithEmailAndPassword(auth, email, password);
-}
-
-// Signs staff out of Firebase Auth.
-export function signOutStaff() {
-  return signOut(auth);
-}
-
-// Watches staff login state and calls back whenever it changes.
-export function onStaffAuthState(callback) {
-  return onAuthStateChanged(auth, callback);
 }
 
 // Generates a stable order id for paid history and daily collection records.
