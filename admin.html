@@ -18,9 +18,16 @@
     <div class="summary-bar">
       <span id="activeTables">Active Tables: 0</span>
       <span id="todayCollection">Today's Collection: Rs 0</span>
+      <nav class="staff-nav" aria-label="Staff pages">
+        <a class="ghost-btn menu-btn" href="./kitchen.html">Kitchen</a>
+        <a class="ghost-btn menu-btn" href="./index.html?table=T1">Test QR</a>
+      </nav>
       <button class="ghost-btn menu-btn" id="menuButton" type="button">Menu</button>
+      <button class="ghost-btn menu-btn" id="signOutBtn" type="button">Sign Out</button>
     </div>
   </header>
+
+  <p class="menu-cache-banner subtle" id="menuCacheBanner" hidden></p>
 
   <main class="table-grid" id="tableGrid" aria-live="polite"></main>
 
@@ -42,8 +49,17 @@
           <div class="history-list" id="historyList"></div>
         </section>
         <section class="sales-panel" id="reportPanel" hidden>
-          <h3>Today's Report</h3>
-          <button class="secondary-btn" id="refreshReportBtn" type="button">Refresh Report</button>
+          <h3>Sales Report</h3>
+          <div class="report-filters">
+            <label class="select-label" for="reportStartDate">From</label>
+            <input class="table-select" id="reportStartDate" type="date">
+            <label class="select-label" for="reportEndDate">To</label>
+            <input class="table-select" id="reportEndDate" type="date">
+          </div>
+          <div class="report-actions">
+            <button class="secondary-btn" id="refreshReportBtn" type="button">Load Report</button>
+            <button class="ghost-btn" id="exportReportBtn" type="button">Export CSV</button>
+          </div>
           <div id="reportContent"></div>
         </section>
       </div>

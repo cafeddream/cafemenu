@@ -15,6 +15,7 @@
       <div>
         <h1 class="brand-title" id="restaurantName">Cafe D Dream</h1>
         <div class="subtle" id="tableLabel">Loading table...</div>
+        <p class="menu-cache-banner subtle" id="menuCacheBanner" hidden></p>
       </div>
       <button class="ghost-btn" id="addMoreTop" type="button" hidden>Menu</button>
     </header>
@@ -45,6 +46,7 @@
       <div class="content">
         <div class="payment-panel">
           <h2>Payment</h2>
+          <p class="order-status-live" id="orderStatusLive" aria-live="polite">Order status: New Order</p>
           <div id="paymentSummary"></div>
           <div class="payment-choice-grid">
             <button class="primary-btn" id="chooseOnlineBtn" type="button">Pay Online</button>

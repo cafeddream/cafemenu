@@ -774,6 +774,77 @@ button:disabled {
   font-weight: 800;
 }
 
+.staff-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.staff-nav a {
+  text-decoration: none;
+}
+
+.menu-cache-banner {
+  margin: 0 16px 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fff3cb;
+  color: #8a6100;
+}
+
+.staff-login-form input {
+  width: 100%;
+}
+
+.staff-login-error {
+  color: var(--danger);
+}
+
+.report-filters,
+.report-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.report-actions {
+  grid-template-columns: 1fr 1fr;
+}
+
+.source-badge {
+  background: #e8f2ff;
+  color: #1257a5;
+}
+
+.order-status-live {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--soft);
+  font-weight: 800;
+}
+
+.order-status-live.status-preparing {
+  background: #e8f2ff;
+  color: #1257a5;
+}
+
+.order-status-live.status-served {
+  background: #f0eaff;
+  color: #5430a5;
+}
+
+.order-status-live.status-paid {
+  background: #e8f8ef;
+  color: #0f7a41;
+}
+
+.kitchen-source {
+  font-size: 13px;
+  font-weight: 800;
+  opacity: 0.9;
+}
+
 .kitchen-page {
   background: #1a1a1a;
   color: #ffffff;

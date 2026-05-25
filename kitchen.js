@@ -8,10 +8,12 @@ import {
   showToast,
   updateOrderStatus
 } from "./firebase.js";
+import { requireStaffAuth } from "./staff-auth.js";
 
 const state = {
   orders: new Map(),
-  visibleIds: new Set()
+  visibleIds: new Set(),
+  cards: new Map()
 };
 
 const elements = {
@@ -24,9 +26,10 @@ const elements = {
 function init() {
   registerServiceWorker();
   startClock();
-  renderKitchen();
-  subscribeToActiveOrders();
-  setInterval(renderKitchen, 1000);
+  requireStaffAuth(() => {
+    subscribeToActiveOrders();
+    setInterval(updateKitchenTimers, 1000);
+  });
 }
 
 // Updates the kitchen clock every second.
@@ -58,22 +61,27 @@ function subscribeToActiveOrders() {
         state.visibleIds.delete(tableId);
       }
 
-      renderKitchen();
+      syncKitchenCards();
     }, () => showToast("Connection error, please refresh"));
   });
 }
 
-// Renders active kitchen cards or the all-clear empty state.
-function renderKitchen() {
-  const orders = [...state.orders.values()].sort((a, b) => {
+// Returns active orders sorted oldest first.
+function getSortedOrders() {
+  return [...state.orders.values()].sort((a, b) => {
     const aTime = a.timestamp?.toMillis?.() || 0;
     const bTime = b.timestamp?.toMillis?.() || 0;
     return aTime - bTime;
   });
+}
 
+// Rebuilds card layout only when order membership or content changes.
+function syncKitchenCards() {
+  const orders = getSortedOrders();
   elements.pendingCount.textContent = `${orders.length} Order${orders.length === 1 ? "" : "s"} Pending`;
 
   if (!orders.length) {
+    state.cards.clear();
     elements.main.innerHTML = `
       <div class="empty-state">
         <div>
@@ -85,12 +93,100 @@ function renderKitchen() {
     return;
   }
 
-  elements.main.innerHTML = `
-    <div class="kitchen-grid">
-      ${orders.map(kitchenCardHtml).join("")}
-    </div>
+  let grid = elements.main.querySelector(".kitchen-grid");
+  if (!grid) {
+    elements.main.innerHTML = `<div class="kitchen-grid"></div>`;
+    grid = elements.main.querySelector(".kitchen-grid");
+  }
+
+  const activeIds = new Set(orders.map((order) => order.tableId));
+  state.cards.forEach((card, tableId) => {
+    if (!activeIds.has(tableId)) {
+      card.remove();
+      state.cards.delete(tableId);
+    }
+  });
+
+  orders.forEach((order) => {
+    let card = state.cards.get(order.tableId);
+    if (!card) {
+      grid.insertAdjacentHTML("beforeend", kitchenCardHtml(order));
+      card = grid.lastElementChild;
+      state.cards.set(order.tableId, card);
+      bindKitchenCardActions(card);
+    } else {
+      updateKitchenCardBody(card, order);
+    }
+    applyTimerToCard(card, order.timestamp);
+  });
+}
+
+// Updates item list, alerts, and action buttons without rebuilding the timer.
+function updateKitchenCardBody(card, order) {
+  const statusClass = order.status === "preparing" ? "preparing" : "";
+  card.classList.toggle("preparing", statusClass === "preparing");
+
+  const paymentClaimed = order.paymentStatus === "customer_claimed_paid";
+  let alert = card.querySelector(".kitchen-payment-alert");
+  if (paymentClaimed) {
+    if (!alert) {
+      card.querySelector(".kitchen-table").insertAdjacentHTML(
+        "afterend",
+        "<div class=\"kitchen-payment-alert\">Payment claimed by customer</div>"
+      );
+    }
+  } else if (alert) {
+    alert.remove();
+  }
+
+  const itemsHtml = (order.items || []).map((item) => `
+    <li>${Number(item.qty || 0)} x ${escapeHtml(item.name)}</li>
+  `).join("");
+  card.querySelector(".kitchen-items").innerHTML = itemsHtml;
+
+  const actions = card.querySelector(".kitchen-actions");
+  actions.dataset.table = order.tableId;
+  actions.dataset.status = order.status;
+  actions.innerHTML = `
+    ${order.status === "new" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"preparing\">Start Preparing</button>" : ""}
+    ${order.status === "new" || order.status === "preparing" ? "<button class=\"primary-btn\" type=\"button\" data-action=\"served\">Mark Served</button>" : ""}
   `;
-  bindKitchenActions();
+  bindKitchenCardActions(card);
+}
+
+// Applies countdown ring and text for one card.
+function applyTimerToCard(card, timestamp) {
+  const timer = getKitchenTimerState(timestamp);
+  const ringDash = Math.max(0, timer.remainingFraction * 100);
+  const timerLabel = timer.expired
+    ? `Over ${CONFIG.KITCHEN_TIMER_MINUTES} min`
+    : "Time left";
+  const timerValue = timer.expired ? formatKitchenTimer(0) : formatKitchenTimer(timer.remainingSec);
+  const timerClass = timer.expired ? "timer-expired" : timer.urgent ? "timer-urgent" : "timer-active";
+
+  card.classList.remove("timer-active", "timer-urgent", "timer-expired");
+  card.classList.add(timerClass);
+  card.style.setProperty("--timer-color", timer.color);
+  card.style.setProperty("--timer-progress", String(timer.remainingFraction));
+
+  const ring = card.querySelector(".kitchen-timer-ring");
+  if (ring) ring.style.strokeDasharray = `${ringDash} 100`;
+
+  const labelEl = card.querySelector(".kitchen-timer-text span");
+  const valueEl = card.querySelector(".kitchen-timer-text strong");
+  if (labelEl) labelEl.textContent = timerLabel;
+  if (valueEl) valueEl.textContent = timerValue;
+
+  const timerWrap = card.querySelector(".kitchen-timer");
+  if (timerWrap) timerWrap.setAttribute("aria-label", `${timerLabel} ${timerValue}`);
+}
+
+// Updates timers on existing cards every second without a full re-render.
+function updateKitchenTimers() {
+  state.cards.forEach((card, tableId) => {
+    const order = state.orders.get(tableId);
+    if (order) applyTimerToCard(card, order.timestamp);
+  });
 }
 
 // Builds one high-contrast kitchen order card.
@@ -100,8 +196,11 @@ function kitchenCardHtml(order) {
   const statusClass = order.status === "preparing" ? "preparing" : "";
   const timerClass = timer.expired ? "timer-expired" : timer.urgent ? "timer-urgent" : "timer-active";
   const paymentClaimed = order.paymentStatus === "customer_claimed_paid";
-  const timerLabel = timer.expired ? "Over 20 min" : "Time left";
+  const timerLabel = timer.expired
+    ? `Over ${CONFIG.KITCHEN_TIMER_MINUTES} min`
+    : "Time left";
   const timerValue = timer.expired ? formatKitchenTimer(0) : formatKitchenTimer(timer.remainingSec);
+  const placedBy = order.placedBy === "counter" ? "<span class=\"kitchen-source\">Counter</span>" : "";
   const items = (order.items || []).map((item) => `
     <li>${Number(item.qty || 0)} x ${escapeHtml(item.name)}</li>
   `).join("");
@@ -109,10 +208,12 @@ function kitchenCardHtml(order) {
   return `
     <article
       class="kitchen-card ${statusClass} ${timerClass}"
+      data-table="${escapeHtml(order.tableId)}"
       style="--timer-color: ${timer.color}; --timer-progress: ${timer.remainingFraction}"
     >
       <div class="kitchen-table">
         <strong>${escapeHtml(order.tableId)}</strong>
+        ${placedBy}
         <div class="kitchen-timer" aria-label="${escapeHtml(timerLabel)} ${escapeHtml(timerValue)}">
           <svg class="kitchen-timer-svg" viewBox="0 0 36 36" aria-hidden="true">
             <circle class="kitchen-timer-track" cx="18" cy="18" r="15.9"></circle>
@@ -140,10 +241,10 @@ function kitchenCardHtml(order) {
   `;
 }
 
-// Handles kitchen status button clicks.
-function bindKitchenActions() {
-  elements.main.querySelectorAll("[data-action]").forEach((button) => {
-    button.addEventListener("click", async () => {
+// Handles kitchen status button clicks for one card.
+function bindKitchenCardActions(card) {
+  card.querySelectorAll("[data-action]").forEach((button) => {
+    button.onclick = async () => {
       const tableId = button.closest(".kitchen-actions").dataset.table;
       const action = button.dataset.action;
       button.disabled = true;
@@ -155,7 +256,7 @@ function bindKitchenActions() {
         showToast("Connection error, please refresh");
         button.disabled = false;
       }
-    });
+    };
   });
 }
 

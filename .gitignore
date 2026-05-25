@@ -1,0 +1,9 @@
+# Local secrets — never commit
+config.local.js
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.cursor/

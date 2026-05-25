@@ -12,6 +12,10 @@ paste that CSV URL into CONFIG.GOOGLE_SHEET_CSV_URL.
 
 Step 3: Update UPI_ID and UPI_NAME in CONFIG if your payment details change.
 
+Step 3b: In Firebase Authentication, enable Email/Password and create a staff user
+(email + strong password). Never put the password in this repo (especially if public on GitHub).
+Staff sign in on admin/kitchen pages only. Deploy firestore.rules from this repo.
+
 Step 4: Upload all files to GitHub and enable GitHub Pages for the repository.
 
 Step 5: Generate QR codes for each table URL, such as:
@@ -20,7 +24,9 @@ Print one QR code per table.
 */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import {
+  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -38,11 +44,14 @@ import {
   updateDoc
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
+export const MENU_CACHE_KEY = "cafe_menu_cache_v1";
+
 export const CONFIG = {
   GOOGLE_SHEET_CSV_URL: "PASTE_YOUR_SHEET_CSV_URL_HERE",
   UPI_ID: "paytmqr6xusep@ptys",
   UPI_NAME: "Cafe D Dream",
   RESTAURANT_NAME: "Cafe D Dream",
+  KITCHEN_TIMER_MINUTES: 20,
   TABLES: ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12", "T13", "T14", "T15"],
   FIREBASE: {
     apiKey: "AIzaSyCTgoPUmZgPwPWF_GUB_bI_7ULIYgE_PU8",
@@ -56,7 +65,12 @@ export const CONFIG = {
 };
 
 const app = initializeApp(CONFIG.FIREBASE);
+export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+export function getKitchenTimerSeconds() {
+  return Math.max(1, Number(CONFIG.KITCHEN_TIMER_MINUTES || 20)) * 60;
+}
 
 export const STATUS_LABELS = {
   new: "New Order",
@@ -122,7 +136,7 @@ export function minutesSince(value) {
   return Math.max(0, Math.floor((Date.now() - date.getTime()) / 60000));
 }
 
-export const KITCHEN_ORDER_TIMER_SECONDS = 20 * 60;
+export const KITCHEN_ORDER_TIMER_SECONDS = getKitchenTimerSeconds();
 const KITCHEN_TIMER_GREEN = [25, 163, 91];
 const KITCHEN_TIMER_AMBER = [244, 160, 0];
 const KITCHEN_TIMER_RED = [201, 40, 40];
@@ -155,7 +169,7 @@ export function kitchenTimerColor(progress) {
 // Returns countdown, progress, and color state for one kitchen order timer.
 export function getKitchenTimerState(timestamp) {
   const date = toDate(timestamp);
-  const totalSec = KITCHEN_ORDER_TIMER_SECONDS;
+  const totalSec = getKitchenTimerSeconds();
 
   if (!date) {
     return {
@@ -263,18 +277,51 @@ export function parseMenuCsv(csvText) {
     .filter((item) => item.category && item.name && Number.isFinite(item.price) && item.available !== "no");
 }
 
-// Fetches menu data from Google Sheets, falling back to sample-menu.csv for local demos.
+function readMenuCache() {
+  try {
+    const raw = localStorage.getItem(MENU_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed.items)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeMenuCache(items) {
+  try {
+    localStorage.setItem(MENU_CACHE_KEY, JSON.stringify({
+      items,
+      savedAt: Date.now()
+    }));
+  } catch {
+    // Storage may be unavailable in private mode.
+  }
+}
+
+// Returns when the cached menu was last saved, if any.
+export function getMenuCacheSavedAt() {
+  return readMenuCache()?.savedAt || null;
+}
+
+// Fetches menu data from Google Sheets, with localStorage fallback when offline.
 export async function fetchMenu() {
   const url = CONFIG.GOOGLE_SHEET_CSV_URL;
   const isPlaceholder = !url || url.includes("PASTE_YOUR_SHEET_CSV_URL_HERE");
   const fetchUrl = isPlaceholder ? "./sample-menu.csv" : url;
-  const response = await fetch(fetchUrl, { cache: "no-store" });
 
-  if (!response.ok) {
-    throw new Error("Menu request failed");
+  try {
+    const response = await fetch(fetchUrl, { cache: "no-store" });
+    if (!response.ok) throw new Error("Menu request failed");
+    const items = parseMenuCsv(await response.text());
+    writeMenuCache(items);
+    return items;
+  } catch (error) {
+    const cached = readMenuCache();
+    if (cached?.items?.length) return cached.items;
+    throw error;
   }
-
-  return parseMenuCsv(await response.text());
 }
 
 // Groups menu items by category while preserving sheet order.
@@ -305,8 +352,19 @@ export function calculateTotal(items = []) {
   return items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0);
 }
 
+// Writes one staff audit log entry.
+export async function logAuditEntry(action, tableId, details = {}) {
+  await addDoc(collection(db, "auditLog"), {
+    action,
+    tableId: tableId || null,
+    details,
+    staffUid: auth.currentUser?.uid || null,
+    createdAt: serverTimestamp()
+  });
+}
+
 // Places a new order or appends to the current unpaid order for a table.
-export async function placeOrAppendOrder(tableId, cartItems) {
+export async function placeOrAppendOrder(tableId, cartItems, placedBy = "customer") {
   const cleanItems = cartItems
     .filter((item) => item.qty > 0)
     .map((item) => ({ name: item.name, price: Number(item.price), qty: Number(item.qty) }));
@@ -326,7 +384,7 @@ export async function placeOrAppendOrder(tableId, cartItems) {
       const current = snapshot.data();
       if (current.status && current.status !== "paid") {
         items = mergeItems(current.items || [], cleanItems);
-        status = current.status;
+        status = current.status === "new" ? "new" : current.status;
         timestamp = current.timestamp || serverTimestamp();
         orderId = current.orderId || newOrderId;
       }
@@ -338,13 +396,41 @@ export async function placeOrAppendOrder(tableId, cartItems) {
       items,
       total: calculateTotal(items),
       status,
+      placedBy,
       paymentStatus: "pending",
       timestamp,
       updatedAt: serverTimestamp()
     });
   });
 
+  if (placedBy === "counter") {
+    await logAuditEntry("order_placed", tableId, { placedBy });
+  }
+
   return getDoc(ref);
+}
+
+// Cancels the current table order (staff only).
+export async function cancelOrder(tableId) {
+  const snapshot = await getDoc(orderRef(tableId));
+  if (!snapshot.exists()) return;
+  await deleteDoc(orderRef(tableId));
+  await logAuditEntry("order_cancelled", tableId, {
+    orderId: snapshot.data().orderId || null,
+    total: snapshot.data().total || 0
+  });
+}
+
+// Resets a customer payment claim so staff can re-verify.
+export async function rejectPaymentClaim(tableId) {
+  await updateDoc(orderRef(tableId), {
+    paymentStatus: "pending",
+    preferredPaymentMethod: null,
+    paymentClaimedAt: null,
+    cashRequestedAt: null,
+    updatedAt: serverTimestamp()
+  });
+  await logAuditEntry("payment_claim_rejected", tableId);
 }
 
 // Subscribes to a table's current order and returns the unsubscribe function.
@@ -382,7 +468,7 @@ export async function requestCashAtCounter(tableId) {
   });
 }
 
-// Marks an order as paid and updates the daily collection only once per table/day.
+// Marks an order as paid and updates the daily collection only once per order/day.
 export async function markOrderPaid(tableId, paymentMethod = "cash") {
   const orderDocument = orderRef(tableId);
   const summaryDocument = dailySummaryRef();
@@ -429,6 +515,7 @@ export async function markOrderPaid(tableId, paymentMethod = "cash") {
         items: order.items || [],
         total: Number(order.total || 0),
         status: "paid",
+        placedBy: order.placedBy || "customer",
         paymentStatus: "verified_paid",
         paymentMethod: method,
         orderedAt: order.timestamp || null,
@@ -437,11 +524,14 @@ export async function markOrderPaid(tableId, paymentMethod = "cash") {
       });
     }
   });
+
+  await logAuditEntry("order_paid", tableId, { paymentMethod: method });
 }
 
 // Deletes the current order for a table after payment.
 export async function clearTable(tableId) {
   await deleteDoc(orderRef(tableId));
+  await logAuditEntry("table_cleared", tableId);
 }
 
 // Subscribes to today's collection summary.
@@ -462,21 +552,17 @@ export async function fetchTableHistory(tableId, maxRows = 20) {
   return snapshot.docs.map((historyDoc) => ({ id: historyDoc.id, ...historyDoc.data() }));
 }
 
-// Builds a today's report from saved paid history across all configured tables.
-export async function fetchTodayReport() {
-  const todayKey = getTodayKey();
-  const histories = await Promise.all(CONFIG.TABLES.map((tableId) => fetchTableHistory(tableId, 100)));
-  const paidOrders = histories.flat().filter((order) => {
-    const paidAt = toDate(order.paidAt);
-    return paidAt && getTodayKey(paidAt) === todayKey;
-  });
-
+// Aggregates paid orders into a sales report for one or more date keys (YYYY-MM-DD).
+export function buildReportFromOrders(paidOrders, startKey, endKey) {
   const report = {
-    date: todayKey,
+    startDate: startKey,
+    endDate: endKey,
     orders: paidOrders.length,
     total: 0,
     cash: 0,
     online: 0,
+    counter: 0,
+    customer: 0,
     items: []
   };
   const itemMap = new Map();
@@ -486,6 +572,8 @@ export async function fetchTodayReport() {
     const method = order.paymentMethod === "online" ? "online" : "cash";
     report.total += total;
     report[method] += total;
+    if (order.placedBy === "counter") report.counter += 1;
+    else report.customer += 1;
 
     (order.items || []).forEach((item) => {
       const key = `${item.name}|${item.price}`;
@@ -498,6 +586,45 @@ export async function fetchTodayReport() {
 
   report.items = [...itemMap.values()].sort((a, b) => b.total - a.total);
   return report;
+}
+
+// Loads paid orders between two local date keys inclusive.
+export async function fetchReportForDateRange(startKey, endKey) {
+  const histories = await Promise.all(CONFIG.TABLES.map((tableId) => fetchTableHistory(tableId, 200)));
+  const paidOrders = histories.flat().filter((order) => {
+    const paidAt = toDate(order.paidAt);
+    if (!paidAt) return false;
+    const key = getTodayKey(paidAt);
+    return key >= startKey && key <= endKey;
+  });
+  return buildReportFromOrders(paidOrders, startKey, endKey);
+}
+
+// Builds a today's report from saved paid history across all configured tables.
+export async function fetchTodayReport() {
+  const todayKey = getTodayKey();
+  return fetchReportForDateRange(todayKey, todayKey);
+}
+
+// Converts a report object to CSV text for download.
+export function reportToCsv(report) {
+  const lines = [
+    `Report,${report.startDate},to,${report.endDate}`,
+    `Total,${report.total}`,
+    `Cash,${report.cash}`,
+    `Online,${report.online}`,
+    `Bills,${report.orders}`,
+    `Counter orders,${report.counter}`,
+    `Customer orders,${report.customer}`,
+    "",
+    "Item,Price,Qty,Line Total"
+  ];
+
+  report.items.forEach((item) => {
+    lines.push(`"${String(item.name).replaceAll('"', '""')}",${item.price},${item.qty},${item.total}`);
+  });
+
+  return `${lines.join("\n")}\n`;
 }
 
 // Builds the QR service URL for the current UPI payment details.

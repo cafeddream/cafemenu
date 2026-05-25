@@ -1,33 +1,47 @@
 import {
   CONFIG,
   STATUS_LABELS,
+  cancelOrder,
   clearTable,
   escapeHtml,
   fetchMenu,
+  fetchReportForDateRange,
   fetchTableHistory,
-  fetchTodayReport,
   formatCurrency,
   formatTime,
-  groupByCategory,
+  getMenuCacheSavedAt,
+  getTodayKey,
   listenToOrder,
   listenToTodaySummary,
   markOrderPaid,
   placeOrAppendOrder,
   registerServiceWorker,
+  rejectPaymentClaim,
+  reportToCsv,
   showToast,
   updateOrderStatus
 } from "./firebase.js";
+import {
+  buildMenuState,
+  getCartTotals,
+  renderCartList,
+  renderCategoryRow,
+  renderMenuList,
+  updateCartItem
+} from "./menu-cart.js";
+import { requireStaffAuth, signOutStaff } from "./staff-auth.js";
 
 const state = {
   orders: new Map(),
   knownOccupied: new Set(),
   pendingPaidTable: null,
   orderTableId: null,
-  categories: [],
   groupedMenu: {},
+  categories: [],
   activeCategory: "",
   cart: new Map(),
-  menuLoaded: false
+  menuLoaded: false,
+  lastReport: null
 };
 
 const elements = {
@@ -37,13 +51,18 @@ const elements = {
   todayCollection: document.querySelector("#todayCollection"),
   tableGrid: document.querySelector("#tableGrid"),
   menuButton: document.querySelector("#menuButton"),
+  signOutBtn: document.querySelector("#signOutBtn"),
+  menuCacheBanner: document.querySelector("#menuCacheBanner"),
   adminMenuModal: document.querySelector("#adminMenuModal"),
   closeMenu: document.querySelector("#closeMenu"),
   salesTab: document.querySelector("#salesTab"),
   reportTab: document.querySelector("#reportTab"),
   salesPanel: document.querySelector("#salesPanel"),
   reportPanel: document.querySelector("#reportPanel"),
+  reportStartDate: document.querySelector("#reportStartDate"),
+  reportEndDate: document.querySelector("#reportEndDate"),
   refreshReportBtn: document.querySelector("#refreshReportBtn"),
+  exportReportBtn: document.querySelector("#exportReportBtn"),
   reportContent: document.querySelector("#reportContent"),
   salesTableSelect: document.querySelector("#salesTableSelect"),
   historyTitle: document.querySelector("#historyTitle"),
@@ -69,12 +88,26 @@ const elements = {
   adminPlaceOrderBtn: document.querySelector("#adminPlaceOrderBtn")
 };
 
-// Starts the counter view with real-time table subscriptions.
+// Starts the counter view after staff authentication.
 function init() {
   registerServiceWorker();
   elements.restaurant.textContent = CONFIG.RESTAURANT_NAME;
   populateSalesTableSelect();
+  setDefaultReportDates();
+  bindUi();
+  requireStaffAuth(startAdminApp);
+}
+
+function startAdminApp() {
   renderEmptyCards();
+  startClock();
+  subscribeToTables();
+  subscribeToSummary();
+  preloadMenu();
+  updateMenuCacheBanner();
+}
+
+function bindUi() {
   elements.menuButton.addEventListener("click", openAdminMenu);
   elements.closeMenu.addEventListener("click", closeAdminMenu);
   elements.adminMenuModal.addEventListener("click", (event) => {
@@ -82,7 +115,8 @@ function init() {
   });
   elements.salesTab.addEventListener("click", showSalesPanel);
   elements.reportTab.addEventListener("click", showReportPanel);
-  elements.refreshReportBtn.addEventListener("click", loadTodayReport);
+  elements.refreshReportBtn.addEventListener("click", loadReport);
+  elements.exportReportBtn.addEventListener("click", exportReportCsv);
   elements.salesTableSelect.addEventListener("change", () => loadSalesForTable(elements.salesTableSelect.value));
   elements.closePaymentMethod.addEventListener("click", closePaymentMethodModal);
   elements.paymentMethodModal.addEventListener("click", (event) => {
@@ -100,12 +134,42 @@ function init() {
     showAdminOrderScreen("cart");
   });
   elements.adminPlaceOrderBtn.addEventListener("click", placeAdminOrder);
-  startClock();
-  subscribeToTables();
-  subscribeToSummary();
+  elements.signOutBtn.addEventListener("click", async () => {
+    await signOutStaff();
+    window.location.reload();
+  });
 }
 
-// Updates the live clock every second.
+function setDefaultReportDates() {
+  const today = getTodayKey();
+  elements.reportStartDate.value = today;
+  elements.reportEndDate.value = today;
+}
+
+function updateMenuCacheBanner() {
+  const savedAt = getMenuCacheSavedAt();
+  if (!savedAt) {
+    elements.menuCacheBanner.hidden = true;
+    return;
+  }
+  elements.menuCacheBanner.hidden = false;
+  elements.menuCacheBanner.textContent = `Menu cache saved ${new Date(savedAt).toLocaleString()}`;
+}
+
+async function preloadMenu() {
+  try {
+    const items = await fetchMenu();
+    const menuState = buildMenuState(items);
+    state.groupedMenu = menuState.groupedMenu;
+    state.categories = menuState.categories;
+    state.activeCategory = menuState.activeCategory;
+    state.menuLoaded = Boolean(state.activeCategory);
+    updateMenuCacheBanner();
+  } catch {
+    // Menu loads again when opening order modal.
+  }
+}
+
 function startClock() {
   const tick = () => {
     elements.clock.textContent = new Date().toLocaleTimeString([], {
@@ -118,12 +182,10 @@ function startClock() {
   setInterval(tick, 1000);
 }
 
-// Renders initial empty cards so the layout appears immediately.
 function renderEmptyCards() {
   elements.tableGrid.innerHTML = CONFIG.TABLES.map((tableId) => tableCardHtml(tableId, null)).join("");
 }
 
-// Listens to every configured table's current order.
 function subscribeToTables() {
   CONFIG.TABLES.forEach((tableId) => {
     listenToOrder(tableId, (order) => {
@@ -131,7 +193,7 @@ function subscribeToTables() {
       if (order) {
         state.orders.set(tableId, order);
         state.knownOccupied.add(tableId);
-        if (wasEmpty) notifyNewOrder(tableId);
+        if (wasEmpty) notifyNewOrder();
       } else {
         state.orders.delete(tableId);
         state.knownOccupied.delete(tableId);
@@ -141,14 +203,12 @@ function subscribeToTables() {
   });
 }
 
-// Subscribes to today's collection total.
 function subscribeToSummary() {
   listenToTodaySummary((summary) => {
     elements.todayCollection.textContent = `Today's Collection: ${formatCurrency(summary.total || 0)}`;
   }, () => showToast("Connection error, please refresh"));
 }
 
-// Re-renders all table cards and optionally flashes a changed one.
 function renderTables(flashTableId = null) {
   elements.tableGrid.innerHTML = CONFIG.TABLES.map((tableId) => {
     const order = state.orders.get(tableId) || null;
@@ -159,7 +219,6 @@ function renderTables(flashTableId = null) {
   bindCardActions();
 }
 
-// Builds one table card with status-specific controls.
 function tableCardHtml(tableId, order, flash = false) {
   if (!order) {
     return `
@@ -176,6 +235,9 @@ function tableCardHtml(tableId, order, flash = false) {
   const canOrder = status !== "paid";
   const paymentClaimed = order.paymentStatus === "customer_claimed_paid";
   const cashRequested = order.paymentStatus === "cash_at_counter";
+  const sourceBadge = order.placedBy === "counter"
+    ? "<span class=\"badge source-badge\">Counter</span>"
+    : "";
   const lines = (order.items || []).map((item) => `
     <li><span>${escapeHtml(item.name)}</span><strong>x${Number(item.qty || 0)}</strong></li>
   `).join("");
@@ -185,6 +247,7 @@ function tableCardHtml(tableId, order, flash = false) {
       <div class="table-head">
         <span class="table-id">${escapeHtml(tableId)}</span>
         <span class="badge">${escapeHtml(STATUS_LABELS[status] || status)}</span>
+        ${sourceBadge}
       </div>
       ${paymentClaimed ? "<div class=\"payment-alert\">Customer says payment done - verify UPI</div>" : ""}
       ${cashRequested ? "<div class=\"payment-alert cash-alert\">Customer will pay cash at counter</div>" : ""}
@@ -194,16 +257,18 @@ function tableCardHtml(tableId, order, flash = false) {
         <span>${formatTime(order.timestamp)}</span>
       </div>
       <div class="card-actions" data-table="${escapeHtml(tableId)}" data-status="${escapeHtml(status)}">
+        ${paymentClaimed ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"reject-pay\">Reject Payment Claim</button>" : ""}
+        ${status !== "paid" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"cancel\">Cancel Order</button>" : ""}
         ${status === "new" ? "<button class=\"secondary-btn\" type=\"button\" data-action=\"preparing\">Mark Preparing</button>" : ""}
         ${status === "new" || status === "preparing" ? "<button class=\"secondary-btn\" type=\"button\" data-action=\"served\">Mark Served</button>" : ""}
         ${status === "served" || status === "preparing" ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Mark Paid</button>" : ""}
         ${status === "paid" ? "<button class=\"danger-btn\" type=\"button\" data-action=\"clear\">Clear Table</button>" : ""}
+        <button class="ghost-btn" type="button" data-action="print">Print Bill</button>
       </div>
     </article>
   `;
 }
 
-// Adds click handlers to orderable table cards and status action buttons.
 function bindCardActions() {
   elements.tableGrid.querySelectorAll(".table-card-orderable").forEach((card) => {
     const openOrder = () => openAdminOrderModal(card.dataset.table);
@@ -226,12 +291,19 @@ function bindCardActions() {
       try {
         if (action === "preparing") await updateOrderStatus(tableId, "preparing");
         if (action === "served") await updateOrderStatus(tableId, "served");
+        if (action === "reject-pay") await rejectPaymentClaim(tableId);
+        if (action === "cancel") {
+          if (window.confirm(`Cancel order for ${tableId}?`)) await cancelOrder(tableId);
+          else button.disabled = false;
+          return;
+        }
         if (action === "paid") {
           openPaymentMethodModal(tableId);
           button.disabled = false;
           return;
         }
         if (action === "clear") await clearTable(tableId);
+        if (action === "print") printTableBill(tableId);
       } catch {
         showToast("Connection error, please refresh");
         button.disabled = false;
@@ -240,21 +312,37 @@ function bindCardActions() {
   });
 }
 
-// Populates the sales table dropdown from the shared table config.
+function printTableBill(tableId) {
+  const order = state.orders.get(tableId);
+  if (!order) return;
+  const lines = (order.items || []).map((item) => `
+    <tr><td>${escapeHtml(item.name)}</td><td>${item.qty}</td><td>${formatCurrency(item.price * item.qty)}</td></tr>
+  `).join("");
+  const html = `
+    <html><head><title>Bill ${tableId}</title></head><body>
+    <h2>${escapeHtml(CONFIG.RESTAURANT_NAME)} — ${escapeHtml(tableId)}</h2>
+    <table border="1" cellpadding="8"><tr><th>Item</th><th>Qty</th><th>Amount</th></tr>${lines}</table>
+    <p><strong>Total: ${formatCurrency(order.total)}</strong></p>
+    </body></html>
+  `;
+  const win = window.open("", "_blank");
+  win.document.write(html);
+  win.document.close();
+  win.print();
+}
+
 function populateSalesTableSelect() {
   elements.salesTableSelect.innerHTML = CONFIG.TABLES.map((tableId) => `
     <option value="${escapeHtml(tableId)}">${escapeHtml(tableId)}</option>
   `).join("");
 }
 
-// Opens the admin menu and loads sales for the selected table.
 function openAdminMenu() {
   elements.adminMenuModal.hidden = false;
   showSalesPanel();
   loadSalesForTable(elements.salesTableSelect.value || CONFIG.TABLES[0]);
 }
 
-// Shows the table-wise sales history tab.
 function showSalesPanel() {
   elements.salesPanel.hidden = false;
   elements.reportPanel.hidden = true;
@@ -262,16 +350,14 @@ function showSalesPanel() {
   elements.reportTab.className = "ghost-btn";
 }
 
-// Shows today's combined report tab.
 function showReportPanel() {
   elements.salesPanel.hidden = true;
   elements.reportPanel.hidden = false;
   elements.salesTab.className = "ghost-btn";
   elements.reportTab.className = "primary-btn";
-  loadTodayReport();
+  loadReport();
 }
 
-// Loads and displays recent paid bills for the selected table.
 async function loadSalesForTable(tableId) {
   elements.historyTitle.textContent = `${tableId} Sales History`;
   elements.historyList.innerHTML = "<p class=\"subtle\">Loading history...</p>";
@@ -282,14 +368,12 @@ async function loadSalesForTable(tableId) {
       elements.historyList.innerHTML = "<p class=\"subtle\">No paid history yet for this table.</p>";
       return;
     }
-
     elements.historyList.innerHTML = rows.map(historyRowHtml).join("");
   } catch {
     elements.historyList.innerHTML = "<p class=\"subtle\">History unavailable, please refresh.</p>";
   }
 }
 
-// Builds one paid history row for the modal.
 function historyRowHtml(order) {
   const items = (order.items || []).map((item) => `
     <li><span>${escapeHtml(item.name)}</span><strong>x${Number(item.qty || 0)}</strong></li>
@@ -300,7 +384,7 @@ function historyRowHtml(order) {
       <div class="history-row-head">
         <div>
           <strong>${formatCurrency(order.total)}</strong>
-          <div class="subtle">${escapeHtml(paymentMethodLabel(order.paymentMethod))}</div>
+          <div class="subtle">${escapeHtml(paymentMethodLabel(order.paymentMethod))} · ${escapeHtml(order.placedBy || "customer")}</div>
           <div class="subtle">Bill ${escapeHtml(String(order.orderId || order.id || "").slice(0, 8))}</div>
         </div>
         <div class="history-times">
@@ -313,19 +397,20 @@ function historyRowHtml(order) {
   `;
 }
 
-// Loads today's combined collection and item-wise report.
-async function loadTodayReport() {
+async function loadReport() {
+  const startKey = elements.reportStartDate.value || getTodayKey();
+  const endKey = elements.reportEndDate.value || startKey;
   elements.reportContent.innerHTML = "<p class=\"subtle\">Loading report...</p>";
 
   try {
-    const report = await fetchTodayReport();
+    const report = await fetchReportForDateRange(startKey, endKey);
+    state.lastReport = report;
     elements.reportContent.innerHTML = reportHtml(report);
   } catch {
     elements.reportContent.innerHTML = "<p class=\"subtle\">Report unavailable, please refresh.</p>";
   }
 }
 
-// Builds the combined daily report markup.
 function reportHtml(report) {
   const itemRows = report.items.length
     ? report.items.map((item) => `
@@ -334,7 +419,7 @@ function reportHtml(report) {
         <strong>${formatCurrency(item.total)}</strong>
       </li>
     `).join("")
-    : "<li><span>No items sold today.</span><strong>Rs 0</strong></li>";
+    : "<li><span>No items sold in range.</span><strong>Rs 0</strong></li>";
 
   return `
     <div class="report-grid">
@@ -342,26 +427,39 @@ function reportHtml(report) {
       <article><span>Cash</span><strong>${formatCurrency(report.cash)}</strong></article>
       <article><span>Online</span><strong>${formatCurrency(report.online)}</strong></article>
       <article><span>Bills</span><strong>${Number(report.orders || 0)}</strong></article>
+      <article><span>Counter</span><strong>${Number(report.counter || 0)}</strong></article>
+      <article><span>Customer</span><strong>${Number(report.customer || 0)}</strong></article>
     </div>
-    <h4>Menu Items Sold</h4>
+    <h4>Menu Items Sold (${escapeHtml(report.startDate)} – ${escapeHtml(report.endDate)})</h4>
     <ul class="report-item-list">${itemRows}</ul>
   `;
 }
 
-// Opens the payment method chooser for Mark Paid.
+function exportReportCsv() {
+  if (!state.lastReport) {
+    showToast("Load a report first");
+    return;
+  }
+  const blob = new Blob([reportToCsv(state.lastReport)], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `sales-${state.lastReport.startDate}-${state.lastReport.endDate}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function openPaymentMethodModal(tableId) {
   state.pendingPaidTable = tableId;
   elements.paymentMethodTable.textContent = `Mark ${tableId} paid by:`;
   elements.paymentMethodModal.hidden = false;
 }
 
-// Closes the payment method chooser.
 function closePaymentMethodModal() {
   state.pendingPaidTable = null;
   elements.paymentMethodModal.hidden = true;
 }
 
-// Confirms payment with a cash or online method.
 async function confirmPaidWithMethod(method) {
   if (!state.pendingPaidTable) return;
   const tableId = state.pendingPaidTable;
@@ -379,14 +477,12 @@ async function confirmPaidWithMethod(method) {
   }
 }
 
-// Labels payment methods for history/report display.
 function paymentMethodLabel(method) {
   return method === "online" ? "Online Payment" : "Cash Payment";
 }
 
-// Formats history timestamps with date and time.
 function formatDateTime(value) {
-  if (!value?.toDate) return "Paid time unavailable";
+  if (!value?.toDate) return "Time unavailable";
   return value.toDate().toLocaleString([], {
     day: "2-digit",
     month: "short",
@@ -395,12 +491,10 @@ function formatDateTime(value) {
   });
 }
 
-// Closes the admin menu.
 function closeAdminMenu() {
   elements.adminMenuModal.hidden = true;
 }
 
-// Opens the counter order modal for one table.
 async function openAdminOrderModal(tableId) {
   state.orderTableId = tableId;
   state.cart.clear();
@@ -414,16 +508,18 @@ async function openAdminOrderModal(tableId) {
     elements.adminMenuList.innerHTML = "<p class=\"subtle\">Loading menu...</p>";
     try {
       const items = await fetchMenu();
-      state.groupedMenu = groupByCategory(items);
-      state.categories = Object.keys(state.groupedMenu);
-      state.activeCategory = state.categories[0] || "";
+      const menuState = buildMenuState(items);
+      state.groupedMenu = menuState.groupedMenu;
+      state.categories = menuState.categories;
+      state.activeCategory = menuState.activeCategory;
       state.menuLoaded = Boolean(state.activeCategory);
+      updateMenuCacheBanner();
       if (!state.menuLoaded) {
         elements.adminMenuList.innerHTML = "<p class=\"subtle\">Menu unavailable. Check Google Sheet URL.</p>";
         return;
       }
     } catch {
-      elements.adminMenuList.innerHTML = "<p class=\"subtle\">Menu unavailable. Check connection and refresh.</p>";
+      elements.adminMenuList.innerHTML = "<p class=\"subtle\">Menu unavailable. Check connection or cached menu.</p>";
       return;
     }
   }
@@ -432,14 +528,12 @@ async function openAdminOrderModal(tableId) {
   renderAdminMenu();
 }
 
-// Closes the counter order modal and clears the cart.
 function closeAdminOrderModal() {
   state.orderTableId = null;
   state.cart.clear();
   elements.adminOrderModal.hidden = true;
 }
 
-// Switches between menu and cart inside the order modal.
 function showAdminOrderScreen(name) {
   const isMenu = name === "menu";
   elements.adminOrderMenuScreen.classList.toggle("active", isMenu);
@@ -451,134 +545,51 @@ function showAdminOrderScreen(name) {
   updateAdminOrderFooter();
 }
 
-// Renders category pills in the admin order modal.
 function renderAdminCategories() {
-  elements.adminCategoryRow.innerHTML = state.categories.map((category) => `
-    <button class="pill ${category === state.activeCategory ? "active" : ""}" type="button" data-category="${escapeHtml(category)}">
-      ${escapeHtml(category)}
-    </button>
-  `).join("");
-
-  elements.adminCategoryRow.querySelectorAll("button").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.activeCategory = button.dataset.category;
-      renderAdminCategories();
-      renderAdminMenu();
-    });
+  renderCategoryRow(elements.adminCategoryRow, state.categories, state.activeCategory, (category) => {
+    state.activeCategory = category;
+    renderAdminCategories();
+    renderAdminMenu();
   });
 }
 
-// Renders menu items with quantity controls for the selected table.
 function renderAdminMenu() {
   const items = state.groupedMenu[state.activeCategory] || [];
-  elements.adminMenuList.innerHTML = items.map((item) => {
-    const key = makeItemKey(item);
-    const qty = state.cart.get(key)?.qty || 0;
-    return `
-      <article class="item-card">
-        <div>
-          <h3 class="item-name">${escapeHtml(item.name)}</h3>
-          <div class="item-price">${formatCurrency(item.price)}</div>
-        </div>
-        <div class="qty-control" data-key="${escapeHtml(key)}">
-          <button class="qty-btn" type="button" data-action="minus" aria-label="Remove ${escapeHtml(item.name)}">-</button>
-          <span class="qty-value">${qty}</span>
-          <button class="qty-btn" type="button" data-action="plus" aria-label="Add ${escapeHtml(item.name)}">+</button>
-        </div>
-      </article>
-    `;
-  }).join("");
-
-  elements.adminMenuList.querySelectorAll(".qty-control").forEach((control) => {
-    const item = items.find((candidate) => makeItemKey(candidate) === control.dataset.key);
-    control.addEventListener("click", (event) => {
-      const action = event.target.dataset.action;
-      if (!action) return;
-      updateAdminCartItem(item, action === "plus" ? 1 : -1);
-    });
+  renderMenuList(elements.adminMenuList, items, state.cart, (item, delta) => {
+    updateCartItem(state.cart, item, delta);
+    renderAdminMenu();
+    if (!elements.adminOrderCartScreen.hidden) renderAdminCart();
+    updateAdminOrderFooter();
   });
 }
 
-// Renders the cart review screen before placing the order.
 function renderAdminCart() {
-  const { items, total } = getAdminCartTotals();
-  elements.adminCartList.innerHTML = items.map((item) => `
-    <article class="cart-row">
-      <div>
-        <h3 class="item-name">${escapeHtml(item.name)}</h3>
-        <div class="row-subtotal">${formatCurrency(item.price)} x ${item.qty} = ${formatCurrency(item.price * item.qty)}</div>
-      </div>
-      <div class="qty-control" data-key="${escapeHtml(makeItemKey(item))}">
-        <button class="qty-btn" type="button" data-action="minus">-</button>
-        <span class="qty-value">${item.qty}</span>
-        <button class="qty-btn" type="button" data-action="plus">+</button>
-      </div>
-    </article>
-  `).join("");
-
-  elements.adminGrandTotal.textContent = formatCurrency(total);
-
-  elements.adminCartList.querySelectorAll(".qty-control").forEach((control) => {
-    const item = items.find((candidate) => makeItemKey(candidate) === control.dataset.key);
-    control.addEventListener("click", (event) => {
-      const action = event.target.dataset.action;
-      if (!action) return;
-      updateAdminCartItem(item, action === "plus" ? 1 : -1);
-    });
+  const { total } = renderCartList(elements.adminCartList, state.cart, (item, delta) => {
+    updateCartItem(state.cart, item, delta);
+    renderAdminCart();
+    renderAdminMenu();
+    updateAdminOrderFooter();
   });
+  elements.adminGrandTotal.textContent = formatCurrency(total);
 }
 
-// Creates a stable key for menu/cart items.
-function makeItemKey(item) {
-  return `${item.name}|${item.price}`;
-}
-
-// Adds or removes one quantity in the admin cart.
-function updateAdminCartItem(item, delta) {
-  const key = makeItemKey(item);
-  const existing = state.cart.get(key) || { name: item.name, price: Number(item.price), qty: 0 };
-  existing.qty += delta;
-
-  if (existing.qty <= 0) {
-    state.cart.delete(key);
-  } else {
-    state.cart.set(key, existing);
-  }
-
-  renderAdminMenu();
-  if (!elements.adminOrderCartScreen.hidden) renderAdminCart();
-  updateAdminOrderFooter();
-}
-
-// Returns cart totals for the admin order modal.
-function getAdminCartTotals() {
-  const items = [...state.cart.values()];
-  return {
-    items,
-    count: items.reduce((sum, item) => sum + item.qty, 0),
-    total: items.reduce((sum, item) => sum + item.qty * item.price, 0)
-  };
-}
-
-// Updates footer totals and button states in the order modal.
 function updateAdminOrderFooter() {
-  const { items, count, total } = getAdminCartTotals();
+  const { items, count, total } = getCartTotals(state.cart);
   elements.adminOrderCount.textContent = `${count} item${count === 1 ? "" : "s"}`;
   elements.adminOrderTotal.textContent = formatCurrency(total);
   elements.adminPlaceOrderBtn.disabled = items.length === 0;
   elements.adminViewCartBtn.hidden = items.length === 0 || !elements.adminOrderMenuScreen.classList.contains("active");
 }
 
-// Saves the admin cart to Firestore for the selected table.
 async function placeAdminOrder() {
   if (!state.orderTableId) return;
-  const { items } = getAdminCartTotals();
+  const { items } = getCartTotals(state.cart);
   if (!items.length) return;
 
   elements.adminPlaceOrderBtn.disabled = true;
 
   try {
-    await placeOrAppendOrder(state.orderTableId, items);
+    await placeOrAppendOrder(state.orderTableId, items, "counter");
     showToast(`Order placed for ${state.orderTableId}`);
     closeAdminOrderModal();
   } catch {
@@ -587,7 +598,6 @@ async function placeAdminOrder() {
   }
 }
 
-// Plays a short Web Audio beep and leaves a visual flash on new orders.
 function notifyNewOrder() {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -601,7 +611,7 @@ function notifyNewOrder() {
     oscillator.start();
     oscillator.stop(context.currentTime + 0.12);
   } catch {
-    // Browsers may block audio until a user gesture; the visual flash still appears.
+    // Browsers may block audio until a user gesture.
   }
 }
 

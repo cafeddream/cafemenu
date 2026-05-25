@@ -1,4 +1,4 @@
-const CACHE_NAME = "cafe-d-dream-v1";
+const CACHE_NAME = "cafe-d-dream-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -9,10 +9,14 @@ const APP_SHELL = [
   "./admin.js",
   "./kitchen.js",
   "./firebase.js",
+  "./menu-cart.js",
+  "./staff-auth.js",
   "./manifest.json",
   "./sample-menu.csv",
   "./icon-192.png"
 ];
+
+const NETWORK_FIRST = ["/firebase", ".js", ".html"];
 
 const OFFLINE_HTML = `
   <!doctype html>
@@ -60,8 +64,27 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+function preferNetwork(url) {
+  return NETWORK_FIRST.some((part) => url.includes(part));
+}
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+
+  const url = event.request.url;
+
+  if (preferNetwork(url)) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached || offlineResponse(event)))
+    );
+    return;
+  }
 
   event.respondWith(
     fetch(event.request)
@@ -70,17 +93,15 @@ self.addEventListener("fetch", (event) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
         return response;
       })
-      .catch(async () => {
-        const cached = await caches.match(event.request);
-        if (cached) return cached;
-
-        if (event.request.mode === "navigate") {
-          return new Response(OFFLINE_HTML, {
-            headers: { "Content-Type": "text/html" }
-          });
-        }
-
-        return new Response("", { status: 503, statusText: "Offline" });
-      })
+      .catch(() => caches.match(event.request).then((cached) => cached || offlineResponse(event)))
   );
 });
+
+async function offlineResponse(event) {
+  if (event.request.mode === "navigate") {
+    return new Response(OFFLINE_HTML, {
+      headers: { "Content-Type": "text/html" }
+    });
+  }
+  return new Response("", { status: 503, statusText: "Offline" });
+}
