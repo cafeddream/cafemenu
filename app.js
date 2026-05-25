@@ -8,6 +8,7 @@ import {
   groupByCategory,
   placeOrAppendOrder,
   registerServiceWorker,
+  requestCashAtCounter,
   showToast,
   escapeHtml
 } from "./firebase.js";
@@ -44,6 +45,9 @@ const elements = {
   paymentSummary: document.querySelector("#paymentSummary"),
   upiQr: document.querySelector("#upiQr"),
   upiIdText: document.querySelector("#upiIdText"),
+  chooseOnlineBtn: document.querySelector("#chooseOnlineBtn"),
+  chooseCashBtn: document.querySelector("#chooseCashBtn"),
+  onlinePaymentPanel: document.querySelector("#onlinePaymentPanel"),
   payUpiBtn: document.querySelector("#payUpiBtn"),
   payGpayBtn: document.querySelector("#payGpayBtn"),
   payPaytmBtn: document.querySelector("#payPaytmBtn"),
@@ -106,6 +110,8 @@ function bindEvents() {
   elements.addMoreTop.addEventListener("click", () => showScreen("menu"));
   elements.retryMenu.addEventListener("click", loadMenu);
   elements.placeOrderBtn.addEventListener("click", placeOrder);
+  elements.chooseOnlineBtn.addEventListener("click", chooseOnlinePayment);
+  elements.chooseCashBtn.addEventListener("click", chooseCashPayment);
   elements.paymentDoneBtn.addEventListener("click", markCustomerPaid);
 }
 
@@ -286,8 +292,37 @@ function renderPayment(total) {
   elements.payPaytmBtn.href = paymentLinks.paytm;
   elements.upiIdText.textContent = CONFIG.UPI_ID;
   elements.paymentDoneBtn.disabled = false;
-  elements.paymentDoneBtn.textContent = "I have paid";
-  elements.paymentNote.textContent = "After payment, tap “I have paid” so counter can verify it.";
+  elements.paymentDoneBtn.textContent = "I have paid online";
+  elements.onlinePaymentPanel.hidden = true;
+  elements.upiIdText.hidden = true;
+  elements.chooseOnlineBtn.disabled = false;
+  elements.chooseCashBtn.disabled = false;
+  elements.paymentNote.textContent = "Choose how you want to pay for this order.";
+}
+
+// Shows online payment QR and app buttons.
+function chooseOnlinePayment() {
+  elements.onlinePaymentPanel.hidden = false;
+  elements.upiIdText.hidden = false;
+  elements.paymentDoneBtn.disabled = false;
+  elements.paymentDoneBtn.textContent = "I have paid online";
+  elements.paymentNote.textContent = "Complete UPI payment, then tap “I have paid online” so counter can verify it.";
+}
+
+// Lets the customer tell staff they will pay cash at the counter.
+async function chooseCashPayment() {
+  try {
+    elements.chooseCashBtn.disabled = true;
+    await requestCashAtCounter(state.tableId);
+    elements.onlinePaymentPanel.hidden = true;
+    elements.upiIdText.hidden = true;
+    elements.paymentNote.textContent = "Counter has been notified that you will pay cash.";
+    showToast("Cash payment selected");
+  } catch (error) {
+    console.error("Cash payment request failed.", error);
+    elements.chooseCashBtn.disabled = false;
+    showError("Connection error", "Connection error, please refresh");
+  }
 }
 
 // Lets the customer notify staff that they have completed payment.

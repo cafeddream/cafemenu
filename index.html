@@ -46,16 +46,21 @@
         <div class="payment-panel">
           <h2>Payment</h2>
           <div id="paymentSummary"></div>
-          <img class="qr-img" id="upiQr" alt="UPI QR code">
-          <div class="payment-buttons">
-            <a class="primary-btn pay-link" id="payUpiBtn" href="#">Pay with UPI App</a>
-            <a class="secondary-btn pay-link" id="payGpayBtn" href="#">Google Pay</a>
-            <a class="secondary-btn pay-link" id="payPaytmBtn" href="#">Paytm</a>
+          <div class="payment-choice-grid">
+            <button class="primary-btn" id="chooseOnlineBtn" type="button">Pay Online</button>
+            <button class="secondary-btn" id="chooseCashBtn" type="button">Pay Cash at Counter</button>
           </div>
-          <button class="ghost-btn paid-claim-btn" id="paymentDoneBtn" type="button">I have paid</button>
-          <p class="payment-note" id="paymentNote">After payment, tap “I have paid” so counter can verify it.</p>
+          <div class="online-payment-panel" id="onlinePaymentPanel" hidden>
+            <img class="qr-img" id="upiQr" alt="UPI QR code">
+            <div class="payment-buttons">
+              <a class="primary-btn pay-link" id="payUpiBtn" href="#">Pay with UPI App</a>
+              <a class="secondary-btn pay-link" id="payGpayBtn" href="#">Google Pay</a>
+              <a class="secondary-btn pay-link" id="payPaytmBtn" href="#">Paytm</a>
+            </div>
+            <button class="ghost-btn paid-claim-btn" id="paymentDoneBtn" type="button">I have paid online</button>
+          </div>
+          <p class="payment-note" id="paymentNote">Choose how you want to pay for this order.</p>
           <p class="upi-text" id="upiIdText"></p>
-          <p class="subtle">Pay at Counter</p>
           <button class="primary-btn" id="addMoreItems" type="button">Add More Items</button>
         </div>
       </div>

@@ -10,18 +10,79 @@
   <link rel="stylesheet" href="./style.css">
 </head>
 <body class="admin-page">
-  <header class="admin-header">
-    <div>
-      <h1 class="brand-title" id="adminRestaurant">Cafe D Dream</h1>
-      <div class="subtle" id="clock">--:--</div>
-    </div>
-    <div class="summary-bar">
-      <span id="activeTables">Active Tables: 0</span>
-      <span id="todayCollection">Today's Collection: ₹0</span>
-    </div>
-  </header>
+  <section class="auth-screen" id="authScreen">
+    <form class="auth-card" id="loginForm">
+      <h1>Cafe D Dream</h1>
+      <p class="subtle">Staff login required for counter access.</p>
+      <label>
+        Email
+        <input id="loginEmail" type="email" autocomplete="username" required>
+      </label>
+      <label>
+        Password
+        <input id="loginPassword" type="password" autocomplete="current-password" required>
+      </label>
+      <button class="primary-btn" type="submit">Login</button>
+      <p class="auth-error" id="authError" role="alert"></p>
+    </form>
+  </section>
 
-  <main class="table-grid" id="tableGrid" aria-live="polite"></main>
+  <div id="protectedApp" hidden>
+    <header class="admin-header">
+      <div>
+        <h1 class="brand-title" id="adminRestaurant">Cafe D Dream</h1>
+        <div class="subtle" id="clock">--:--</div>
+      </div>
+      <div class="summary-bar">
+        <span id="activeTables">Active Tables: 0</span>
+        <span id="todayCollection">Today's Collection: Rs 0</span>
+        <button class="ghost-btn menu-btn" id="menuButton" type="button">Menu</button>
+        <button class="ghost-btn menu-btn" id="logoutButton" type="button">Logout</button>
+      </div>
+    </header>
+
+    <main class="table-grid" id="tableGrid" aria-live="polite"></main>
+
+    <div class="modal-backdrop" id="adminMenuModal" hidden>
+      <section class="history-modal" role="dialog" aria-modal="true" aria-labelledby="menuTitle">
+        <div class="modal-head">
+          <h2 id="menuTitle">Admin Menu</h2>
+          <button class="ghost-btn" id="closeMenu" type="button">Close</button>
+        </div>
+        <div class="admin-menu-body">
+        <div class="admin-menu-tabs">
+          <button class="primary-btn" id="salesTab" type="button">Sales</button>
+          <button class="ghost-btn" id="reportTab" type="button">Report</button>
+        </div>
+        <section class="sales-panel" id="salesPanel">
+          <label class="select-label" for="salesTableSelect">Select Table</label>
+          <select class="table-select" id="salesTableSelect"></select>
+          <h3 id="historyTitle">Table History</h3>
+          <div class="history-list" id="historyList"></div>
+        </section>
+        <section class="sales-panel" id="reportPanel" hidden>
+          <h3>Today's Report</h3>
+          <button class="secondary-btn" id="refreshReportBtn" type="button">Refresh Report</button>
+          <div id="reportContent"></div>
+        </section>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="paymentMethodModal" hidden>
+    <section class="history-modal payment-method-modal" role="dialog" aria-modal="true" aria-labelledby="paymentMethodTitle">
+      <div class="modal-head">
+        <h2 id="paymentMethodTitle">Mark Paid</h2>
+        <button class="ghost-btn" id="closePaymentMethod" type="button">Close</button>
+      </div>
+      <div class="payment-method-body">
+        <p id="paymentMethodTable">Select payment method.</p>
+        <button class="primary-btn" id="paidCashBtn" type="button">Cash</button>
+        <button class="secondary-btn" id="paidOnlineBtn" type="button">Online</button>
+      </div>
+    </section>
+  </div>
+  </div>
 
   <script type="module" src="./admin.js"></script>
 </body>

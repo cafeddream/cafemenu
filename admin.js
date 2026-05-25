@@ -3,37 +3,124 @@ import {
   STATUS_LABELS,
   clearTable,
   escapeHtml,
+  fetchTableHistory,
+  fetchTodayReport,
   formatCurrency,
   formatTime,
   listenToOrder,
   listenToTodaySummary,
   markOrderPaid,
+  onStaffAuthState,
   registerServiceWorker,
   showToast,
+  signInStaff,
+  signOutStaff,
   updateOrderStatus
 } from "./firebase.js";
 
 const state = {
   orders: new Map(),
-  knownOccupied: new Set()
+  knownOccupied: new Set(),
+  appStarted: false,
+  pendingPaidTable: null
 };
 
 const elements = {
+  authScreen: document.querySelector("#authScreen"),
+  protectedApp: document.querySelector("#protectedApp"),
+  loginForm: document.querySelector("#loginForm"),
+  loginEmail: document.querySelector("#loginEmail"),
+  loginPassword: document.querySelector("#loginPassword"),
+  authError: document.querySelector("#authError"),
   restaurant: document.querySelector("#adminRestaurant"),
   clock: document.querySelector("#clock"),
   activeTables: document.querySelector("#activeTables"),
   todayCollection: document.querySelector("#todayCollection"),
-  tableGrid: document.querySelector("#tableGrid")
+  tableGrid: document.querySelector("#tableGrid"),
+  menuButton: document.querySelector("#menuButton"),
+  logoutButton: document.querySelector("#logoutButton"),
+  adminMenuModal: document.querySelector("#adminMenuModal"),
+  closeMenu: document.querySelector("#closeMenu"),
+  salesTab: document.querySelector("#salesTab"),
+  reportTab: document.querySelector("#reportTab"),
+  salesPanel: document.querySelector("#salesPanel"),
+  reportPanel: document.querySelector("#reportPanel"),
+  refreshReportBtn: document.querySelector("#refreshReportBtn"),
+  reportContent: document.querySelector("#reportContent"),
+  salesTableSelect: document.querySelector("#salesTableSelect"),
+  historyTitle: document.querySelector("#historyTitle"),
+  historyList: document.querySelector("#historyList"),
+  paymentMethodModal: document.querySelector("#paymentMethodModal"),
+  closePaymentMethod: document.querySelector("#closePaymentMethod"),
+  paymentMethodTable: document.querySelector("#paymentMethodTable"),
+  paidCashBtn: document.querySelector("#paidCashBtn"),
+  paidOnlineBtn: document.querySelector("#paidOnlineBtn")
 };
 
 // Starts the counter view with real-time table subscriptions.
 function init() {
   registerServiceWorker();
+  bindAuthEvents();
+  onStaffAuthState((user) => {
+    if (user) {
+      elements.authScreen.hidden = true;
+      elements.protectedApp.hidden = false;
+      startAdminApp();
+    } else {
+      elements.authScreen.hidden = false;
+      elements.protectedApp.hidden = true;
+    }
+  });
+}
+
+// Starts protected admin behavior once after staff login.
+function startAdminApp() {
+  if (state.appStarted) return;
+  state.appStarted = true;
   elements.restaurant.textContent = CONFIG.RESTAURANT_NAME;
+  populateSalesTableSelect();
   renderEmptyCards();
+  elements.menuButton.addEventListener("click", openAdminMenu);
+  elements.closeMenu.addEventListener("click", closeAdminMenu);
+  elements.adminMenuModal.addEventListener("click", (event) => {
+    if (event.target === elements.adminMenuModal) closeAdminMenu();
+  });
+  elements.salesTab.addEventListener("click", showSalesPanel);
+  elements.reportTab.addEventListener("click", showReportPanel);
+  elements.refreshReportBtn.addEventListener("click", loadTodayReport);
+  elements.salesTableSelect.addEventListener("change", () => loadSalesForTable(elements.salesTableSelect.value));
+  elements.closePaymentMethod.addEventListener("click", closePaymentMethodModal);
+  elements.paymentMethodModal.addEventListener("click", (event) => {
+    if (event.target === elements.paymentMethodModal) closePaymentMethodModal();
+  });
+  elements.paidCashBtn.addEventListener("click", () => confirmPaidWithMethod("cash"));
+  elements.paidOnlineBtn.addEventListener("click", () => confirmPaidWithMethod("online"));
   startClock();
   subscribeToTables();
   subscribeToSummary();
+}
+
+// Handles staff login and logout controls.
+function bindAuthEvents() {
+  elements.loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    elements.authError.textContent = "";
+    const button = elements.loginForm.querySelector("button");
+    button.disabled = true;
+
+    try {
+      await signInStaff(elements.loginEmail.value.trim(), elements.loginPassword.value);
+    } catch {
+      elements.authError.textContent = "Login failed. Check email and password.";
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  elements.logoutButton.addEventListener("click", async () => {
+    await signOutStaff();
+    window.location.reload();
+  });
 }
 
 // Updates the live clock every second.
@@ -105,6 +192,7 @@ function tableCardHtml(tableId, order, flash = false) {
 
   const status = order.status || "new";
   const paymentClaimed = order.paymentStatus === "customer_claimed_paid";
+  const cashRequested = order.paymentStatus === "cash_at_counter";
   const lines = (order.items || []).map((item) => `
     <li><span>${escapeHtml(item.name)}</span><strong>x${Number(item.qty || 0)}</strong></li>
   `).join("");
@@ -116,6 +204,7 @@ function tableCardHtml(tableId, order, flash = false) {
         <span class="badge">${escapeHtml(STATUS_LABELS[status] || status)}</span>
       </div>
       ${paymentClaimed ? "<div class=\"payment-alert\">Customer says payment done - verify UPI</div>" : ""}
+      ${cashRequested ? "<div class=\"payment-alert cash-alert\">Customer will pay cash at counter</div>" : ""}
       <ul class="order-lines">${lines}</ul>
       <div class="card-meta">
         <strong>${formatCurrency(order.total)}</strong>
@@ -142,7 +231,11 @@ function bindCardActions() {
       try {
         if (action === "preparing") await updateOrderStatus(tableId, "preparing");
         if (action === "served") await updateOrderStatus(tableId, "served");
-        if (action === "paid") await markOrderPaid(tableId);
+        if (action === "paid") {
+          openPaymentMethodModal(tableId);
+          button.disabled = false;
+          return;
+        }
         if (action === "clear") await clearTable(tableId);
       } catch {
         showToast("Connection error, please refresh");
@@ -150,6 +243,166 @@ function bindCardActions() {
       }
     });
   });
+}
+
+// Populates the sales table dropdown from the shared table config.
+function populateSalesTableSelect() {
+  elements.salesTableSelect.innerHTML = CONFIG.TABLES.map((tableId) => `
+    <option value="${escapeHtml(tableId)}">${escapeHtml(tableId)}</option>
+  `).join("");
+}
+
+// Opens the admin menu and loads sales for the selected table.
+function openAdminMenu() {
+  elements.adminMenuModal.hidden = false;
+  showSalesPanel();
+  loadSalesForTable(elements.salesTableSelect.value || CONFIG.TABLES[0]);
+}
+
+// Shows the table-wise sales history tab.
+function showSalesPanel() {
+  elements.salesPanel.hidden = false;
+  elements.reportPanel.hidden = true;
+  elements.salesTab.className = "primary-btn";
+  elements.reportTab.className = "ghost-btn";
+}
+
+// Shows today's combined report tab.
+function showReportPanel() {
+  elements.salesPanel.hidden = true;
+  elements.reportPanel.hidden = false;
+  elements.salesTab.className = "ghost-btn";
+  elements.reportTab.className = "primary-btn";
+  loadTodayReport();
+}
+
+// Loads and displays recent paid bills for the selected table.
+async function loadSalesForTable(tableId) {
+  elements.historyTitle.textContent = `${tableId} Sales History`;
+  elements.historyList.innerHTML = "<p class=\"subtle\">Loading history...</p>";
+
+  try {
+    const rows = await fetchTableHistory(tableId);
+    if (!rows.length) {
+      elements.historyList.innerHTML = "<p class=\"subtle\">No paid history yet for this table.</p>";
+      return;
+    }
+
+    elements.historyList.innerHTML = rows.map(historyRowHtml).join("");
+  } catch {
+    elements.historyList.innerHTML = "<p class=\"subtle\">History unavailable, please refresh.</p>";
+  }
+}
+
+// Builds one paid history row for the modal.
+function historyRowHtml(order) {
+  const items = (order.items || []).map((item) => `
+    <li><span>${escapeHtml(item.name)}</span><strong>x${Number(item.qty || 0)}</strong></li>
+  `).join("");
+
+  return `
+    <article class="history-row">
+      <div class="history-row-head">
+        <div>
+          <strong>${formatCurrency(order.total)}</strong>
+          <div class="subtle">${escapeHtml(paymentMethodLabel(order.paymentMethod))}</div>
+          <div class="subtle">Bill ${escapeHtml(String(order.orderId || order.id || "").slice(0, 8))}</div>
+        </div>
+        <div class="history-times">
+          <span>Paid: ${formatDateTime(order.paidAt)}</span>
+          <span>Order: ${formatDateTime(order.orderedAt)}</span>
+        </div>
+      </div>
+      <ul class="order-lines">${items}</ul>
+    </article>
+  `;
+}
+
+// Loads today's combined collection and item-wise report.
+async function loadTodayReport() {
+  elements.reportContent.innerHTML = "<p class=\"subtle\">Loading report...</p>";
+
+  try {
+    const report = await fetchTodayReport();
+    elements.reportContent.innerHTML = reportHtml(report);
+  } catch {
+    elements.reportContent.innerHTML = "<p class=\"subtle\">Report unavailable, please refresh.</p>";
+  }
+}
+
+// Builds the combined daily report markup.
+function reportHtml(report) {
+  const itemRows = report.items.length
+    ? report.items.map((item) => `
+      <li>
+        <span>${escapeHtml(item.name)} <small>x${Number(item.qty || 0)}</small></span>
+        <strong>${formatCurrency(item.total)}</strong>
+      </li>
+    `).join("")
+    : "<li><span>No items sold today.</span><strong>Rs 0</strong></li>";
+
+  return `
+    <div class="report-grid">
+      <article><span>Total</span><strong>${formatCurrency(report.total)}</strong></article>
+      <article><span>Cash</span><strong>${formatCurrency(report.cash)}</strong></article>
+      <article><span>Online</span><strong>${formatCurrency(report.online)}</strong></article>
+      <article><span>Bills</span><strong>${Number(report.orders || 0)}</strong></article>
+    </div>
+    <h4>Menu Items Sold</h4>
+    <ul class="report-item-list">${itemRows}</ul>
+  `;
+}
+
+// Opens the payment method chooser for Mark Paid.
+function openPaymentMethodModal(tableId) {
+  state.pendingPaidTable = tableId;
+  elements.paymentMethodTable.textContent = `Mark ${tableId} paid by:`;
+  elements.paymentMethodModal.hidden = false;
+}
+
+// Closes the payment method chooser.
+function closePaymentMethodModal() {
+  state.pendingPaidTable = null;
+  elements.paymentMethodModal.hidden = true;
+}
+
+// Confirms payment with a cash or online method.
+async function confirmPaidWithMethod(method) {
+  if (!state.pendingPaidTable) return;
+  const tableId = state.pendingPaidTable;
+  elements.paidCashBtn.disabled = true;
+  elements.paidOnlineBtn.disabled = true;
+
+  try {
+    await markOrderPaid(tableId, method);
+    closePaymentMethodModal();
+  } catch {
+    showToast("Connection error, please refresh");
+  } finally {
+    elements.paidCashBtn.disabled = false;
+    elements.paidOnlineBtn.disabled = false;
+  }
+}
+
+// Labels payment methods for history/report display.
+function paymentMethodLabel(method) {
+  return method === "online" ? "Online Payment" : "Cash Payment";
+}
+
+// Formats history timestamps with date and time.
+function formatDateTime(value) {
+  if (!value?.toDate) return "Paid time unavailable";
+  return value.toDate().toLocaleString([], {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+// Closes the admin menu.
+function closeAdminMenu() {
+  elements.adminMenuModal.hidden = true;
 }
 
 // Plays a short Web Audio beep and leaves a visual flash on new orders.

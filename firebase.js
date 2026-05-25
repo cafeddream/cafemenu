@@ -21,12 +21,23 @@ Print one QR code per table.
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import {
+  getAuth,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+import {
+  collection,
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   getFirestore,
   increment,
+  limit,
   onSnapshot,
+  orderBy,
+  query,
   runTransaction,
   serverTimestamp,
   setDoc,
@@ -52,6 +63,7 @@ export const CONFIG = {
 
 const app = initializeApp(CONFIG.FIREBASE);
 export const db = getFirestore(app);
+export const auth = getAuth(app);
 
 export const STATUS_LABELS = {
   new: "New Order",
@@ -71,8 +83,34 @@ export function dailySummaryRef(dateKey = getTodayKey()) {
 }
 
 // Returns the payment marker document for idempotent collection counting.
-export function paymentRef(tableId, dateKey = getTodayKey()) {
-  return doc(db, "dailySummaries", dateKey, "payments", tableId);
+export function paymentRef(orderId, dateKey = getTodayKey()) {
+  return doc(db, "dailySummaries", dateKey, "payments", orderId);
+}
+
+// Returns the saved history document for one completed table order.
+export function tableHistoryOrderRef(tableId, orderId) {
+  return doc(db, "tableHistory", tableId, "orders", orderId);
+}
+
+// Signs staff into Firebase Auth for protected admin and kitchen screens.
+export function signInStaff(email, password) {
+  return signInWithEmailAndPassword(auth, email, password);
+}
+
+// Signs staff out of Firebase Auth.
+export function signOutStaff() {
+  return signOut(auth);
+}
+
+// Watches staff login state and calls back whenever it changes.
+export function onStaffAuthState(callback) {
+  return onAuthStateChanged(auth, callback);
+}
+
+// Generates a stable order id for paid history and daily collection records.
+function createOrderId(tableId) {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return `${tableId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 // Creates a stable YYYY-MM-DD date key using the user's local date.
@@ -229,11 +267,13 @@ export async function placeOrAppendOrder(tableId, cartItems) {
   if (!cleanItems.length) return null;
 
   const ref = orderRef(tableId);
+  const newOrderId = createOrderId(tableId);
   await runTransaction(db, async (transaction) => {
     const snapshot = await transaction.get(ref);
     let items = cleanItems;
     let status = "new";
     let timestamp = serverTimestamp();
+    let orderId = newOrderId;
 
     if (snapshot.exists()) {
       const current = snapshot.data();
@@ -241,10 +281,12 @@ export async function placeOrAppendOrder(tableId, cartItems) {
         items = mergeItems(current.items || [], cleanItems);
         status = current.status;
         timestamp = current.timestamp || serverTimestamp();
+        orderId = current.orderId || newOrderId;
       }
     }
 
     transaction.set(ref, {
+      orderId,
       tableId,
       items,
       total: calculateTotal(items),
@@ -273,31 +315,46 @@ export async function updateOrderStatus(tableId, status) {
   });
 }
 
-// Records that the customer says they completed the UPI payment.
+// Records that the customer says they completed the online UPI payment.
 export async function claimPaymentDone(tableId) {
   await updateDoc(orderRef(tableId), {
     paymentStatus: "customer_claimed_paid",
+    preferredPaymentMethod: "online",
     paymentClaimedAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
 }
 
+// Records that the customer wants to pay cash at the counter.
+export async function requestCashAtCounter(tableId) {
+  await updateDoc(orderRef(tableId), {
+    paymentStatus: "cash_at_counter",
+    preferredPaymentMethod: "cash",
+    cashRequestedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
 // Marks an order as paid and updates the daily collection only once per table/day.
-export async function markOrderPaid(tableId) {
+export async function markOrderPaid(tableId, paymentMethod = "cash") {
   const orderDocument = orderRef(tableId);
   const summaryDocument = dailySummaryRef();
-  const paymentDocument = paymentRef(tableId);
+  const method = paymentMethod === "online" ? "online" : "cash";
 
   await runTransaction(db, async (transaction) => {
     const orderSnapshot = await transaction.get(orderDocument);
     if (!orderSnapshot.exists()) return;
 
     const order = orderSnapshot.data();
+    const orderId = order.orderId || `${tableId}-${order.timestamp?.seconds || Date.now()}`;
+    const paymentDocument = paymentRef(orderId);
+    const historyDocument = tableHistoryOrderRef(tableId, orderId);
     const paymentSnapshot = await transaction.get(paymentDocument);
 
     transaction.update(orderDocument, {
       status: "paid",
       paymentStatus: "verified_paid",
+      paymentMethod: method,
       paidAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
@@ -306,13 +363,30 @@ export async function markOrderPaid(tableId) {
       transaction.set(summaryDocument, {
         date: getTodayKey(),
         total: increment(Number(order.total || 0)),
+        cash: increment(method === "cash" ? Number(order.total || 0) : 0),
+        online: increment(method === "online" ? Number(order.total || 0) : 0),
         updatedAt: serverTimestamp()
       }, { merge: true });
 
       transaction.set(paymentDocument, {
+        orderId,
         tableId,
         amount: Number(order.total || 0),
+        paymentMethod: method,
         paidAt: serverTimestamp()
+      });
+
+      transaction.set(historyDocument, {
+        orderId,
+        tableId,
+        items: order.items || [],
+        total: Number(order.total || 0),
+        status: "paid",
+        paymentStatus: "verified_paid",
+        paymentMethod: method,
+        orderedAt: order.timestamp || null,
+        paidAt: serverTimestamp(),
+        savedAt: serverTimestamp()
       });
     }
   });
@@ -328,6 +402,55 @@ export function listenToTodaySummary(callback, onError) {
   return onSnapshot(dailySummaryRef(), (snapshot) => {
     callback(snapshot.exists() ? snapshot.data() : { total: 0 });
   }, onError);
+}
+
+// Loads recent paid order history for one table.
+export async function fetchTableHistory(tableId, maxRows = 20) {
+  const historyQuery = query(
+    collection(db, "tableHistory", tableId, "orders"),
+    orderBy("paidAt", "desc"),
+    limit(maxRows)
+  );
+  const snapshot = await getDocs(historyQuery);
+  return snapshot.docs.map((historyDoc) => ({ id: historyDoc.id, ...historyDoc.data() }));
+}
+
+// Builds a today's report from saved paid history across all configured tables.
+export async function fetchTodayReport() {
+  const todayKey = getTodayKey();
+  const histories = await Promise.all(CONFIG.TABLES.map((tableId) => fetchTableHistory(tableId, 100)));
+  const paidOrders = histories.flat().filter((order) => {
+    const paidAt = toDate(order.paidAt);
+    return paidAt && getTodayKey(paidAt) === todayKey;
+  });
+
+  const report = {
+    date: todayKey,
+    orders: paidOrders.length,
+    total: 0,
+    cash: 0,
+    online: 0,
+    items: []
+  };
+  const itemMap = new Map();
+
+  paidOrders.forEach((order) => {
+    const total = Number(order.total || 0);
+    const method = order.paymentMethod === "online" ? "online" : "cash";
+    report.total += total;
+    report[method] += total;
+
+    (order.items || []).forEach((item) => {
+      const key = `${item.name}|${item.price}`;
+      const current = itemMap.get(key) || { name: item.name, price: Number(item.price || 0), qty: 0, total: 0 };
+      current.qty += Number(item.qty || 0);
+      current.total += Number(item.price || 0) * Number(item.qty || 0);
+      itemMap.set(key, current);
+    });
+  });
+
+  report.items = [...itemMap.values()].sort((a, b) => b.total - a.total);
+  return report;
 }
 
 // Builds the QR service URL for the current UPI payment details.

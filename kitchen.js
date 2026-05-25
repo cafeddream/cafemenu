@@ -3,17 +3,28 @@ import {
   escapeHtml,
   listenToOrder,
   minutesSince,
+  onStaffAuthState,
   registerServiceWorker,
   showToast,
+  signInStaff,
+  signOutStaff,
   updateOrderStatus
 } from "./firebase.js";
 
 const state = {
   orders: new Map(),
-  visibleIds: new Set()
+  visibleIds: new Set(),
+  appStarted: false
 };
 
 const elements = {
+  authScreen: document.querySelector("#authScreen"),
+  protectedApp: document.querySelector("#protectedApp"),
+  loginForm: document.querySelector("#loginForm"),
+  loginEmail: document.querySelector("#loginEmail"),
+  loginPassword: document.querySelector("#loginPassword"),
+  authError: document.querySelector("#authError"),
+  logoutButton: document.querySelector("#logoutButton"),
   clock: document.querySelector("#kitchenClock"),
   pendingCount: document.querySelector("#pendingCount"),
   main: document.querySelector("#kitchenMain")
@@ -22,10 +33,50 @@ const elements = {
 // Starts the kitchen display and live order subscriptions.
 function init() {
   registerServiceWorker();
+  bindAuthEvents();
+  onStaffAuthState((user) => {
+    if (user) {
+      elements.authScreen.hidden = true;
+      elements.protectedApp.hidden = false;
+      startKitchenApp();
+    } else {
+      elements.authScreen.hidden = false;
+      elements.protectedApp.hidden = true;
+    }
+  });
+}
+
+// Starts protected kitchen behavior once after staff login.
+function startKitchenApp() {
+  if (state.appStarted) return;
+  state.appStarted = true;
   startClock();
   renderKitchen();
   subscribeToActiveOrders();
   setInterval(renderKitchen, 60000);
+}
+
+// Handles staff login and logout controls.
+function bindAuthEvents() {
+  elements.loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    elements.authError.textContent = "";
+    const button = elements.loginForm.querySelector("button");
+    button.disabled = true;
+
+    try {
+      await signInStaff(elements.loginEmail.value.trim(), elements.loginPassword.value);
+    } catch {
+      elements.authError.textContent = "Login failed. Check email and password.";
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  elements.logoutButton.addEventListener("click", async () => {
+    await signOutStaff();
+    window.location.reload();
+  });
 }
 
 // Updates the kitchen clock every second.
