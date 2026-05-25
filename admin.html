@@ -50,6 +50,42 @@
     </section>
   </div>
 
+  <div class="modal-backdrop" id="adminOrderModal" hidden>
+    <section class="history-modal admin-order-modal" role="dialog" aria-modal="true" aria-labelledby="adminOrderTitle">
+      <div class="modal-head">
+        <h2 id="adminOrderTitle">Take Order</h2>
+        <button class="ghost-btn" id="closeAdminOrder" type="button">Close</button>
+      </div>
+      <div class="admin-order-body">
+        <section class="admin-order-screen active" id="adminOrderMenuScreen">
+          <nav class="category-row admin-category-row" id="adminCategoryRow" aria-label="Menu categories"></nav>
+          <div class="menu-list admin-order-menu-list" id="adminMenuList"></div>
+        </section>
+        <section class="admin-order-screen" id="adminOrderCartScreen" hidden>
+          <div class="cart-header">
+            <h3>Order Cart</h3>
+            <button class="ghost-btn" id="adminBackToMenu" type="button">Back</button>
+          </div>
+          <div class="cart-list" id="adminCartList"></div>
+          <div class="cart-total">
+            <span>Grand Total</span>
+            <span id="adminGrandTotal">₹0</span>
+          </div>
+        </section>
+      </div>
+      <div class="admin-order-footer">
+        <div class="admin-order-summary" id="adminOrderSummary">
+          <strong id="adminOrderCount">0 items</strong>
+          <span id="adminOrderTotal">₹0</span>
+        </div>
+        <div class="admin-order-actions">
+          <button class="ghost-btn" id="adminViewCartBtn" type="button" hidden>View Cart</button>
+          <button class="primary-btn" id="adminPlaceOrderBtn" type="button" disabled>Place Order</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <div class="modal-backdrop" id="paymentMethodModal" hidden>
     <section class="history-modal payment-method-modal" role="dialog" aria-modal="true" aria-labelledby="paymentMethodTitle">
       <div class="modal-head">

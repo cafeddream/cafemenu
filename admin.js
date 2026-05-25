@@ -3,13 +3,16 @@ import {
   STATUS_LABELS,
   clearTable,
   escapeHtml,
+  fetchMenu,
   fetchTableHistory,
   fetchTodayReport,
   formatCurrency,
   formatTime,
+  groupByCategory,
   listenToOrder,
   listenToTodaySummary,
   markOrderPaid,
+  placeOrAppendOrder,
   registerServiceWorker,
   showToast,
   updateOrderStatus
@@ -18,7 +21,13 @@ import {
 const state = {
   orders: new Map(),
   knownOccupied: new Set(),
-  pendingPaidTable: null
+  pendingPaidTable: null,
+  orderTableId: null,
+  categories: [],
+  groupedMenu: {},
+  activeCategory: "",
+  cart: new Map(),
+  menuLoaded: false
 };
 
 const elements = {
@@ -43,7 +52,21 @@ const elements = {
   closePaymentMethod: document.querySelector("#closePaymentMethod"),
   paymentMethodTable: document.querySelector("#paymentMethodTable"),
   paidCashBtn: document.querySelector("#paidCashBtn"),
-  paidOnlineBtn: document.querySelector("#paidOnlineBtn")
+  paidOnlineBtn: document.querySelector("#paidOnlineBtn"),
+  adminOrderModal: document.querySelector("#adminOrderModal"),
+  closeAdminOrder: document.querySelector("#closeAdminOrder"),
+  adminOrderTitle: document.querySelector("#adminOrderTitle"),
+  adminOrderMenuScreen: document.querySelector("#adminOrderMenuScreen"),
+  adminOrderCartScreen: document.querySelector("#adminOrderCartScreen"),
+  adminCategoryRow: document.querySelector("#adminCategoryRow"),
+  adminMenuList: document.querySelector("#adminMenuList"),
+  adminCartList: document.querySelector("#adminCartList"),
+  adminGrandTotal: document.querySelector("#adminGrandTotal"),
+  adminBackToMenu: document.querySelector("#adminBackToMenu"),
+  adminOrderCount: document.querySelector("#adminOrderCount"),
+  adminOrderTotal: document.querySelector("#adminOrderTotal"),
+  adminViewCartBtn: document.querySelector("#adminViewCartBtn"),
+  adminPlaceOrderBtn: document.querySelector("#adminPlaceOrderBtn")
 };
 
 // Starts the counter view with real-time table subscriptions.
@@ -67,6 +90,16 @@ function init() {
   });
   elements.paidCashBtn.addEventListener("click", () => confirmPaidWithMethod("cash"));
   elements.paidOnlineBtn.addEventListener("click", () => confirmPaidWithMethod("online"));
+  elements.closeAdminOrder.addEventListener("click", closeAdminOrderModal);
+  elements.adminOrderModal.addEventListener("click", (event) => {
+    if (event.target === elements.adminOrderModal) closeAdminOrderModal();
+  });
+  elements.adminBackToMenu.addEventListener("click", () => showAdminOrderScreen("menu"));
+  elements.adminViewCartBtn.addEventListener("click", () => {
+    renderAdminCart();
+    showAdminOrderScreen("cart");
+  });
+  elements.adminPlaceOrderBtn.addEventListener("click", placeAdminOrder);
   startClock();
   subscribeToTables();
   subscribeToSummary();
@@ -135,6 +168,9 @@ function tableCardHtml(tableId, order, flash = false) {
           <span class="table-id">${escapeHtml(tableId)}</span>
           <span class="badge">Empty</span>
         </div>
+        <div class="card-actions" data-table="${escapeHtml(tableId)}">
+          <button class="primary-btn" type="button" data-action="order">Take Order</button>
+        </div>
       </article>
     `;
   }
@@ -160,6 +196,7 @@ function tableCardHtml(tableId, order, flash = false) {
         <span>${formatTime(order.timestamp)}</span>
       </div>
       <div class="card-actions" data-table="${escapeHtml(tableId)}" data-status="${escapeHtml(status)}">
+        ${status !== "paid" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"order\">Add Items</button>" : ""}
         ${status === "new" ? "<button class=\"secondary-btn\" type=\"button\" data-action=\"preparing\">Mark Preparing</button>" : ""}
         ${status === "new" || status === "preparing" ? "<button class=\"secondary-btn\" type=\"button\" data-action=\"served\">Mark Served</button>" : ""}
         ${status === "served" || status === "preparing" ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Mark Paid</button>" : ""}
@@ -178,6 +215,11 @@ function bindCardActions() {
       button.disabled = true;
 
       try {
+        if (action === "order") {
+          button.disabled = false;
+          openAdminOrderModal(tableId);
+          return;
+        }
         if (action === "preparing") await updateOrderStatus(tableId, "preparing");
         if (action === "served") await updateOrderStatus(tableId, "served");
         if (action === "paid") {
@@ -352,6 +394,192 @@ function formatDateTime(value) {
 // Closes the admin menu.
 function closeAdminMenu() {
   elements.adminMenuModal.hidden = true;
+}
+
+// Opens the counter order modal for one table.
+async function openAdminOrderModal(tableId) {
+  state.orderTableId = tableId;
+  state.cart.clear();
+  elements.adminOrderTitle.textContent = `Take Order — ${tableId}`;
+  elements.adminOrderModal.hidden = false;
+  showAdminOrderScreen("menu");
+  updateAdminOrderFooter();
+
+  if (!state.menuLoaded) {
+    elements.adminMenuList.innerHTML = "<p class=\"subtle\">Loading menu...</p>";
+    try {
+      const items = await fetchMenu();
+      state.groupedMenu = groupByCategory(items);
+      state.categories = Object.keys(state.groupedMenu);
+      state.activeCategory = state.categories[0] || "";
+      state.menuLoaded = Boolean(state.activeCategory);
+      if (!state.menuLoaded) {
+        elements.adminMenuList.innerHTML = "<p class=\"subtle\">Menu unavailable. Check Google Sheet URL.</p>";
+        return;
+      }
+    } catch {
+      elements.adminMenuList.innerHTML = "<p class=\"subtle\">Menu unavailable. Check connection and refresh.</p>";
+      return;
+    }
+  }
+
+  renderAdminCategories();
+  renderAdminMenu();
+}
+
+// Closes the counter order modal and clears the cart.
+function closeAdminOrderModal() {
+  state.orderTableId = null;
+  state.cart.clear();
+  elements.adminOrderModal.hidden = true;
+}
+
+// Switches between menu and cart inside the order modal.
+function showAdminOrderScreen(name) {
+  const isMenu = name === "menu";
+  elements.adminOrderMenuScreen.classList.toggle("active", isMenu);
+  elements.adminOrderMenuScreen.hidden = !isMenu;
+  elements.adminOrderCartScreen.classList.toggle("active", !isMenu);
+  elements.adminOrderCartScreen.hidden = isMenu;
+  elements.adminViewCartBtn.hidden = !isMenu;
+  elements.adminPlaceOrderBtn.textContent = isMenu ? "Place Order" : "Confirm Order";
+  updateAdminOrderFooter();
+}
+
+// Renders category pills in the admin order modal.
+function renderAdminCategories() {
+  elements.adminCategoryRow.innerHTML = state.categories.map((category) => `
+    <button class="pill ${category === state.activeCategory ? "active" : ""}" type="button" data-category="${escapeHtml(category)}">
+      ${escapeHtml(category)}
+    </button>
+  `).join("");
+
+  elements.adminCategoryRow.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeCategory = button.dataset.category;
+      renderAdminCategories();
+      renderAdminMenu();
+    });
+  });
+}
+
+// Renders menu items with quantity controls for the selected table.
+function renderAdminMenu() {
+  const items = state.groupedMenu[state.activeCategory] || [];
+  elements.adminMenuList.innerHTML = items.map((item) => {
+    const key = makeItemKey(item);
+    const qty = state.cart.get(key)?.qty || 0;
+    return `
+      <article class="item-card">
+        <div>
+          <h3 class="item-name">${escapeHtml(item.name)}</h3>
+          <div class="item-price">${formatCurrency(item.price)}</div>
+        </div>
+        <div class="qty-control" data-key="${escapeHtml(key)}">
+          <button class="qty-btn" type="button" data-action="minus" aria-label="Remove ${escapeHtml(item.name)}">-</button>
+          <span class="qty-value">${qty}</span>
+          <button class="qty-btn" type="button" data-action="plus" aria-label="Add ${escapeHtml(item.name)}">+</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+
+  elements.adminMenuList.querySelectorAll(".qty-control").forEach((control) => {
+    const item = items.find((candidate) => makeItemKey(candidate) === control.dataset.key);
+    control.addEventListener("click", (event) => {
+      const action = event.target.dataset.action;
+      if (!action) return;
+      updateAdminCartItem(item, action === "plus" ? 1 : -1);
+    });
+  });
+}
+
+// Renders the cart review screen before placing the order.
+function renderAdminCart() {
+  const { items, total } = getAdminCartTotals();
+  elements.adminCartList.innerHTML = items.map((item) => `
+    <article class="cart-row">
+      <div>
+        <h3 class="item-name">${escapeHtml(item.name)}</h3>
+        <div class="row-subtotal">${formatCurrency(item.price)} x ${item.qty} = ${formatCurrency(item.price * item.qty)}</div>
+      </div>
+      <div class="qty-control" data-key="${escapeHtml(makeItemKey(item))}">
+        <button class="qty-btn" type="button" data-action="minus">-</button>
+        <span class="qty-value">${item.qty}</span>
+        <button class="qty-btn" type="button" data-action="plus">+</button>
+      </div>
+    </article>
+  `).join("");
+
+  elements.adminGrandTotal.textContent = formatCurrency(total);
+
+  elements.adminCartList.querySelectorAll(".qty-control").forEach((control) => {
+    const item = items.find((candidate) => makeItemKey(candidate) === control.dataset.key);
+    control.addEventListener("click", (event) => {
+      const action = event.target.dataset.action;
+      if (!action) return;
+      updateAdminCartItem(item, action === "plus" ? 1 : -1);
+    });
+  });
+}
+
+// Creates a stable key for menu/cart items.
+function makeItemKey(item) {
+  return `${item.name}|${item.price}`;
+}
+
+// Adds or removes one quantity in the admin cart.
+function updateAdminCartItem(item, delta) {
+  const key = makeItemKey(item);
+  const existing = state.cart.get(key) || { name: item.name, price: Number(item.price), qty: 0 };
+  existing.qty += delta;
+
+  if (existing.qty <= 0) {
+    state.cart.delete(key);
+  } else {
+    state.cart.set(key, existing);
+  }
+
+  renderAdminMenu();
+  if (!elements.adminOrderCartScreen.hidden) renderAdminCart();
+  updateAdminOrderFooter();
+}
+
+// Returns cart totals for the admin order modal.
+function getAdminCartTotals() {
+  const items = [...state.cart.values()];
+  return {
+    items,
+    count: items.reduce((sum, item) => sum + item.qty, 0),
+    total: items.reduce((sum, item) => sum + item.qty * item.price, 0)
+  };
+}
+
+// Updates footer totals and button states in the order modal.
+function updateAdminOrderFooter() {
+  const { items, count, total } = getAdminCartTotals();
+  elements.adminOrderCount.textContent = `${count} item${count === 1 ? "" : "s"}`;
+  elements.adminOrderTotal.textContent = formatCurrency(total);
+  elements.adminPlaceOrderBtn.disabled = items.length === 0;
+  elements.adminViewCartBtn.hidden = items.length === 0 || !elements.adminOrderMenuScreen.classList.contains("active");
+}
+
+// Saves the admin cart to Firestore for the selected table.
+async function placeAdminOrder() {
+  if (!state.orderTableId) return;
+  const { items } = getAdminCartTotals();
+  if (!items.length) return;
+
+  elements.adminPlaceOrderBtn.disabled = true;
+
+  try {
+    await placeOrAppendOrder(state.orderTableId, items);
+    showToast(`Order placed for ${state.orderTableId}`);
+    closeAdminOrderModal();
+  } catch {
+    showToast("Order failed. Check connection and refresh.");
+    elements.adminPlaceOrderBtn.disabled = false;
+  }
 }
 
 // Plays a short Web Audio beep and leaves a visual flash on new orders.
