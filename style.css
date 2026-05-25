@@ -821,17 +821,25 @@ button:disabled {
 
 .kitchen-card.timer-urgent {
   background: linear-gradient(145deg, #d94820 0%, color-mix(in srgb, #c92828 35%, var(--timer-color, #c92828) 65%) 100%);
-  animation: kitchenIn 0.24s ease both, kitchenUrgent 1.2s ease-in-out infinite;
 }
 
 .kitchen-card.timer-expired {
   background: linear-gradient(145deg, #9f1d1d 0%, var(--timer-color, #c92828) 100%);
-  animation: kitchenIn 0.24s ease both, kitchenUrgent 0.85s ease-in-out infinite;
 }
 
-@keyframes kitchenUrgent {
-  0%, 100% { box-shadow: 0 16px 36px rgba(0, 0, 0, 0.24); }
-  50% { box-shadow: 0 16px 36px rgba(0, 0, 0, 0.24), 0 0 0 4px rgba(255, 90, 90, 0.45); }
+.kitchen-card.timer-urgent .kitchen-timer-ring,
+.kitchen-card.timer-urgent .kitchen-timer-text strong {
+  animation: kitchenTimerBlink 1.2s ease-in-out infinite;
+}
+
+.kitchen-card.timer-expired .kitchen-timer-ring,
+.kitchen-card.timer-expired .kitchen-timer-text strong {
+  animation: kitchenTimerBlink 0.85s ease-in-out infinite;
+}
+
+@keyframes kitchenTimerBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
 
 @keyframes kitchenIn {
