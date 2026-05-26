@@ -838,6 +838,12 @@ button:disabled {
 }
 
 .kitchen-page {
+  --kitchen-surface: #262626;
+  --kitchen-border: rgba(255, 255, 255, 0.12);
+  --kitchen-accent-new: var(--primary);
+  --kitchen-accent-preparing: var(--blue);
+  --kitchen-accent-urgent: #e8a317;
+  --kitchen-accent-expired: var(--danger);
   background: #1a1a1a;
   color: #ffffff;
 }
@@ -867,27 +873,32 @@ button:disabled {
 
 .kitchen-card {
   padding: 18px;
-  border-radius: 8px;
-  background: #f47b2f;
+  border-radius: 12px;
+  background: var(--kitchen-surface);
   color: #ffffff;
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.24);
+  border: 2px solid var(--kitchen-border);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32);
   animation: kitchenIn 0.24s ease both;
 }
 
 .kitchen-card.preparing {
-  background: linear-gradient(145deg, #236fc7 0%, color-mix(in srgb, #236fc7 72%, var(--timer-color, #236fc7) 28%) 100%);
+  border-color: color-mix(in srgb, var(--kitchen-accent-preparing) 65%, transparent);
+  background: linear-gradient(165deg, #2a3140 0%, var(--kitchen-surface) 52%);
 }
 
-.kitchen-card.timer-active {
-  background: linear-gradient(145deg, #f47b2f 0%, color-mix(in srgb, #f47b2f 55%, var(--timer-color, #19a35b) 45%) 100%);
+.kitchen-card.timer-active:not(.preparing) {
+  border-color: color-mix(in srgb, var(--kitchen-accent-new) 55%, transparent);
+  background: linear-gradient(165deg, #2e2824 0%, var(--kitchen-surface) 52%);
 }
 
 .kitchen-card.timer-urgent {
-  background: linear-gradient(145deg, #d94820 0%, color-mix(in srgb, #c92828 35%, var(--timer-color, #c92828) 65%) 100%);
+  border-color: color-mix(in srgb, var(--kitchen-accent-urgent) 75%, transparent);
+  background: linear-gradient(165deg, #332a1f 0%, var(--kitchen-surface) 52%);
 }
 
 .kitchen-card.timer-expired {
-  background: linear-gradient(145deg, #9f1d1d 0%, var(--timer-color, #c92828) 100%);
+  border-color: color-mix(in srgb, var(--kitchen-accent-expired) 80%, transparent);
+  background: linear-gradient(165deg, #331f1f 0%, var(--kitchen-surface) 52%);
 }
 
 .kitchen-card.timer-urgent .kitchen-timer-ring,
@@ -949,13 +960,14 @@ button:disabled {
 }
 
 .kitchen-timer-track {
-  stroke: rgba(255, 255, 255, 0.22);
+  stroke: rgba(255, 255, 255, 0.14);
 }
 
 .kitchen-timer-ring {
-  stroke: var(--timer-color, #19a35b);
+  stroke: var(--timer-color, var(--success));
   stroke-linecap: round;
-  transition: stroke 1s linear, stroke-dasharray 1s linear;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--timer-color, var(--success)) 45%, transparent));
+  transition: stroke 1s linear, stroke-dasharray 1s linear, filter 1s linear;
 }
 
 .kitchen-timer-text {
@@ -979,8 +991,7 @@ button:disabled {
 .kitchen-timer-text strong {
   font-size: 20px;
   font-weight: 900;
-  color: var(--timer-color, #ffffff);
-  transition: color 1s linear;
+  color: #ffffff;
 }
 
 .kitchen-items {
@@ -1014,6 +1025,17 @@ button:disabled {
 
 .kitchen-actions button {
   flex: 1 1 160px;
+}
+
+.kitchen-card .ghost-btn {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.kitchen-card .primary-btn {
+  background: #ffffff;
+  color: var(--ink);
 }
 
 .empty-state {

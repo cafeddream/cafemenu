@@ -138,8 +138,8 @@ export function minutesSince(value) {
 
 export const KITCHEN_ORDER_TIMER_SECONDS = getKitchenTimerSeconds();
 const KITCHEN_TIMER_GREEN = [25, 163, 91];
-const KITCHEN_TIMER_AMBER = [244, 160, 0];
-const KITCHEN_TIMER_RED = [201, 40, 40];
+const KITCHEN_TIMER_AMBER = [232, 163, 23];
+const KITCHEN_TIMER_RED = [215, 51, 51];
 
 function lerpChannel(start, end, amount) {
   return Math.round(start + (end - start) * amount);
