@@ -22,9 +22,14 @@ const elements = {
   main: document.querySelector("#kitchenMain")
 };
 
-let resizeTimer = null;
-const KITCHEN_MIN_CARD_HEIGHT = 220;
-const KITCHEN_MIN_SCALE = 0.55;
+function renderKitchenItemsHtml(items = []) {
+  return items.map((item) => `
+    <li class="kitchen-item">
+      <span class="kitchen-item-qty">${Number(item.qty || 0)}×</span>
+      <span class="kitchen-item-name">${escapeHtml(item.name)}</span>
+    </li>
+  `).join("");
+}
 
 // Starts the kitchen display and live order subscriptions.
 function init() {
@@ -33,40 +38,7 @@ function init() {
   requireStaffAuth(() => {
     subscribeToActiveOrders();
     setInterval(updateKitchenTimers, 1000);
-    window.addEventListener("resize", () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => layoutKitchenGrid(getSortedOrders().length), 150);
-    });
   });
-}
-
-// Picks column count from order count and viewport width.
-function getKitchenColumnCount(orderCount, width) {
-  if (orderCount <= 1) return 1;
-  if (orderCount <= 4) return width >= 720 ? 2 : 1;
-  if (orderCount <= 9) return width >= 1040 ? 3 : width >= 720 ? 2 : 1;
-  if (width >= 1280) return 4;
-  if (width >= 1040) return 3;
-  if (width >= 720) return 2;
-  return orderCount <= 6 ? 2 : 1;
-}
-
-// Scales kitchen cards so all orders fit the viewport without page scroll.
-function layoutKitchenGrid(orderCount) {
-  const grid = elements.main.querySelector(".kitchen-grid");
-  if (!grid || !orderCount) return;
-
-  const width = window.innerWidth;
-  const cols = getKitchenColumnCount(orderCount, width);
-  const rows = Math.ceil(orderCount / cols);
-  const mainRect = elements.main.getBoundingClientRect();
-  const availableHeight = Math.max(mainRect.height, 200);
-  const rawScale = availableHeight / (rows * KITCHEN_MIN_CARD_HEIGHT);
-  const scale = Math.max(KITCHEN_MIN_SCALE, Math.min(1, rawScale));
-
-  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
-  grid.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
-  grid.style.setProperty("--kitchen-scale", String(scale));
 }
 
 // Updates the kitchen clock every second.
@@ -156,8 +128,6 @@ function syncKitchenCards() {
     }
     applyTimerToCard(card, order.timestamp);
   });
-
-  layoutKitchenGrid(orders.length);
 }
 
 // Updates item list, alerts, and action buttons without rebuilding the timer.
@@ -178,9 +148,7 @@ function updateKitchenCardBody(card, order) {
     alert.remove();
   }
 
-  const itemsHtml = (order.items || []).map((item) => `
-    <li>${Number(item.qty || 0)} x ${escapeHtml(item.name)}</li>
-  `).join("");
+  const itemsHtml = renderKitchenItemsHtml(order.items);
   card.querySelector(".kitchen-items").innerHTML = itemsHtml;
 
   const actions = card.querySelector(".kitchen-actions");
@@ -240,9 +208,7 @@ function kitchenCardHtml(order) {
     : "Time left";
   const timerValue = timer.expired ? formatKitchenTimer(0) : formatKitchenTimer(timer.remainingSec);
   const placedBy = order.placedBy === "counter" ? "<span class=\"kitchen-source\">Counter</span>" : "";
-  const items = (order.items || []).map((item) => `
-    <li>${Number(item.qty || 0)} x ${escapeHtml(item.name)}</li>
-  `).join("");
+  const items = renderKitchenItemsHtml(order.items);
 
   return `
     <article
