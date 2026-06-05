@@ -18,23 +18,15 @@ import {
   buildMenuState,
   getCartTotals,
   renderCartList,
-  renderCategoryGrid,
-  renderMenuList,
-  renderSectionTabs,
+  renderCategorySidebar,
+  renderMenuGrid,
   updateCartItem
 } from "./menu-cart.js";
-import {
-  MENU_SECTIONS,
-  getDefaultSectionId,
-  getSectionCategories,
-  getSectionForCategory
-} from "./menu-sections.js";
 
 const state = {
   tableId: null,
   groupedMenu: {},
   categories: [],
-  activeSection: "",
   activeCategory: "",
   cart: new Map(),
   lastOrderTotal: 0,
@@ -44,7 +36,6 @@ const state = {
 const elements = {
   restaurantName: document.querySelector("#restaurantName"),
   tableLabel: document.querySelector("#tableLabel"),
-  sectionTabs: document.querySelector("#sectionTabs"),
   categoryRow: document.querySelector("#categoryRow"),
   menuList: document.querySelector("#menuList"),
   menuScreen: document.querySelector("#menuScreen"),
@@ -104,7 +95,6 @@ async function loadMenu() {
     const menuState = buildMenuState(items);
     state.groupedMenu = menuState.groupedMenu;
     state.categories = menuState.categories;
-    state.activeSection = getDefaultSectionId(state.categories);
     state.activeCategory = menuState.activeCategory;
 
     if (!state.activeCategory) {
@@ -159,48 +149,21 @@ function showError(title, message, canRetry = false) {
 }
 
 function renderCategories() {
-  const sectionCategories = getSectionCategories(state.activeSection, state.categories);
-
-  if (!sectionCategories.includes(state.activeCategory)) {
-    state.activeCategory = sectionCategories[0] || state.activeCategory;
-  }
-
-  renderSectionTabs(elements.sectionTabs, MENU_SECTIONS, state.activeSection, (sectionId) => {
-    state.activeSection = sectionId;
-    const nextCategories = getSectionCategories(sectionId, state.categories);
-    if (!nextCategories.includes(state.activeCategory)) {
-      state.activeCategory = nextCategories[0] || state.activeCategory;
-    }
+  renderCategorySidebar(elements.categoryRow, state.categories, state.activeCategory, (category) => {
+    state.activeCategory = category;
     renderCategories();
     renderMenu();
   });
-
-  const showSubcategories = sectionCategories.length > 1;
-  elements.categoryRow.hidden = !showSubcategories;
-
-  if (showSubcategories) {
-    renderCategoryGrid(elements.categoryRow, sectionCategories, state.activeCategory, (category) => {
-      state.activeCategory = category;
-      state.activeSection = getSectionForCategory(category).id;
-      renderCategories();
-      renderMenu();
-    });
-  }
 }
 
 function renderMenu() {
   const items = state.groupedMenu[state.activeCategory] || [];
-  const sectionCategories = getSectionCategories(state.activeSection, state.categories);
-  const heading = sectionCategories.length <= 1
-    ? `<h2 class="menu-category-heading">${escapeHtml(state.activeCategory)}</h2>`
-    : "";
-
-  renderMenuList(elements.menuList, items, state.cart, (item, delta) => {
+  renderMenuGrid(elements.menuList, items, state.cart, (item, delta) => {
     updateCartItem(state.cart, item, delta);
     renderMenu();
     if (elements.cartScreen.classList.contains("active")) renderCart();
     updateBottomBar();
-  }, heading);
+  });
 }
 
 function updateBottomBar(screenName = null) {

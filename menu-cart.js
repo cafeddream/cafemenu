@@ -40,59 +40,79 @@ export function buildMenuState(items) {
   };
 }
 
-// Renders main section tabs (Combos / Drinks / Food / Pizza).
-export function renderSectionTabs(container, sections, activeSectionId, onSelect) {
-  container.innerHTML = sections.map((section) => `
-    <button
-      class="section-tab ${section.id === activeSectionId ? "active" : ""}"
-      type="button"
-      role="tab"
-      aria-selected="${section.id === activeSectionId}"
-      data-section="${escapeHtml(section.id)}"
-    >
-      <img class="section-tab-icon" src="${escapeHtml(section.image)}" alt="" width="28" height="28" loading="lazy">
-      <span>${escapeHtml(section.label)}</span>
+// Renders horizontal category pills; onSelect receives the category name.
+export function renderCategoryRow(container, categories, activeCategory, onSelect) {
+  container.innerHTML = categories.map((category) => `
+    <button class="pill ${category === activeCategory ? "active" : ""}" type="button" data-category="${escapeHtml(category)}">
+      <img class="pill-icon" src="${escapeHtml(getCategoryImage(category))}" alt="" width="44" height="44" loading="lazy">
+      <span class="pill-label">${escapeHtml(category)}</span>
     </button>
   `).join("");
 
-  container.querySelectorAll("[data-section]").forEach((button) => {
-    button.addEventListener("click", () => onSelect(button.dataset.section));
+  container.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", () => onSelect(button.dataset.category));
   });
 }
 
-function renderCategoryPills(container, categories, activeCategory, onSelect, compact) {
-  const pillClass = compact ? "pill pill-compact" : "pill";
-  const iconSize = compact ? 36 : 44;
-
+// Renders vertical category sidebar for the customer menu.
+export function renderCategorySidebar(container, categories, activeCategory, onSelect) {
   container.innerHTML = categories.map((category) => `
-    <button class="${pillClass} ${category === activeCategory ? "active" : ""}" type="button" data-category="${escapeHtml(category)}">
-      <img class="pill-icon" src="${escapeHtml(getCategoryImage(category))}" alt="" width="${iconSize}" height="${iconSize}" loading="lazy">
-      <span class="pill-label">${escapeHtml(category)}</span>
+    <button
+      class="sidebar-item ${category === activeCategory ? "active" : ""}"
+      type="button"
+      data-category="${escapeHtml(category)}"
+    >
+      <img class="sidebar-item-icon" src="${escapeHtml(getCategoryImage(category))}" alt="" width="36" height="36" loading="lazy">
+      <span class="sidebar-item-label">${escapeHtml(category)}</span>
     </button>
   `).join("");
 
   container.querySelectorAll("[data-category]").forEach((button) => {
     button.addEventListener("click", () => onSelect(button.dataset.category));
   });
+
+  const activeButton = container.querySelector(".sidebar-item.active");
+  if (activeButton) {
+    activeButton.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
 }
 
-// Renders horizontal category pills (admin / legacy).
-export function renderCategoryRow(container, categories, activeCategory, onSelect) {
-  container.classList.remove("category-grid");
-  container.classList.add("category-row");
-  renderCategoryPills(container, categories, activeCategory, onSelect, false);
+function bindQtyControls(container, items, onQtyChange) {
+  container.querySelectorAll(".qty-control").forEach((control) => {
+    const item = items.find((candidate) => makeItemKey(candidate) === control.dataset.key);
+    control.addEventListener("click", (event) => {
+      const action = event.target.dataset.action;
+      if (!action) return;
+      onQtyChange(item, action === "plus" ? 1 : -1);
+    });
+  });
 }
 
-// Renders a compact category grid for the customer menu.
-export function renderCategoryGrid(container, categories, activeCategory, onSelect) {
-  container.classList.remove("category-row");
-  container.classList.add("category-grid");
-  renderCategoryPills(container, categories, activeCategory, onSelect, true);
+// Renders compact item tiles in a grid for the customer menu.
+export function renderMenuGrid(container, items, cart, onQtyChange) {
+  container.innerHTML = items.map((item) => {
+    const key = makeItemKey(item);
+    const qty = cart.get(key)?.qty || 0;
+    return `
+      <article class="menu-tile ${qty > 0 ? "has-qty" : ""}">
+        ${qty > 0 ? `<span class="menu-tile-badge">${qty}</span>` : ""}
+        <h3 class="menu-tile-name">${escapeHtml(item.name)}</h3>
+        <div class="menu-tile-price">${formatCurrency(item.price)}</div>
+        <div class="qty-control menu-tile-qty" data-key="${escapeHtml(key)}">
+          <button class="qty-btn" type="button" data-action="minus" aria-label="Remove ${escapeHtml(item.name)}">-</button>
+          <span class="qty-value">${qty}</span>
+          <button class="qty-btn" type="button" data-action="plus" aria-label="Add ${escapeHtml(item.name)}">+</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+
+  bindQtyControls(container, items, onQtyChange);
 }
 
 // Renders menu item cards with quantity controls.
-export function renderMenuList(container, items, cart, onQtyChange, leadingHtml = "") {
-  const cards = items.map((item) => {
+export function renderMenuList(container, items, cart, onQtyChange) {
+  container.innerHTML = items.map((item) => {
     const key = makeItemKey(item);
     const qty = cart.get(key)?.qty || 0;
     return `
@@ -110,16 +130,7 @@ export function renderMenuList(container, items, cart, onQtyChange, leadingHtml 
     `;
   }).join("");
 
-  container.innerHTML = `${leadingHtml}${cards}`;
-
-  container.querySelectorAll(".qty-control").forEach((control) => {
-    const item = items.find((candidate) => makeItemKey(candidate) === control.dataset.key);
-    control.addEventListener("click", (event) => {
-      const action = event.target.dataset.action;
-      if (!action) return;
-      onQtyChange(item, action === "plus" ? 1 : -1);
-    });
-  });
+  bindQtyControls(container, items, onQtyChange);
 }
 
 // Renders cart rows with quantity controls.
