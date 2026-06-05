@@ -123,6 +123,11 @@ function syncKitchenCards() {
       card = grid.lastElementChild;
       state.cards.set(order.tableId, card);
       bindKitchenCardActions(card);
+    } else if (!card.querySelector(".kitchen-item")) {
+      card.outerHTML = kitchenCardHtml(order);
+      card = grid.querySelector(`[data-table="${order.tableId}"]`);
+      state.cards.set(order.tableId, card);
+      bindKitchenCardActions(card);
     } else {
       updateKitchenCardBody(card, order);
     }
