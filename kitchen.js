@@ -22,6 +22,8 @@ const elements = {
   main: document.querySelector("#kitchenMain")
 };
 
+let resizeTimer = null;
+
 function renderKitchenItemsHtml(items = []) {
   return items.map((item) => `
     <li class="kitchen-item">
@@ -38,7 +40,33 @@ function init() {
   requireStaffAuth(() => {
     subscribeToActiveOrders();
     setInterval(updateKitchenTimers, 1000);
+    window.addEventListener("resize", () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => layoutKitchenGrid(getSortedOrders().length), 150);
+    });
   });
+}
+
+// Up to 8 orders on one screen as 4+4 grid on wide displays.
+function layoutKitchenGrid(orderCount) {
+  const grid = elements.main.querySelector(".kitchen-grid");
+  if (!grid || !orderCount) return;
+
+  const wide = window.innerWidth >= 720;
+  if (wide && orderCount <= 8) {
+    const rows = orderCount <= 4 ? 1 : 2;
+    grid.classList.add("kitchen-grid-fit");
+    grid.style.setProperty("--kitchen-rows", String(rows));
+    grid.style.gridTemplateColumns = "repeat(4, minmax(0, 1fr))";
+    grid.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+    elements.main.style.overflowY = "hidden";
+  } else {
+    grid.classList.remove("kitchen-grid-fit");
+    grid.style.removeProperty("--kitchen-rows");
+    grid.style.gridTemplateColumns = "";
+    grid.style.gridTemplateRows = "";
+    elements.main.style.overflowY = "auto";
+  }
 }
 
 // Updates the kitchen clock every second.
@@ -133,6 +161,8 @@ function syncKitchenCards() {
     }
     applyTimerToCard(card, order.timestamp);
   });
+
+  layoutKitchenGrid(orders.length);
 }
 
 // Updates item list, alerts, and action buttons without rebuilding the timer.
