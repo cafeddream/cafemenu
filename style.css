@@ -107,12 +107,34 @@ button:disabled {
 
 .pill {
   flex: 0 0 auto;
-  padding: 10px 16px;
-  border-radius: 999px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 78px;
+  padding: 8px 6px 10px;
+  border-radius: 14px;
   background: #ffffff;
   color: var(--ink);
   border: 1px solid var(--line);
-  white-space: nowrap;
+  white-space: normal;
+}
+
+.pill-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--line);
+  background: var(--soft);
+}
+
+.pill-label {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  max-width: 100%;
 }
 
 .pill.active {
@@ -120,6 +142,36 @@ button:disabled {
   border-color: var(--primary);
   color: #ffffff;
   font-weight: 700;
+}
+
+.pill.active .pill-icon {
+  border-color: rgba(255, 255, 255, 0.65);
+}
+
+.pill.active .pill-label {
+  color: #ffffff;
+}
+
+.menu-poster-wrap {
+  margin: 0;
+  padding: 12px 16px 0;
+}
+
+.menu-poster {
+  display: block;
+  width: 100%;
+  max-height: min(42vh, 320px);
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #1a120f;
+}
+
+.menu-poster-caption {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .content {
@@ -844,8 +896,25 @@ button:disabled {
   --kitchen-accent-preparing: var(--blue);
   --kitchen-accent-urgent: #e8a317;
   --kitchen-accent-expired: var(--danger);
+  --kitchen-scale: 1;
+  --kitchen-timer-size: calc(92px * var(--kitchen-scale));
+  --kitchen-table-font: calc(32px * var(--kitchen-scale));
+  --kitchen-item-font: calc(20px * var(--kitchen-scale));
+  --kitchen-alert-font: calc(18px * var(--kitchen-scale));
+  --kitchen-card-pad: calc(18px * var(--kitchen-scale));
+  --kitchen-gap: calc(16px * var(--kitchen-scale));
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   background: #1a1a1a;
   color: #ffffff;
+}
+
+.kitchen-page #kitchenMain {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .kitchen-header {
@@ -867,12 +936,18 @@ button:disabled {
 
 .kitchen-grid {
   display: grid;
-  gap: 16px;
-  padding: 18px;
+  gap: var(--kitchen-gap);
+  padding: var(--kitchen-gap);
+  height: 100%;
+  box-sizing: border-box;
+  align-content: stretch;
 }
 
 .kitchen-card {
-  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--kitchen-card-pad);
   border-radius: 12px;
   background: var(--kitchen-surface);
   color: #ffffff;
@@ -936,14 +1011,14 @@ button:disabled {
 }
 
 .kitchen-table strong {
-  font-size: 32px;
+  font-size: var(--kitchen-table-font);
   line-height: 1;
 }
 
 .kitchen-timer {
   position: relative;
-  width: 92px;
-  height: 92px;
+  width: var(--kitchen-timer-size);
+  height: var(--kitchen-timer-size);
   flex: 0 0 auto;
 }
 
@@ -989,31 +1064,34 @@ button:disabled {
 }
 
 .kitchen-timer-text strong {
-  font-size: 20px;
+  font-size: calc(20px * var(--kitchen-scale));
   font-weight: 900;
   color: #ffffff;
 }
 
 .kitchen-items {
-  margin: 0 0 16px;
+  flex: 1;
+  min-height: 0;
+  margin: 0 0 calc(12px * var(--kitchen-scale));
   padding: 0;
   list-style: none;
+  overflow-y: auto;
 }
 
 .kitchen-payment-alert {
-  margin-bottom: 12px;
-  padding: 10px;
+  margin-bottom: calc(12px * var(--kitchen-scale));
+  padding: calc(10px * var(--kitchen-scale));
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.18);
   color: #ffffff;
-  font-size: 18px;
+  font-size: var(--kitchen-alert-font);
   font-weight: 900;
 }
 
 .kitchen-items li {
-  padding: 8px 0;
+  padding: calc(8px * var(--kitchen-scale)) 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.26);
-  font-size: 20px;
+  font-size: var(--kitchen-item-font);
   font-weight: 800;
 }
 
@@ -1036,6 +1114,11 @@ button:disabled {
 .kitchen-card .primary-btn {
   background: #ffffff;
   color: var(--ink);
+}
+
+.kitchen-page .empty-state {
+  height: 100%;
+  min-height: 0;
 }
 
 .empty-state {
@@ -1069,19 +1152,11 @@ button:disabled {
   .table-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-
-  .kitchen-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (min-width: 1040px) {
   .table-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .kitchen-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

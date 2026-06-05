@@ -1,21 +1,110 @@
 category,item_name,price,available
-Sandwich,Veg Sandwich,90,yes
-Sandwich,Peri Peri Sandwich,110,yes
-Sandwich,Club Sandwich,130,yes
-Sandwich,Cheese Corn Sandwich,120,yes
-Pizza,Margherita Pizza,160,yes
-Pizza,Farmhouse Pizza,220,yes
-Pizza,Paneer Tikka Pizza,240,yes
-Main Course,Dal Makhani,140,yes
-Main Course,Paneer Butter Masala,160,yes
-Main Course,Veg Biryani,150,yes
-Main Course,Chole Kulche,130,yes
-Snacks,French Fries,90,yes
-Snacks,Masala Maggi,80,yes
-Snacks,Spring Roll,120,yes
-Drinks,Coke,60,yes
-Drinks,Lassi,80,yes
-Drinks,Cold Coffee,120,yes
-Drinks,Lemon Iced Tea,100,yes
-Desserts,Gulab Jamun,60,no
-Desserts,Brownie,110,yes
+Combos,Combo 1 - French Fries + 2 Coke,149,yes
+Combos,Combo 2 - Onion Pizza (L) + 2 Coke,299,yes
+Combos,Combo 3 - Chilli Potato + 2 Burger + 2 Cold Coffee,349,yes
+Tea,Regular Tea,30,yes
+Tea,Masala Tea,45,yes
+Tea,Kulhhad Tea,45,yes
+Tea,Special Tea,55,yes
+Hot Coffee,Regular Coffee,59,yes
+Hot Coffee,Kullhad Coffee,69,yes
+Hot Coffee,Black Coffee,79,yes
+Hot Coffee,Chocolate Coffee,79,yes
+Cold Coffee,Cold Coffee,99,yes
+Cold Coffee,Chocolate Coffee,119,yes
+Cold Coffee,Caramel Coffee,129,yes
+Mojito,Virgin Mojito,89,yes
+Mojito,Fresh Lime,89,yes
+Mojito,Green Apple,99,yes
+Mojito,Blue Lagoon,99,yes
+Shakes,Banana Shake,79,yes
+Shakes,Mango Shake,89,yes
+Shakes,Vanilla Shake,99,yes
+Shakes,Chocolate Shake,99,yes
+Shakes,Strawberry Shake,99,yes
+Shakes,Butterscotch Shake,99,yes
+Shakes,Oreo Shake,120,yes
+Shakes,Kit Kat Shake,120,yes
+Boost Bar,Coke,49,yes
+Boost Bar,Sprite,49,yes
+Boost Bar,Dew,49,yes
+Boost Bar,Slice,59,yes
+Boost Bar,Super Sting,59,yes
+Starters,French Fries,99,yes
+Starters,Masala Fries,109,yes
+Starters,Peri-Peri Fries,139,yes
+Starters,Chilli Potato,149,yes
+Starters,Honey Chilli Potato,159,yes
+Starters,Dry Chilli Paneer,249,yes
+Starters,Gravy Chilli Paneer,269,yes
+Starters,Dry Manchurian,120,yes
+Starters,Gravy Manchurian,150,yes
+Starters,Crispy Paneer,230,yes
+Starters,Spring Roll,110,yes
+Starters,Dahi Kebab,160,yes
+Starters,KFC Chaap,210,yes
+Pasta,Red Sauce Pasta,140,yes
+Pasta,White Sauce Pasta,160,yes
+Pasta,Tandoori Pasta,170,yes
+Pasta,Mix Sauce Pasta,180,yes
+Pasta,D Dream Special Pasta,210,yes
+Noodles,Veg Noodles,109,yes
+Noodles,Hakka Noodles,120,yes
+Noodles,Paneer Noodles,160,yes
+Noodles,Schezwan Noodles,160,yes
+Garlic Breads,Cheese Garlic Bread,110,yes
+Garlic Breads,Stuff Garlic Bread,120,yes
+Garlic Breads,Cheese Paneer Topped,130,yes
+Burgers,Regular Burger,69,yes
+Burgers,Veg Burger,79,yes
+Burgers,Cheese Burger,89,yes
+Burgers,Paneer Burger,99,yes
+Burgers,Tandoori Burger,109,yes
+Sandwiches,Veg Grilled Sandwich,89,yes
+Sandwiches,Veg Patty Sandwich,99,yes
+Sandwiches,Aloo Tikki Sandwich,130,yes
+Sandwiches,Cheese Sandwich,160,yes
+Sandwiches,Paneer Tikka Sandwich,180,yes
+Sandwiches,Ddream Special Sandwich,200,yes
+Momos,Steamed Momos,110,yes
+Momos,Fried Momos,120,yes
+Momos,Peri-Peri Fried Momos,130,yes
+Momos,Kurkure Momos,150,yes
+Maggi,Plane Maggi,70,yes
+Maggi,Veg Maggi,80,yes
+Maggi,Masala Maggi,90,yes
+Maggi,Tandoori Maggi,100,yes
+Maggi,Cheese Maggi,110,yes
+Ice Cream,Vannila,59,yes
+Ice Cream,Strawberry,59,yes
+Ice Cream,Chocolate,69,yes
+Pizza,Onion Pizza (S),129,yes
+Pizza,Onion Pizza (M),189,yes
+Pizza,Onion Pizza (L),249,yes
+Pizza,Tomato Pizza (S),129,yes
+Pizza,Tomato Pizza (M),189,yes
+Pizza,Tomato Pizza (L),249,yes
+Pizza,Capsicum Pizza (S),129,yes
+Pizza,Capsicum Pizza (M),189,yes
+Pizza,Capsicum Pizza (L),249,yes
+Pizza,Sweet Corn Pizza (S),129,yes
+Pizza,Sweet Corn Pizza (M),189,yes
+Pizza,Sweet Corn Pizza (L),249,yes
+Pizza,Margherita Pizza (S),149,yes
+Pizza,Margherita Pizza (M),209,yes
+Pizza,Margherita Pizza (L),269,yes
+Pizza,Onion Cap Pizza (S),139,yes
+Pizza,Onion Cap Pizza (M),199,yes
+Pizza,Onion Cap Pizza (L),259,yes
+Pizza,Farmhouse Pizza (S),189,yes
+Pizza,Farmhouse Pizza (M),239,yes
+Pizza,Farmhouse Pizza (L),299,yes
+Pizza,Paneer Pizza (S),199,yes
+Pizza,Paneer Pizza (M),259,yes
+Pizza,Paneer Pizza (L),319,yes
+Pizza,Paneer Tikka Pizza (S),210,yes
+Pizza,Paneer Tikka Pizza (M),269,yes
+Pizza,Paneer Tikka Pizza (L),329,yes
+Pizza,Ddream Spl Pizza (S),220,yes
+Pizza,Ddream Spl Pizza (M),279,yes
+Pizza,Ddream Spl Pizza (L),389,yes

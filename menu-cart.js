@@ -1,4 +1,5 @@
 import { escapeHtml, formatCurrency, groupByCategory } from "./firebase.js";
+import { getCategoryImage } from "./category-images.js";
 
 // Creates a stable key for menu/cart items.
 export function makeItemKey(item) {
@@ -43,7 +44,8 @@ export function buildMenuState(items) {
 export function renderCategoryRow(container, categories, activeCategory, onSelect) {
   container.innerHTML = categories.map((category) => `
     <button class="pill ${category === activeCategory ? "active" : ""}" type="button" data-category="${escapeHtml(category)}">
-      ${escapeHtml(category)}
+      <img class="pill-icon" src="${escapeHtml(getCategoryImage(category))}" alt="" width="44" height="44" loading="lazy">
+      <span class="pill-label">${escapeHtml(category)}</span>
     </button>
   `).join("");
 

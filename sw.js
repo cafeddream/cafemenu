@@ -1,4 +1,4 @@
-const CACHE_NAME = "cafe-d-dream-v4";
+const CACHE_NAME = "cafe-d-dream-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -10,10 +10,30 @@ const APP_SHELL = [
   "./kitchen.js",
   "./firebase.js",
   "./menu-cart.js",
+  "./category-images.js",
   "./staff-auth.js",
   "./manifest.json",
   "./sample-menu.csv",
-  "./icon-192.png"
+  "./icon-192.png",
+  "./assets/ddream-menu-board.png",
+  "./assets/categories/combos.jpg",
+  "./assets/categories/tea.jpg",
+  "./assets/categories/hot-coffee.jpg",
+  "./assets/categories/cold-coffee.jpg",
+  "./assets/categories/mojito.jpg",
+  "./assets/categories/shakes.jpg",
+  "./assets/categories/soft-drinks.jpg",
+  "./assets/categories/starters.jpg",
+  "./assets/categories/pasta.jpg",
+  "./assets/categories/noodles.jpg",
+  "./assets/categories/garlic-bread.jpg",
+  "./assets/categories/burgers.jpg",
+  "./assets/categories/sandwiches.jpg",
+  "./assets/categories/momos.jpg",
+  "./assets/categories/maggi.jpg",
+  "./assets/categories/ice-cream.jpg",
+  "./assets/categories/pizza.jpg",
+  "./assets/categories/default.jpg"
 ];
 
 const NETWORK_FIRST = ["/firebase", ".js", ".html"];
