@@ -40,23 +40,59 @@ export function buildMenuState(items) {
   };
 }
 
-// Renders horizontal category pills; onSelect receives the category name.
-export function renderCategoryRow(container, categories, activeCategory, onSelect) {
+// Renders main section tabs (Combos / Drinks / Food / Pizza).
+export function renderSectionTabs(container, sections, activeSectionId, onSelect) {
+  container.innerHTML = sections.map((section) => `
+    <button
+      class="section-tab ${section.id === activeSectionId ? "active" : ""}"
+      type="button"
+      role="tab"
+      aria-selected="${section.id === activeSectionId}"
+      data-section="${escapeHtml(section.id)}"
+    >
+      <img class="section-tab-icon" src="${escapeHtml(section.image)}" alt="" width="28" height="28" loading="lazy">
+      <span>${escapeHtml(section.label)}</span>
+    </button>
+  `).join("");
+
+  container.querySelectorAll("[data-section]").forEach((button) => {
+    button.addEventListener("click", () => onSelect(button.dataset.section));
+  });
+}
+
+function renderCategoryPills(container, categories, activeCategory, onSelect, compact) {
+  const pillClass = compact ? "pill pill-compact" : "pill";
+  const iconSize = compact ? 36 : 44;
+
   container.innerHTML = categories.map((category) => `
-    <button class="pill ${category === activeCategory ? "active" : ""}" type="button" data-category="${escapeHtml(category)}">
-      <img class="pill-icon" src="${escapeHtml(getCategoryImage(category))}" alt="" width="44" height="44" loading="lazy">
+    <button class="${pillClass} ${category === activeCategory ? "active" : ""}" type="button" data-category="${escapeHtml(category)}">
+      <img class="pill-icon" src="${escapeHtml(getCategoryImage(category))}" alt="" width="${iconSize}" height="${iconSize}" loading="lazy">
       <span class="pill-label">${escapeHtml(category)}</span>
     </button>
   `).join("");
 
-  container.querySelectorAll("button").forEach((button) => {
+  container.querySelectorAll("[data-category]").forEach((button) => {
     button.addEventListener("click", () => onSelect(button.dataset.category));
   });
 }
 
+// Renders horizontal category pills (admin / legacy).
+export function renderCategoryRow(container, categories, activeCategory, onSelect) {
+  container.classList.remove("category-grid");
+  container.classList.add("category-row");
+  renderCategoryPills(container, categories, activeCategory, onSelect, false);
+}
+
+// Renders a compact category grid for the customer menu.
+export function renderCategoryGrid(container, categories, activeCategory, onSelect) {
+  container.classList.remove("category-row");
+  container.classList.add("category-grid");
+  renderCategoryPills(container, categories, activeCategory, onSelect, true);
+}
+
 // Renders menu item cards with quantity controls.
-export function renderMenuList(container, items, cart, onQtyChange) {
-  container.innerHTML = items.map((item) => {
+export function renderMenuList(container, items, cart, onQtyChange, leadingHtml = "") {
+  const cards = items.map((item) => {
     const key = makeItemKey(item);
     const qty = cart.get(key)?.qty || 0;
     return `
@@ -73,6 +109,8 @@ export function renderMenuList(container, items, cart, onQtyChange) {
       </article>
     `;
   }).join("");
+
+  container.innerHTML = `${leadingHtml}${cards}`;
 
   container.querySelectorAll(".qty-control").forEach((control) => {
     const item = items.find((candidate) => makeItemKey(candidate) === control.dataset.key);

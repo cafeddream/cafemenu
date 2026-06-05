@@ -93,6 +93,52 @@ button:disabled {
   }
 }
 
+.menu-nav {
+  position: sticky;
+  top: 57px;
+  z-index: 9;
+  background: rgba(255, 250, 247, 0.97);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(12px);
+}
+
+.section-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px 0;
+}
+
+.section-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 56px;
+  padding: 6px 4px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.section-tab-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.section-tab.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
 .category-row {
   display: flex;
   gap: 10px;
@@ -102,6 +148,17 @@ button:disabled {
 }
 
 .category-row::-webkit-scrollbar {
+  display: none;
+}
+
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+
+.category-grid:empty {
   display: none;
 }
 
@@ -118,6 +175,22 @@ button:disabled {
   color: var(--ink);
   border: 1px solid var(--line);
   white-space: normal;
+}
+
+.pill-compact {
+  width: auto;
+  padding: 6px 4px 8px;
+  border-radius: 12px;
+  gap: 4px;
+}
+
+.pill-compact .pill-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.pill-compact .pill-label {
+  font-size: 10px;
 }
 
 .pill-icon {
@@ -162,6 +235,12 @@ button:disabled {
 .cart-list {
   display: grid;
   gap: 12px;
+}
+
+.menu-category-heading {
+  margin: 4px 0 8px;
+  font-size: 20px;
+  font-weight: 800;
 }
 
 .item-card,
