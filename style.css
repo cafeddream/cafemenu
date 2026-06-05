@@ -152,28 +152,6 @@ button:disabled {
   color: #ffffff;
 }
 
-.menu-poster-wrap {
-  margin: 0;
-  padding: 12px 16px 0;
-}
-
-.menu-poster {
-  display: block;
-  width: 100%;
-  max-height: min(42vh, 320px);
-  object-fit: contain;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: #1a120f;
-}
-
-.menu-poster-caption {
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: var(--muted);
-  text-align: center;
-}
-
 .content {
   width: min(100%, 1024px);
   margin: 0 auto;
