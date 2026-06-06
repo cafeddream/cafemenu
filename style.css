@@ -486,6 +486,10 @@ button:disabled {
   border-radius: 8px;
 }
 
+.qr-img[hidden] {
+  display: none;
+}
+
 .upi-text {
   margin: 8px 0 18px;
   color: var(--muted);
@@ -494,7 +498,7 @@ button:disabled {
 
 .payment-buttons {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin: 16px 0 10px;
 }
@@ -516,14 +520,38 @@ button:disabled {
 
 .pay-link {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
+  min-height: 58px;
+  padding: 10px 8px;
   text-decoration: none;
+}
+
+.pay-link span {
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.pay-link strong {
+  font-size: 12px;
+  line-height: 1.1;
 }
 
 .paid-claim-btn {
   width: 100%;
   margin-top: 4px;
+}
+
+.payment-warning {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff3cb;
+  color: #8a6100;
+  font-size: 14px;
+  font-weight: 900;
 }
 
 .payment-note {
@@ -742,14 +770,19 @@ button:disabled {
 .order-lines {
   flex: 1 1 auto;
   min-height: 0;
-  max-height: 128px;
   margin: 12px 0;
   padding: 0;
   list-style: none;
   color: #3f4650;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
+  overflow: visible;
+  cursor: zoom-in;
+  outline: none;
+}
+
+.order-lines:focus-visible {
+  outline: 3px solid rgba(255, 107, 53, 0.24);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 .order-lines li {
@@ -758,6 +791,11 @@ button:disabled {
   gap: 12px;
   padding: 4px 0;
   border-bottom: 1px dashed #eceff3;
+}
+
+.order-more-line {
+  color: var(--muted);
+  font-weight: 900;
 }
 
 .card-meta {
@@ -810,7 +848,11 @@ button:disabled {
 .card-actions button {
   width: 100%;
   min-width: 0;
-  min-height: 42px;
+  min-height: 36px;
+  padding: 8px 6px;
+  font-size: 12px;
+  line-height: 1.1;
+  white-space: normal;
 }
 
 .modal-backdrop {
@@ -1438,6 +1480,11 @@ button:disabled {
   min-height: var(--kitchen-item-row);
 }
 
+.kitchen-more-item {
+  opacity: 0.9;
+  font-weight: 900;
+}
+
 .kitchen-item-qty {
   flex: 0 0 auto;
   opacity: 0.9;
@@ -1583,15 +1630,11 @@ button:disabled {
 
 @media (min-width: 720px) {
   .payment-buttons {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .payment-choice-grid {
     grid-template-columns: 1fr 1fr;
-  }
-
-  .payment-buttons .primary-btn {
-    grid-column: 1 / -1;
   }
 
   .table-grid {

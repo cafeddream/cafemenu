@@ -35,6 +35,7 @@ const state = {
   orders: new Map(),
   knownOccupied: new Set(),
   pendingPaidTable: null,
+  hoverPreview: null,
   orderTableId: null,
   groupedMenu: {},
   categories: [],
@@ -132,6 +133,8 @@ function bindUi() {
     showAdminOrderScreen("cart");
   });
   elements.adminPlaceOrderBtn.addEventListener("click", placeAdminOrder);
+  window.addEventListener("scroll", hideAdminHoverPreview, true);
+  window.addEventListener("resize", hideAdminHoverPreview);
   elements.signOutBtn.addEventListener("click", async () => {
     await signOutStaff();
     window.location.reload();
@@ -229,9 +232,7 @@ function tableCardHtml(tableId, order, flash = false) {
   const sourceBadge = order.placedBy === "counter"
     ? "<span class=\"badge source-badge\">Counter</span>"
     : "";
-  const lines = (order.items || []).map((item) => `
-    <li><span>${escapeHtml(item.name)}</span><strong>x${Number(item.qty || 0)}</strong></li>
-  `).join("");
+  const lines = renderAdminItemsHtml(order.items || []);
 
   return `
     <article class="table-card status-${escapeHtml(status)} ${canOrder ? "table-card-orderable" : ""} ${flash ? "flash" : ""}" ${canOrder ? `data-table="${escapeHtml(tableId)}" tabindex="0" aria-label="Add items for ${escapeHtml(tableId)}"` : ""}>
@@ -243,7 +244,7 @@ function tableCardHtml(tableId, order, flash = false) {
       ${customerLine}
       ${paymentClaimed ? "<div class=\"payment-alert\">Customer says payment done - verify UPI</div>" : ""}
       ${cashRequested ? "<div class=\"payment-alert cash-alert\">Customer will pay cash at counter</div>" : ""}
-      <ul class="order-lines">${lines}</ul>
+      <ul class="order-lines" data-item-detail role="button" tabindex="0" aria-label="View all items for ${escapeHtml(tableId)}">${lines}</ul>
       <div class="card-meta">
         <strong>${formatCurrency(order.total)}</strong>
         <span>${formatTime(order.timestamp)}</span>
@@ -302,6 +303,81 @@ function bindCardActions() {
       }
     });
   });
+
+  elements.tableGrid.querySelectorAll(".order-lines[data-item-detail]").forEach((itemArea) => {
+    const card = itemArea.closest(".table-card");
+    itemArea.addEventListener("mouseenter", () => showAdminHoverPreview(card));
+    itemArea.addEventListener("focus", () => showAdminHoverPreview(card));
+    itemArea.addEventListener("mouseleave", hideAdminHoverPreview);
+    itemArea.addEventListener("blur", hideAdminHoverPreview);
+  });
+}
+
+function renderAdminItemsHtml(items = []) {
+  const visibleItems = items.slice(0, 3);
+  const moreCount = Math.max(0, items.length - visibleItems.length);
+  return `${visibleItems.map((item) => `
+    <li><span>${escapeHtml(item.name)}</span><strong>x${Number(item.qty || 0)}</strong></li>
+  `).join("")}${moreCount ? `
+    <li class="order-more-line"><span>+${moreCount} more</span><strong></strong></li>
+  ` : ""}`;
+}
+
+function renderAdminDetailItemsHtml(items = []) {
+  if (!items.length) return "<li class=\"kitchen-detail-item\"><span>No items</span></li>";
+
+  return items.map((item) => `
+    <li class="kitchen-detail-item">
+      <span class="kitchen-detail-qty">${Number(item.qty || 0)}&times;</span>
+      <span class="kitchen-detail-name">${escapeHtml(item.name)}</span>
+    </li>
+  `).join("");
+}
+
+function getAdminHoverPreview() {
+  if (state.hoverPreview) return state.hoverPreview;
+
+  const preview = document.createElement("div");
+  preview.className = "kitchen-hover-preview admin-hover-preview";
+  preview.hidden = true;
+  preview.setAttribute("aria-hidden", "true");
+  document.body.append(preview);
+  state.hoverPreview = preview;
+  return preview;
+}
+
+function showAdminHoverPreview(card) {
+  if (!card || !window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+
+  const tableId = card.querySelector(".card-actions")?.dataset.table || card.dataset.table;
+  const order = state.orders.get(tableId);
+  if (!order) return;
+
+  const preview = getAdminHoverPreview();
+  const cardRect = card.getBoundingClientRect();
+  preview.style.width = `${Math.min(360, Math.max(260, cardRect.width))}px`;
+  preview.style.left = "0px";
+  preview.style.top = "0px";
+  preview.innerHTML = `
+    <strong>Order ${escapeHtml(tableId)}</strong>
+    <ul class="kitchen-detail-list">${renderAdminDetailItemsHtml(order.items || [])}</ul>
+  `;
+  preview.hidden = false;
+
+  const previewRect = preview.getBoundingClientRect();
+  const left = Math.min(
+    window.innerWidth - previewRect.width - 12,
+    Math.max(12, cardRect.left + 10)
+  );
+  const maxTop = Math.max(12, window.innerHeight - previewRect.height - 12);
+  const top = Math.min(maxTop, Math.max(12, cardRect.top + 56));
+
+  preview.style.left = `${left}px`;
+  preview.style.top = `${top}px`;
+}
+
+function hideAdminHoverPreview() {
+  if (state.hoverPreview) state.hoverPreview.hidden = true;
 }
 
 function printTableBill(tableId) {
@@ -579,12 +655,14 @@ async function placeAdminOrder() {
   const { items } = getCartTotals(state.cart);
   if (!items.length) return;
 
+  const tableId = state.orderTableId;
   elements.adminPlaceOrderBtn.disabled = true;
 
   try {
-    await placeOrAppendOrder(state.orderTableId, items, "counter");
-    showToast(`Order placed for ${state.orderTableId}`);
+    await placeOrAppendOrder(tableId, items, "counter");
+    showToast(`Order placed for ${tableId}`);
     closeAdminOrderModal();
+    openPaymentMethodModal(tableId);
   } catch {
     showToast("Order failed. Check connection and refresh.");
     elements.adminPlaceOrderBtn.disabled = false;

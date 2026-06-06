@@ -31,12 +31,14 @@ const elements = {
 let resizeTimer = null;
 
 function renderKitchenItemsHtml(items = []) {
-  return items.map((item) => `
-    <li class="kitchen-item">
-      <span class="kitchen-item-qty">${Number(item.qty || 0)}×</span>
-      <span class="kitchen-item-name">${escapeHtml(item.name)}</span>
-    </li>
-  `).join("");
+  return items.map((item) => item.more
+    ? `<li class="kitchen-item kitchen-more-item"><span class="kitchen-item-name">${escapeHtml(item.name)}</span></li>`
+    : `
+      <li class="kitchen-item">
+        <span class="kitchen-item-qty">${Number(item.qty || 0)}x</span>
+        <span class="kitchen-item-name">${escapeHtml(item.name)}</span>
+      </li>
+    `).join("");
 }
 
 function renderKitchenDetailItemsHtml(items = []) {
@@ -50,6 +52,13 @@ function renderKitchenDetailItemsHtml(items = []) {
       <span class="kitchen-detail-name">${escapeHtml(item.name)}</span>
     </li>
   `).join("");
+}
+
+function getPreviewItems(items = []) {
+  const visibleItems = items.slice(0, 3);
+  const moreCount = Math.max(0, items.length - visibleItems.length);
+  if (!moreCount) return visibleItems;
+  return [...visibleItems, { name: `+${moreCount} more`, more: true }];
 }
 
 // Starts the kitchen display and live order subscriptions.
@@ -300,7 +309,7 @@ function updateKitchenCardBody(card, order) {
     alert.remove();
   }
 
-  const itemsHtml = renderKitchenItemsHtml(order.items);
+  const itemsHtml = renderKitchenItemsHtml(getPreviewItems(order.items || []));
   card.querySelector(".kitchen-items").innerHTML = itemsHtml;
   const itemArea = card.querySelector("[data-item-detail]");
   if (itemArea) itemArea.setAttribute("aria-label", `View all items for ${order.tableId}`);
@@ -362,7 +371,7 @@ function kitchenCardHtml(order) {
     : "Time left";
   const timerValue = timer.expired ? formatKitchenTimer(0) : formatKitchenTimer(timer.remainingSec);
   const placedBy = order.placedBy === "counter" ? "<span class=\"kitchen-source\">Counter</span>" : "";
-  const items = renderKitchenItemsHtml(order.items);
+  const items = renderKitchenItemsHtml(getPreviewItems(order.items || []));
 
   return `
     <article

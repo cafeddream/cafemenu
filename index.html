@@ -49,24 +49,24 @@
     <section class="screen" id="paymentScreen">
       <div class="content">
         <div class="payment-panel">
-          <h2>Payment</h2>
+          <h2>Pay via UPI</h2>
+          <div class="payment-warning">Order will be considered only after payment.</div>
           <p class="order-status-live" id="orderStatusLive" aria-live="polite">Order status: New Order</p>
           <div class="tracker-steps" id="trackerSteps" aria-label="Order progress"></div>
           <div class="lookup-results" id="lookupResults" hidden></div>
           <div id="paymentSummary"></div>
-          <div class="payment-choice-grid">
-            <button class="primary-btn" id="chooseOnlineBtn" type="button">Pay Online</button>
-          </div>
           <div class="online-payment-panel" id="onlinePaymentPanel" hidden>
-            <img class="qr-img" id="upiQr" alt="UPI QR code">
             <div class="payment-buttons">
-              <a class="primary-btn pay-link" id="payUpiBtn" href="#">Pay with UPI App</a>
-              <a class="secondary-btn pay-link" id="payGpayBtn" href="#">Google Pay</a>
-              <a class="secondary-btn pay-link" id="payPaytmBtn" href="#">Paytm</a>
+              <a class="primary-btn pay-link" id="payUpiBtn" href="#"><span>UPI</span><strong>Pay</strong></a>
+              <a class="secondary-btn pay-link" id="payGpayBtn" href="#"><span>GPay</span><strong>Pay</strong></a>
+              <a class="secondary-btn pay-link" id="payPaytmBtn" href="#"><span>Paytm</span><strong>Pay</strong></a>
+              <a class="secondary-btn pay-link" id="payPhonePeBtn" href="#"><span>PhonePe</span><strong>Pay</strong></a>
+              <button class="ghost-btn pay-link" id="showQrBtn" type="button"><span>QR</span><strong>Show QR</strong></button>
             </div>
+            <img class="qr-img" id="upiQr" alt="UPI QR code" hidden>
             <button class="ghost-btn paid-claim-btn" id="paymentDoneBtn" type="button">I have paid online</button>
           </div>
-          <p class="payment-note" id="paymentNote">Choose how you want to pay for this order.</p>
+          <p class="payment-note" id="paymentNote">Choose any UPI app or show the QR to complete payment.</p>
           <p class="upi-text" id="upiIdText"></p>
           <button class="primary-btn" id="addMoreItems" type="button">Add More Items</button>
         </div>

@@ -77,6 +77,8 @@ const elements = {
   payUpiBtn: document.querySelector("#payUpiBtn"),
   payGpayBtn: document.querySelector("#payGpayBtn"),
   payPaytmBtn: document.querySelector("#payPaytmBtn"),
+  payPhonePeBtn: document.querySelector("#payPhonePeBtn"),
+  showQrBtn: document.querySelector("#showQrBtn"),
   paymentDoneBtn: document.querySelector("#paymentDoneBtn"),
   paymentNote: document.querySelector("#paymentNote"),
   addMoreItems: document.querySelector("#addMoreItems"),
@@ -154,7 +156,8 @@ function bindEvents() {
   elements.addMoreTop.addEventListener("click", () => showScreen("menu"));
   elements.retryMenu.addEventListener("click", loadMenu);
   elements.placeOrderBtn.addEventListener("click", placeOrder);
-  elements.chooseOnlineBtn.addEventListener("click", chooseOnlinePayment);
+  if (elements.chooseOnlineBtn) elements.chooseOnlineBtn.addEventListener("click", chooseOnlinePayment);
+  elements.showQrBtn.addEventListener("click", showPaymentQr);
   elements.paymentDoneBtn.addEventListener("click", markCustomerPaid);
   elements.trackTop.addEventListener("click", showCustomerTrack);
   elements.trackFromModal.addEventListener("click", showCustomerTrack);
@@ -364,16 +367,19 @@ function renderPayment(total, order = null) {
   elements.payUpiBtn.href = paymentLinks.upi;
   elements.payGpayBtn.href = paymentLinks.googlePay;
   elements.payPaytmBtn.href = paymentLinks.paytm;
+  elements.payPhonePeBtn.href = paymentLinks.phonePe;
   elements.upiIdText.textContent = CONFIG.UPI_ID;
   elements.paymentDoneBtn.textContent = "I have paid online";
   elements.paymentDoneBtn.disabled = isPaid;
-  elements.chooseOnlineBtn.disabled = isPaid;
-  elements.onlinePaymentPanel.hidden = true;
+  if (elements.chooseOnlineBtn) elements.chooseOnlineBtn.disabled = isPaid;
+  elements.onlinePaymentPanel.hidden = isPaid;
+  elements.upiQr.hidden = true;
+  elements.showQrBtn.innerHTML = "<span>QR</span><strong>Show QR</strong>";
   elements.upiIdText.hidden = true;
-  elements.paymentChoiceGrid.hidden = isPaid;
+  if (elements.paymentChoiceGrid) elements.paymentChoiceGrid.hidden = true;
   elements.paymentNote.textContent = isPaid
     ? "Payment completed. Thank you."
-    : "Choose online payment for this order.";
+    : "Choose any UPI app or show the QR to complete payment.";
   elements.addMoreItems.hidden = isPaid || tableId !== state.tableId;
   updateOrderStatusBanner(order);
   renderTrackerSteps(order?.status || "new");
@@ -428,7 +434,7 @@ function resetCustomerSessionAfterTableClear() {
   elements.paymentSummary.innerHTML = "";
   elements.onlinePaymentPanel.hidden = true;
   elements.upiIdText.hidden = true;
-  elements.paymentChoiceGrid.hidden = false;
+  if (elements.paymentChoiceGrid) elements.paymentChoiceGrid.hidden = false;
   renderMenu();
   updateBottomBar("menu");
   showScreen("menu");
@@ -506,6 +512,13 @@ function chooseOnlinePayment() {
   elements.paymentDoneBtn.disabled = false;
   elements.paymentDoneBtn.textContent = "I have paid online";
   elements.paymentNote.textContent = "Complete UPI payment, then tap “I have paid online” so counter can verify it.";
+}
+
+function showPaymentQr() {
+  elements.upiQr.hidden = false;
+  elements.upiIdText.hidden = false;
+  elements.showQrBtn.innerHTML = "<span>QR</span><strong>QR shown</strong>";
+  elements.paymentNote.textContent = "Scan the QR, then tap I have paid online so counter can verify it.";
 }
 
 async function markCustomerPaid() {

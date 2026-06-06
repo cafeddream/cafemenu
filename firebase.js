@@ -702,7 +702,8 @@ export function buildPaymentLinks(tableId, total) {
   return {
     upi: `upi://pay?${query}`,
     googlePay: `tez://upi/pay?${query}`,
-    paytm: `paytmmp://pay?${query}`
+    paytm: `paytmmp://pay?${query}`,
+    phonePe: `phonepe://pay?${query}`
   };
 }
 
