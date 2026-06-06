@@ -23,6 +23,19 @@
 
   <main id="kitchenMain" aria-live="polite"></main>
 
+  <div class="modal-backdrop kitchen-items-backdrop" id="kitchenItemsModal" hidden>
+    <section class="history-modal kitchen-items-modal" role="dialog" aria-modal="true" aria-labelledby="kitchenItemsModalTitle">
+      <div class="modal-head">
+        <div>
+          <h2 id="kitchenItemsModalTitle">Order Items</h2>
+          <div class="subtle" id="kitchenItemsModalMeta"></div>
+        </div>
+        <button class="ghost-btn" id="closeKitchenItems" type="button">Close</button>
+      </div>
+      <ul class="kitchen-detail-list" id="kitchenItemsModalList"></ul>
+    </section>
+  </div>
+
   <script type="module" src="./kitchen.js"></script>
 </body>
 </html>

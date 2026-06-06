@@ -13,13 +13,19 @@ import { requireStaffAuth } from "./staff-auth.js";
 const state = {
   orders: new Map(),
   visibleIds: new Set(),
-  cards: new Map()
+  cards: new Map(),
+  hoverPreview: null
 };
 
 const elements = {
   clock: document.querySelector("#kitchenClock"),
   pendingCount: document.querySelector("#pendingCount"),
-  main: document.querySelector("#kitchenMain")
+  main: document.querySelector("#kitchenMain"),
+  itemModal: document.querySelector("#kitchenItemsModal"),
+  itemModalTitle: document.querySelector("#kitchenItemsModalTitle"),
+  itemModalMeta: document.querySelector("#kitchenItemsModalMeta"),
+  itemModalList: document.querySelector("#kitchenItemsModalList"),
+  closeItemModal: document.querySelector("#closeKitchenItems")
 };
 
 let resizeTimer = null;
@@ -33,10 +39,24 @@ function renderKitchenItemsHtml(items = []) {
   `).join("");
 }
 
+function renderKitchenDetailItemsHtml(items = []) {
+  if (!items.length) {
+    return "<li class=\"kitchen-detail-item\"><span>No items</span></li>";
+  }
+
+  return items.map((item) => `
+    <li class="kitchen-detail-item">
+      <span class="kitchen-detail-qty">${Number(item.qty || 0)}&times;</span>
+      <span class="kitchen-detail-name">${escapeHtml(item.name)}</span>
+    </li>
+  `).join("");
+}
+
 // Starts the kitchen display and live order subscriptions.
 function init() {
   registerServiceWorker();
   startClock();
+  bindKitchenItemModal();
   requireStaffAuth(() => {
     subscribeToActiveOrders();
     setInterval(updateKitchenTimers, 1000);
@@ -54,7 +74,7 @@ function layoutKitchenGrid(orderCount) {
 
   const wide = window.innerWidth >= 720;
   if (wide && orderCount <= 8) {
-    const rows = orderCount <= 4 ? 1 : 2;
+    const rows = 2;
     grid.classList.add("kitchen-grid-fit");
     grid.style.setProperty("--kitchen-rows", String(rows));
     grid.style.gridTemplateColumns = "repeat(4, minmax(0, 1fr))";
@@ -80,6 +100,101 @@ function startClock() {
   };
   tick();
   setInterval(tick, 1000);
+}
+
+function bindKitchenItemModal() {
+  if (!elements.itemModal) return;
+
+  elements.closeItemModal.addEventListener("click", closeKitchenItemsModal);
+  elements.itemModal.addEventListener("click", (event) => {
+    if (event.target === elements.itemModal) closeKitchenItemsModal();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !elements.itemModal.hidden) closeKitchenItemsModal();
+  });
+  window.addEventListener("scroll", hideKitchenHoverPreview, true);
+  window.addEventListener("resize", hideKitchenHoverPreview);
+}
+
+function closeKitchenItemsModal() {
+  if (elements.itemModal) elements.itemModal.hidden = true;
+}
+
+function openKitchenItemsModal(order) {
+  if (!elements.itemModal || !order) return;
+
+  const items = order.items || [];
+  const count = items.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+  const source = order.placedBy === "counter" ? "Counter" : "Customer";
+
+  elements.itemModalTitle.textContent = `Order ${order.tableId}`;
+  elements.itemModalMeta.textContent = `${source} - ${count} item${count === 1 ? "" : "s"}`;
+  elements.itemModalList.innerHTML = renderKitchenDetailItemsHtml(items);
+  elements.itemModal.hidden = false;
+  hideKitchenHoverPreview();
+  elements.closeItemModal.focus();
+}
+
+function getKitchenHoverPreview() {
+  if (state.hoverPreview) return state.hoverPreview;
+
+  const preview = document.createElement("div");
+  preview.className = "kitchen-hover-preview";
+  preview.hidden = true;
+  preview.setAttribute("aria-hidden", "true");
+  document.body.append(preview);
+  state.hoverPreview = preview;
+  return preview;
+}
+
+function showKitchenHoverPreview(card) {
+  if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+
+  const order = state.orders.get(card.dataset.table);
+  if (!order) return;
+
+  const preview = getKitchenHoverPreview();
+  const cardRect = card.getBoundingClientRect();
+  preview.style.width = `${Math.min(360, Math.max(260, cardRect.width))}px`;
+  preview.style.left = "0px";
+  preview.style.top = "0px";
+  preview.innerHTML = `
+    <strong>Order ${escapeHtml(order.tableId)}</strong>
+    <ul class="kitchen-detail-list">${renderKitchenDetailItemsHtml(order.items || [])}</ul>
+  `;
+  preview.hidden = false;
+
+  const previewRect = preview.getBoundingClientRect();
+  const left = Math.min(
+    window.innerWidth - previewRect.width - 12,
+    Math.max(12, cardRect.left + 10)
+  );
+  const maxTop = Math.max(12, window.innerHeight - previewRect.height - 12);
+  const top = Math.min(maxTop, Math.max(12, cardRect.top + 56));
+
+  preview.style.left = `${left}px`;
+  preview.style.top = `${top}px`;
+}
+
+function hideKitchenHoverPreview() {
+  if (state.hoverPreview) state.hoverPreview.hidden = true;
+}
+
+function bindKitchenItemDetails(card) {
+  const itemArea = card.querySelector("[data-item-detail]");
+  if (!itemArea) return;
+
+  itemArea.onclick = () => openKitchenItemsModal(state.orders.get(card.dataset.table));
+  itemArea.onkeydown = (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openKitchenItemsModal(state.orders.get(card.dataset.table));
+    }
+  };
+  itemArea.onmouseenter = () => showKitchenHoverPreview(card);
+  itemArea.onfocus = () => showKitchenHoverPreview(card);
+  itemArea.onmouseleave = hideKitchenHoverPreview;
+  itemArea.onblur = hideKitchenHoverPreview;
 }
 
 // Listens to every table and keeps only cooking-relevant orders.
@@ -185,6 +300,8 @@ function updateKitchenCardBody(card, order) {
 
   const itemsHtml = renderKitchenItemsHtml(order.items);
   card.querySelector(".kitchen-items").innerHTML = itemsHtml;
+  const itemArea = card.querySelector("[data-item-detail]");
+  if (itemArea) itemArea.setAttribute("aria-label", `View all items for ${order.tableId}`);
 
   const actions = card.querySelector(".kitchen-actions");
   actions.dataset.table = order.tableId;
@@ -272,7 +389,9 @@ function kitchenCardHtml(order) {
         </div>
       </div>
       ${paymentClaimed ? "<div class=\"kitchen-payment-alert\">Payment claimed by customer</div>" : ""}
-      <ul class="kitchen-items">${items}</ul>
+      <div class="kitchen-items-wrap" data-item-detail role="button" tabindex="0" aria-label="View all items for ${escapeHtml(order.tableId)}">
+        <ul class="kitchen-items">${items}</ul>
+      </div>
       <div class="kitchen-actions" data-table="${escapeHtml(order.tableId)}" data-status="${escapeHtml(order.status)}">
         ${order.status === "new" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"preparing\">Start Preparing</button>" : ""}
         ${order.status === "new" || order.status === "preparing" ? "<button class=\"primary-btn\" type=\"button\" data-action=\"served\">Mark Served</button>" : ""}
@@ -298,6 +417,7 @@ function bindKitchenCardActions(card) {
       }
     };
   });
+  bindKitchenItemDetails(card);
 }
 
 // Uses Web Audio API for a distinct short kitchen beep.
