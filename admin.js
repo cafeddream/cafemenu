@@ -13,7 +13,7 @@ import {
   listenToOrder,
   listenToTodaySummary,
   maskMobile,
-  placeOrAppendOrder,
+  placeCounterOrderWithPayment,
   registerServiceWorker,
   rejectPaymentClaim,
   reportToCsv,
@@ -35,6 +35,8 @@ const state = {
   orders: new Map(),
   knownOccupied: new Set(),
   pendingPaidTable: null,
+  pendingPaymentItems: null,
+  pendingPaymentIsCounterOrder: false,
   hoverPreview: null,
   orderTableId: null,
   groupedMenu: {},
@@ -251,7 +253,7 @@ function tableCardHtml(tableId, order, flash = false) {
       </div>
       <div class="card-actions" data-table="${escapeHtml(tableId)}" data-status="${escapeHtml(status)}">
         ${paymentClaimed ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"reject-pay\">Reject Payment Claim</button>" : ""}
-        ${status !== "paid" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"cancel\">Cancel Order</button>" : ""}
+        ${status === "new" || status === "preparing" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"cancel\">Cancel Order</button>" : ""}
         ${paymentVerified && status === "new" ? "<button class=\"secondary-btn\" type=\"button\" data-action=\"preparing\">Mark Preparing</button>" : ""}
         ${paymentVerified && (status === "new" || status === "preparing") ? "<button class=\"secondary-btn\" type=\"button\" data-action=\"served\">Mark Served</button>" : ""}
         ${status !== "paid" && !paymentVerified ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Confirm Payment</button>" : ""}
@@ -286,8 +288,22 @@ function bindCardActions() {
         if (action === "served") await updateOrderStatus(tableId, "served");
         if (action === "reject-pay") await rejectPaymentClaim(tableId);
         if (action === "cancel") {
-          if (window.confirm(`Cancel order for ${tableId}?`)) await cancelOrder(tableId);
-          else button.disabled = false;
+          const currentOrder = state.orders.get(tableId);
+          if (currentOrder?.status === "served" || currentOrder?.status === "paid") {
+            showToast("Served orders cannot be cancelled.");
+            button.disabled = false;
+            return;
+          }
+
+          if (window.confirm(`Cancel order for ${tableId}?`)) {
+            const cancelled = await cancelOrder(tableId);
+            if (!cancelled) {
+              showToast("Served orders cannot be cancelled.");
+              button.disabled = false;
+            }
+          } else {
+            button.disabled = false;
+          }
           return;
         }
         if (action === "paid") {
@@ -311,6 +327,14 @@ function bindCardActions() {
     itemArea.addEventListener("mouseleave", hideAdminHoverPreview);
     itemArea.addEventListener("blur", hideAdminHoverPreview);
   });
+}
+
+function cloneOrderItems(items = []) {
+  return items.map((item) => ({
+    name: item.name,
+    price: Number(item.price || 0),
+    qty: Number(item.qty || 0)
+  })).filter((item) => item.name && item.qty > 0);
 }
 
 function renderAdminItemsHtml(items = []) {
@@ -519,28 +543,44 @@ function exportReportCsv() {
   URL.revokeObjectURL(url);
 }
 
-function openPaymentMethodModal(tableId) {
+function openPaymentMethodModal(tableId, options = {}) {
+  const order = state.orders.get(tableId);
+  const amount = Number(options.amount ?? order?.total ?? 0);
   state.pendingPaidTable = tableId;
-  elements.paymentMethodTable.textContent = `Mark ${tableId} paid by:`;
+  state.pendingPaymentItems = options.items ? cloneOrderItems(options.items) : null;
+  state.pendingPaymentIsCounterOrder = Boolean(options.isCounterOrder);
+  elements.paymentMethodTable.innerHTML = `
+    <span>Mark ${escapeHtml(tableId)} paid by:</span>
+    <strong>Amount: ${formatCurrency(amount)}</strong>
+  `;
   elements.paymentMethodModal.hidden = false;
 }
 
 function closePaymentMethodModal() {
   state.pendingPaidTable = null;
+  state.pendingPaymentItems = null;
+  state.pendingPaymentIsCounterOrder = false;
   elements.paymentMethodModal.hidden = true;
 }
 
 async function confirmPaidWithMethod(method) {
   if (!state.pendingPaidTable) return;
   const tableId = state.pendingPaidTable;
+  const pendingItems = state.pendingPaymentItems ? cloneOrderItems(state.pendingPaymentItems) : null;
+  const isCounterOrder = state.pendingPaymentIsCounterOrder;
   elements.paidCashBtn.disabled = true;
   elements.paidOnlineBtn.disabled = true;
 
   try {
-    await verifyOrderPayment(tableId, method);
+    if (pendingItems?.length) {
+      await placeCounterOrderWithPayment(tableId, pendingItems, method);
+      showToast(`Order placed for ${tableId}`);
+    } else {
+      await verifyOrderPayment(tableId, method);
+    }
     closePaymentMethodModal();
   } catch {
-    showToast("Connection error, please refresh");
+    showToast(isCounterOrder ? "Order failed. Check connection and refresh." : "Connection error, please refresh");
   } finally {
     elements.paidCashBtn.disabled = false;
     elements.paidOnlineBtn.disabled = false;
@@ -652,21 +692,20 @@ function updateAdminOrderFooter() {
 
 async function placeAdminOrder() {
   if (!state.orderTableId) return;
-  const { items } = getCartTotals(state.cart);
+  const { items, total } = getCartTotals(state.cart);
   if (!items.length) return;
 
   const tableId = state.orderTableId;
+  const existingTotal = Number(state.orders.get(tableId)?.total || 0);
   elements.adminPlaceOrderBtn.disabled = true;
 
-  try {
-    await placeOrAppendOrder(tableId, items, "counter");
-    showToast(`Order placed for ${tableId}`);
-    closeAdminOrderModal();
-    openPaymentMethodModal(tableId);
-  } catch {
-    showToast("Order failed. Check connection and refresh.");
-    elements.adminPlaceOrderBtn.disabled = false;
-  }
+  closeAdminOrderModal();
+  openPaymentMethodModal(tableId, {
+    items,
+    amount: existingTotal + total,
+    isCounterOrder: true
+  });
+  elements.adminPlaceOrderBtn.disabled = false;
 }
 
 function notifyNewOrder() {

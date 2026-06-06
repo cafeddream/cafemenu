@@ -19,6 +19,7 @@ import {
 import {
   buildMenuState,
   getCartTotals,
+  makeItemKey,
   renderCartList,
   renderCategorySidebar,
   renderMenuGrid,
@@ -35,7 +36,8 @@ const state = {
   orderUnsubscribe: null,
   customerProfile: null,
   trackedTableId: null,
-  trackedOrder: null
+  trackedOrder: null,
+  lastOrderItems: []
 };
 
 const CUSTOMER_PROFILE_KEY = "cafe_customer_profile_v1";
@@ -69,12 +71,13 @@ const elements = {
   placeOrderBtn: document.querySelector("#placeOrderBtn"),
   paymentSummary: document.querySelector("#paymentSummary"),
   orderStatusLive: document.querySelector("#orderStatusLive"),
+  paymentBackBtn: document.querySelector("#paymentBackBtn"),
+  paymentCloseBtn: document.querySelector("#paymentCloseBtn"),
   upiQr: document.querySelector("#upiQr"),
   upiIdText: document.querySelector("#upiIdText"),
   paymentChoiceGrid: document.querySelector(".payment-choice-grid"),
   chooseOnlineBtn: document.querySelector("#chooseOnlineBtn"),
   onlinePaymentPanel: document.querySelector("#onlinePaymentPanel"),
-  payUpiBtn: document.querySelector("#payUpiBtn"),
   payGpayBtn: document.querySelector("#payGpayBtn"),
   payPaytmBtn: document.querySelector("#payPaytmBtn"),
   payPhonePeBtn: document.querySelector("#payPhonePeBtn"),
@@ -157,6 +160,11 @@ function bindEvents() {
   elements.retryMenu.addEventListener("click", loadMenu);
   elements.placeOrderBtn.addEventListener("click", placeOrder);
   if (elements.chooseOnlineBtn) elements.chooseOnlineBtn.addEventListener("click", chooseOnlinePayment);
+  elements.paymentBackBtn.addEventListener("click", openEditableCartFromPayment);
+  elements.paymentCloseBtn.addEventListener("click", closePaymentToMenu);
+  [elements.payGpayBtn, elements.payPaytmBtn, elements.payPhonePeBtn].forEach((link) => {
+    link.addEventListener("click", handlePaymentAppClick);
+  });
   elements.showQrBtn.addEventListener("click", showPaymentQr);
   elements.paymentDoneBtn.addEventListener("click", markCustomerPaid);
   elements.trackTop.addEventListener("click", showCustomerTrack);
@@ -324,6 +332,7 @@ function renderCart() {
   });
   elements.grandTotal.textContent = formatCurrency(total);
   elements.placeOrderBtn.disabled = items.length === 0;
+  elements.placeOrderBtn.textContent = hasActiveOrderForThisTable() ? "Add Items" : "Place Order";
 }
 
 async function placeOrder() {
@@ -334,15 +343,23 @@ async function placeOrder() {
     return;
   }
 
+  const appendingToActiveOrder = hasActiveOrderForThisTable();
+  const orderItems = cloneOrderItems(items);
+
   try {
     elements.placeOrderBtn.disabled = true;
-    await placeOrAppendOrder(state.tableId, items, "customer", state.customerProfile);
-    state.lastOrderTotal = total;
+    const snapshot = await placeOrAppendOrder(state.tableId, items, "customer", state.customerProfile);
     state.trackedTableId = state.tableId;
+    state.lastOrderItems = orderItems;
     state.cart.clear();
     renderMenu();
-    renderPayment(total, null);
-    showToast("Order Placed!");
+    if (snapshot?.exists()) {
+      renderPaymentFromOrder({ id: state.tableId, ...snapshot.data() });
+    } else {
+      state.lastOrderTotal = total;
+      renderPayment(total, null);
+    }
+    showToast(appendingToActiveOrder ? "Items Added!" : "Order Placed!");
     showScreen("payment");
   } catch (error) {
     console.error("Order placement failed.", error);
@@ -357,6 +374,7 @@ async function placeOrder() {
 function renderPayment(total, order = null) {
   const tableId = state.trackedTableId || state.tableId;
   const isPaid = order?.status === "paid";
+  const isClaimedPaid = order?.paymentStatus === "customer_claimed_paid";
   const paymentLinks = buildPaymentLinks(tableId, total);
   elements.paymentSummary.innerHTML = `
     <p><strong>Table ${escapeHtml(tableId)}</strong></p>
@@ -364,22 +382,22 @@ function renderPayment(total, order = null) {
     ${state.customerProfile ? `<p class="subtle">${escapeHtml(state.customerProfile.name)} - ${escapeHtml(maskMobile(state.customerProfile.mobile))}</p>` : ""}
   `;
   elements.upiQr.src = buildUpiQrUrl(tableId, total);
-  elements.payUpiBtn.href = paymentLinks.upi;
   elements.payGpayBtn.href = paymentLinks.googlePay;
   elements.payPaytmBtn.href = paymentLinks.paytm;
   elements.payPhonePeBtn.href = paymentLinks.phonePe;
   elements.upiIdText.textContent = CONFIG.UPI_ID;
-  elements.paymentDoneBtn.textContent = "I have paid online";
-  elements.paymentDoneBtn.disabled = isPaid;
+  elements.paymentDoneBtn.textContent = isClaimedPaid ? "Payment sent for verification" : "I have paid online";
+  elements.paymentDoneBtn.disabled = isPaid || isClaimedPaid;
   if (elements.chooseOnlineBtn) elements.chooseOnlineBtn.disabled = isPaid;
   elements.onlinePaymentPanel.hidden = isPaid;
   elements.upiQr.hidden = true;
-  elements.showQrBtn.innerHTML = "<span>QR</span><strong>Show QR</strong>";
+  elements.showQrBtn.innerHTML = "<span>QR</span><strong>Show Payment QR</strong>";
   elements.upiIdText.hidden = true;
   if (elements.paymentChoiceGrid) elements.paymentChoiceGrid.hidden = true;
+  elements.paymentBackBtn.hidden = isPaid || tableId !== state.tableId;
   elements.paymentNote.textContent = isPaid
     ? "Payment completed. Thank you."
-    : "Choose any UPI app or show the QR to complete payment.";
+    : "Tap a UPI app or show the payment QR to complete payment.";
   elements.addMoreItems.hidden = isPaid || tableId !== state.tableId;
   updateOrderStatusBanner(order);
   renderTrackerSteps(order?.status || "new");
@@ -429,6 +447,7 @@ function resetCustomerSessionAfterTableClear() {
   state.trackedTableId = null;
   state.trackedOrder = null;
   state.lastOrderTotal = 0;
+  state.lastOrderItems = [];
   state.cart.clear();
   elements.lookupResults.hidden = true;
   elements.paymentSummary.innerHTML = "";
@@ -454,6 +473,7 @@ function renderTrackerSteps(status) {
 
 function renderPaymentFromOrder(order) {
   state.lastOrderTotal = Number(order.total || 0);
+  state.lastOrderItems = cloneOrderItems(order.items || []);
   state.customerProfile = state.customerProfile || {
     name: order.customerName || "Guest",
     mobile: order.customerMobileNormalized || order.customerMobile || ""
@@ -517,8 +537,79 @@ function chooseOnlinePayment() {
 function showPaymentQr() {
   elements.upiQr.hidden = false;
   elements.upiIdText.hidden = false;
-  elements.showQrBtn.innerHTML = "<span>QR</span><strong>QR shown</strong>";
+  elements.showQrBtn.innerHTML = "<span>QR</span><strong>Payment QR shown</strong>";
   elements.paymentNote.textContent = "Scan the QR, then tap I have paid online so counter can verify it.";
+}
+
+function hasActiveOrderForThisTable() {
+  return state.trackedTableId === state.tableId
+    && state.lastOrderTotal > 0
+    && state.trackedOrder?.status !== "paid";
+}
+
+function cloneOrderItems(items = []) {
+  return items.map((item) => ({
+    name: item.name,
+    price: Number(item.price || 0),
+    qty: Number(item.qty || 0)
+  })).filter((item) => item.name && item.qty > 0);
+}
+
+function rebuildCartFromItems(items = []) {
+  state.cart.clear();
+  cloneOrderItems(items).forEach((item) => {
+    state.cart.set(makeItemKey(item), item);
+  });
+}
+
+function openEditableCartFromPayment() {
+  const tableId = state.trackedTableId || state.tableId;
+  if (tableId !== state.tableId) {
+    showToast("Scan this table QR to edit the cart.");
+    return;
+  }
+
+  if (!state.cart.size) {
+    rebuildCartFromItems(state.trackedOrder?.items?.length ? state.trackedOrder.items : state.lastOrderItems);
+  }
+  renderCart();
+  renderMenu();
+  showScreen("cart");
+}
+
+function closePaymentToMenu() {
+  showScreen("menu");
+}
+
+async function handlePaymentAppClick(event) {
+  event.preventDefault();
+  const link = event.currentTarget;
+  const href = link.getAttribute("href");
+  if (!href || href === "#") return;
+
+  const appName = link.dataset.paymentApp || "UPI app";
+  try {
+    setPaymentAppLinksBusy(true);
+    await claimPaymentDone(state.trackedTableId || state.tableId);
+    elements.paymentDoneBtn.disabled = true;
+    elements.paymentDoneBtn.textContent = "Payment sent for verification";
+    elements.paymentNote.textContent = `Opening ${appName}. Staff will verify after payment.`;
+    showToast("Counter notified");
+    window.location.href = href;
+  } catch (error) {
+    console.error("Payment app launch failed.", error);
+    elements.paymentNote.textContent = "Unable to notify counter. Please try again.";
+    showToast("Connection error, please refresh");
+  } finally {
+    setPaymentAppLinksBusy(false);
+  }
+}
+
+function setPaymentAppLinksBusy(isBusy) {
+  [elements.payGpayBtn, elements.payPaytmBtn, elements.payPhonePeBtn].forEach((link) => {
+    link.classList.toggle("is-loading", isBusy);
+    link.setAttribute("aria-disabled", String(isBusy));
+  });
 }
 
 async function markCustomerPaid() {

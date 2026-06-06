@@ -441,6 +441,103 @@ export async function placeOrAppendOrder(tableId, cartItems, placedBy = "custome
   return getDoc(ref);
 }
 
+// Places a counter order only after staff chooses a payment method.
+export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMethod = "cash") {
+  const cleanItems = cartItems
+    .filter((item) => item.qty > 0)
+    .map((item) => ({ name: item.name, price: Number(item.price), qty: Number(item.qty) }));
+
+  if (!cleanItems.length) return null;
+
+  const method = paymentMethod === "online" ? "online" : "cash";
+  const orderDocument = orderRef(tableId);
+  const summaryDocument = dailySummaryRef();
+  const newOrderId = createOrderId(tableId);
+  let orderIdForAudit = newOrderId;
+  let totalForAudit = 0;
+
+  await runTransaction(db, async (transaction) => {
+    const orderSnapshot = await transaction.get(orderDocument);
+    let items = cleanItems;
+    let timestamp = serverTimestamp();
+    let orderId = newOrderId;
+
+    if (orderSnapshot.exists()) {
+      const current = orderSnapshot.data();
+      if (current.status && current.status !== "paid") {
+        items = mergeItems(current.items || [], cleanItems);
+        timestamp = current.timestamp || serverTimestamp();
+        orderId = current.orderId || newOrderId;
+      }
+    }
+
+    const total = calculateTotal(items);
+    const paymentDocument = paymentRef(orderId);
+    const historyDocument = tableHistoryOrderRef(tableId, orderId);
+    const paymentSnapshot = await transaction.get(paymentDocument);
+    orderIdForAudit = orderId;
+    totalForAudit = total;
+
+    transaction.set(orderDocument, {
+      orderId,
+      tableId,
+      items,
+      total,
+      status: "new",
+      placedBy: "counter",
+      paymentStatus: "verified_paid",
+      preferredPaymentMethod: method,
+      paymentMethod: method,
+      timestamp,
+      paidAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
+    if (!paymentSnapshot.exists()) {
+      transaction.set(summaryDocument, {
+        date: getTodayKey(),
+        total: increment(total),
+        cash: increment(method === "cash" ? total : 0),
+        online: increment(method === "online" ? total : 0),
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      transaction.set(paymentDocument, {
+        orderId,
+        tableId,
+        amount: total,
+        paymentMethod: method,
+        paidAt: serverTimestamp()
+      });
+
+      transaction.set(historyDocument, {
+        orderId,
+        tableId,
+        items,
+        total,
+        status: "paid",
+        placedBy: "counter",
+        customerName: null,
+        customerMobile: null,
+        customerMobileNormalized: null,
+        paymentStatus: "verified_paid",
+        paymentMethod: method,
+        orderedAt: timestamp,
+        paidAt: serverTimestamp(),
+        savedAt: serverTimestamp()
+      });
+    }
+  });
+
+  await logAuditEntry("counter_order_paid", tableId, {
+    orderId: orderIdForAudit,
+    total: totalForAudit,
+    paymentMethod: method
+  });
+
+  return getDoc(orderDocument);
+}
+
 // Finds live/current orders for a customer mobile across configured tables.
 export async function findActiveOrdersByMobile(mobile) {
   const normalized = normalizeIndianMobile(mobile);
@@ -459,12 +556,16 @@ export async function findActiveOrdersByMobile(mobile) {
 // Cancels the current table order (staff only).
 export async function cancelOrder(tableId) {
   const snapshot = await getDoc(orderRef(tableId));
-  if (!snapshot.exists()) return;
+  if (!snapshot.exists()) return false;
+  const status = snapshot.data().status || "new";
+  if (status === "served" || status === "paid") return false;
+
   await deleteDoc(orderRef(tableId));
   await logAuditEntry("order_cancelled", tableId, {
     orderId: snapshot.data().orderId || null,
     total: snapshot.data().total || 0
   });
+  return true;
 }
 
 // Resets a customer payment claim so staff can re-verify.

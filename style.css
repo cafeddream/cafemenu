@@ -478,6 +478,34 @@ button:disabled {
   text-align: center;
 }
 
+.payment-panel-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-bottom: 14px;
+}
+
+.payment-panel-head h2 {
+  margin: 0;
+}
+
+.payment-panel-actions {
+  position: absolute;
+  right: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.payment-nav-btn {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
+}
+
 .qr-img {
   width: 200px;
   height: 200px;
@@ -498,7 +526,7 @@ button:disabled {
 
 .payment-buttons {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin: 16px 0 10px;
 }
@@ -523,10 +551,26 @@ button:disabled {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  min-height: 58px;
+  gap: 6px;
+  min-height: 82px;
   padding: 10px 8px;
   text-decoration: none;
+}
+
+.pay-link img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+
+.pay-link.is-loading {
+  pointer-events: none;
+  opacity: 0.72;
+}
+
+.qr-pay-link {
+  grid-column: 1 / -1;
+  min-height: 54px;
 }
 
 .pay-link span {
@@ -768,13 +812,13 @@ button:disabled {
 .status-paid .badge { background: #e8f8ef; color: #0f7a41; }
 
 .order-lines {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 0 1 auto;
+  max-height: 116px;
   margin: 12px 0;
   padding: 0;
   list-style: none;
   color: #3f4650;
-  overflow: visible;
+  overflow: hidden;
   cursor: zoom-in;
   outline: none;
 }
@@ -793,6 +837,16 @@ button:disabled {
   border-bottom: 1px dashed #eceff3;
 }
 
+.order-lines li span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.order-lines li strong {
+  flex: 0 0 auto;
+}
+
 .order-more-line {
   color: var(--muted);
   font-weight: 900;
@@ -802,7 +856,9 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin: 10px 0;
+  margin: auto 0 12px;
+  padding-top: 10px;
+  border-top: 1px solid #eef0f3;
   color: var(--muted);
   font-size: 14px;
 }
@@ -837,7 +893,7 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  margin-top: auto;
+  margin-top: 0;
   align-items: stretch;
 }
 
@@ -1138,9 +1194,16 @@ button:disabled {
 }
 
 .payment-method-body p {
+  display: grid;
+  gap: 6px;
   margin: 0;
   color: var(--muted);
   font-weight: 800;
+}
+
+.payment-method-body p strong {
+  color: var(--ink);
+  font-size: 18px;
 }
 
 .staff-nav {
@@ -1630,7 +1693,7 @@ button:disabled {
 
 @media (min-width: 720px) {
   .payment-buttons {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .payment-choice-grid {
