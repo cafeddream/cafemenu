@@ -12,14 +12,14 @@ import {
   getTodayKey,
   listenToOrder,
   listenToTodaySummary,
-  markOrderPaid,
   maskMobile,
   placeOrAppendOrder,
   registerServiceWorker,
   rejectPaymentClaim,
   reportToCsv,
   showToast,
-  updateOrderStatus
+  updateOrderStatus,
+  verifyOrderPayment
 } from "./firebase.js";
 import {
   buildMenuState,
@@ -222,6 +222,7 @@ function tableCardHtml(tableId, order, flash = false) {
   const canOrder = status !== "paid";
   const paymentClaimed = order.paymentStatus === "customer_claimed_paid";
   const cashRequested = order.paymentStatus === "cash_at_counter";
+  const paymentVerified = order.paymentStatus === "verified_paid";
   const customerLine = order.customerName || order.customerMobileNormalized
     ? `<div class="customer-id-line">${escapeHtml(order.customerName || "Customer")} ${order.customerMobileNormalized ? `<span>${escapeHtml(maskMobile(order.customerMobileNormalized))}</span>` : ""}</div>`
     : "";
@@ -250,10 +251,10 @@ function tableCardHtml(tableId, order, flash = false) {
       <div class="card-actions" data-table="${escapeHtml(tableId)}" data-status="${escapeHtml(status)}">
         ${paymentClaimed ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"reject-pay\">Reject Payment Claim</button>" : ""}
         ${status !== "paid" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"cancel\">Cancel Order</button>" : ""}
-        ${status === "new" ? "<button class=\"secondary-btn\" type=\"button\" data-action=\"preparing\">Mark Preparing</button>" : ""}
-        ${status === "new" || status === "preparing" ? "<button class=\"secondary-btn\" type=\"button\" data-action=\"served\">Mark Served</button>" : ""}
-        ${status === "served" || status === "preparing" ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Mark Paid</button>" : ""}
-        ${status === "paid" ? "<button class=\"danger-btn\" type=\"button\" data-action=\"clear\">Clear Table</button>" : ""}
+        ${paymentVerified && status === "new" ? "<button class=\"secondary-btn\" type=\"button\" data-action=\"preparing\">Mark Preparing</button>" : ""}
+        ${paymentVerified && (status === "new" || status === "preparing") ? "<button class=\"secondary-btn\" type=\"button\" data-action=\"served\">Mark Served</button>" : ""}
+        ${status !== "paid" && !paymentVerified ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Confirm Payment</button>" : ""}
+        ${status === "paid" || (paymentVerified && status === "served") ? "<button class=\"danger-btn\" type=\"button\" data-action=\"clear\">Clear Table</button>" : ""}
         <button class="ghost-btn" type="button" data-action="print">Print Bill</button>
       </div>
     </article>
@@ -460,7 +461,7 @@ async function confirmPaidWithMethod(method) {
   elements.paidOnlineBtn.disabled = true;
 
   try {
-    await markOrderPaid(tableId, method);
+    await verifyOrderPayment(tableId, method);
     closePaymentMethodModal();
   } catch {
     showToast("Connection error, please refresh");

@@ -13,7 +13,6 @@ import {
   normalizeIndianMobile,
   placeOrAppendOrder,
   registerServiceWorker,
-  requestCashAtCounter,
   showToast,
   escapeHtml
 } from "./firebase.js";
@@ -74,7 +73,6 @@ const elements = {
   upiIdText: document.querySelector("#upiIdText"),
   paymentChoiceGrid: document.querySelector(".payment-choice-grid"),
   chooseOnlineBtn: document.querySelector("#chooseOnlineBtn"),
-  chooseCashBtn: document.querySelector("#chooseCashBtn"),
   onlinePaymentPanel: document.querySelector("#onlinePaymentPanel"),
   payUpiBtn: document.querySelector("#payUpiBtn"),
   payGpayBtn: document.querySelector("#payGpayBtn"),
@@ -157,7 +155,6 @@ function bindEvents() {
   elements.retryMenu.addEventListener("click", loadMenu);
   elements.placeOrderBtn.addEventListener("click", placeOrder);
   elements.chooseOnlineBtn.addEventListener("click", chooseOnlinePayment);
-  elements.chooseCashBtn.addEventListener("click", chooseCashPayment);
   elements.paymentDoneBtn.addEventListener("click", markCustomerPaid);
   elements.trackTop.addEventListener("click", showCustomerTrack);
   elements.trackFromModal.addEventListener("click", showCustomerTrack);
@@ -371,13 +368,12 @@ function renderPayment(total, order = null) {
   elements.paymentDoneBtn.textContent = "I have paid online";
   elements.paymentDoneBtn.disabled = isPaid;
   elements.chooseOnlineBtn.disabled = isPaid;
-  elements.chooseCashBtn.disabled = isPaid;
   elements.onlinePaymentPanel.hidden = true;
   elements.upiIdText.hidden = true;
   elements.paymentChoiceGrid.hidden = isPaid;
   elements.paymentNote.textContent = isPaid
     ? "Payment completed. Thank you."
-    : "Choose how you want to pay for this order.";
+    : "Choose online payment for this order.";
   elements.addMoreItems.hidden = isPaid || tableId !== state.tableId;
   updateOrderStatusBanner(order);
   renderTrackerSteps(order?.status || "new");
@@ -415,10 +411,10 @@ function updateOrderStatusBanner(order) {
 
   if (order.status === "paid") {
     elements.paymentNote.textContent = "Payment completed. Thank you.";
-  } else if (order.paymentStatus === "cash_at_counter") {
-    elements.paymentNote.textContent = "Counter has been notified that you will pay cash.";
   } else if (order.paymentStatus === "customer_claimed_paid") {
     elements.paymentNote.textContent = "Payment sent for verification. Staff will confirm shortly.";
+  } else if (order.paymentStatus === "verified_paid") {
+    elements.paymentNote.textContent = "Payment confirmed. Kitchen will start preparing your order.";
   }
 }
 
@@ -510,21 +506,6 @@ function chooseOnlinePayment() {
   elements.paymentDoneBtn.disabled = false;
   elements.paymentDoneBtn.textContent = "I have paid online";
   elements.paymentNote.textContent = "Complete UPI payment, then tap “I have paid online” so counter can verify it.";
-}
-
-async function chooseCashPayment() {
-  try {
-    elements.chooseCashBtn.disabled = true;
-    await requestCashAtCounter(state.trackedTableId || state.tableId);
-    elements.onlinePaymentPanel.hidden = true;
-    elements.upiIdText.hidden = true;
-    elements.paymentNote.textContent = "Counter has been notified that you will pay cash.";
-    showToast("Cash payment selected");
-  } catch (error) {
-    console.error("Cash payment request failed.", error);
-    elements.chooseCashBtn.disabled = false;
-    showError("Connection error", "Connection error, please refresh");
-  }
 }
 
 async function markCustomerPaid() {

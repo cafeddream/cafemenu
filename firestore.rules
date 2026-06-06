@@ -43,12 +43,13 @@ service cloud.firestore {
     function customerPaymentUpdate() {
       return resource != null
         && request.resource.data.placedBy == resource.data.placedBy
+        && request.resource.data.paymentStatus == 'customer_claimed_paid'
+        && request.resource.data.preferredPaymentMethod == 'online'
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly([
             'paymentStatus',
             'preferredPaymentMethod',
             'paymentClaimedAt',
-            'cashRequestedAt',
             'updatedAt'
           ]);
     }

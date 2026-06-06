@@ -201,7 +201,9 @@ function bindKitchenItemDetails(card) {
 function subscribeToActiveOrders() {
   CONFIG.TABLES.forEach((tableId) => {
     listenToOrder(tableId, (order) => {
-      const isActive = order && ["new", "preparing"].includes(order.status);
+      const isActive = order
+        && ["new", "preparing"].includes(order.status)
+        && order.paymentStatus === "verified_paid";
       const wasVisible = state.visibleIds.has(tableId);
 
       if (isActive) {
@@ -285,13 +287,13 @@ function updateKitchenCardBody(card, order) {
   const statusClass = order.status === "preparing" ? "preparing" : "";
   card.classList.toggle("preparing", statusClass === "preparing");
 
-  const paymentClaimed = order.paymentStatus === "customer_claimed_paid";
+  const paymentVerified = order.paymentStatus === "verified_paid";
   let alert = card.querySelector(".kitchen-payment-alert");
-  if (paymentClaimed) {
+  if (paymentVerified) {
     if (!alert) {
       card.querySelector(".kitchen-table").insertAdjacentHTML(
         "afterend",
-        "<div class=\"kitchen-payment-alert\">Payment claimed by customer</div>"
+        "<div class=\"kitchen-payment-alert\">Payment verified</div>"
       );
     }
   } else if (alert) {
@@ -354,7 +356,7 @@ function kitchenCardHtml(order) {
   const ringDash = Math.max(0, timer.remainingFraction * 100);
   const statusClass = order.status === "preparing" ? "preparing" : "";
   const timerClass = timer.expired ? "timer-expired" : timer.urgent ? "timer-urgent" : "timer-active";
-  const paymentClaimed = order.paymentStatus === "customer_claimed_paid";
+  const paymentVerified = order.paymentStatus === "verified_paid";
   const timerLabel = timer.expired
     ? `Over ${CONFIG.KITCHEN_TIMER_MINUTES} min`
     : "Time left";
@@ -388,7 +390,7 @@ function kitchenCardHtml(order) {
           </div>
         </div>
       </div>
-      ${paymentClaimed ? "<div class=\"kitchen-payment-alert\">Payment claimed by customer</div>" : ""}
+      ${paymentVerified ? "<div class=\"kitchen-payment-alert\">Payment verified</div>" : ""}
       <div class="kitchen-items-wrap" data-item-detail role="button" tabindex="0" aria-label="View all items for ${escapeHtml(order.tableId)}">
         <ul class="kitchen-items">${items}</ul>
       </div>

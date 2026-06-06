@@ -404,6 +404,8 @@ export async function placeOrAppendOrder(tableId, cartItems, placedBy = "custome
     let status = "new";
     let timestamp = serverTimestamp();
     let orderId = newOrderId;
+    let paymentStatus = "pending";
+    let preferredPaymentMethod = null;
 
     if (snapshot.exists()) {
       const current = snapshot.data();
@@ -412,6 +414,8 @@ export async function placeOrAppendOrder(tableId, cartItems, placedBy = "custome
         status = current.status === "new" ? "new" : current.status;
         timestamp = current.timestamp || serverTimestamp();
         orderId = current.orderId || newOrderId;
+        paymentStatus = current.paymentStatus || paymentStatus;
+        preferredPaymentMethod = current.preferredPaymentMethod || preferredPaymentMethod;
       }
     }
 
@@ -422,7 +426,8 @@ export async function placeOrAppendOrder(tableId, cartItems, placedBy = "custome
       total: calculateTotal(items),
       status,
       placedBy,
-      paymentStatus: "pending",
+      paymentStatus,
+      preferredPaymentMethod,
       timestamp,
       updatedAt: serverTimestamp(),
       ...cleanProfile
@@ -509,8 +514,7 @@ export async function requestCashAtCounter(tableId) {
   });
 }
 
-// Marks an order as paid and updates the daily collection only once per order/day.
-export async function markOrderPaid(tableId, paymentMethod = "cash") {
+async function recordOrderPayment(tableId, paymentMethod = "cash", nextStatus = "paid") {
   const orderDocument = orderRef(tableId);
   const summaryDocument = dailySummaryRef();
   const method = paymentMethod === "online" ? "online" : "cash";
@@ -526,7 +530,7 @@ export async function markOrderPaid(tableId, paymentMethod = "cash") {
     const paymentSnapshot = await transaction.get(paymentDocument);
 
     transaction.update(orderDocument, {
-      status: "paid",
+      status: nextStatus,
       paymentStatus: "verified_paid",
       paymentMethod: method,
       paidAt: serverTimestamp(),
@@ -570,6 +574,16 @@ export async function markOrderPaid(tableId, paymentMethod = "cash") {
   });
 
   await logAuditEntry("order_paid", tableId, { paymentMethod: method });
+}
+
+// Verifies payment and releases the order to the kitchen without completing the table.
+export async function verifyOrderPayment(tableId, paymentMethod = "online") {
+  await recordOrderPayment(tableId, paymentMethod, "new");
+}
+
+// Marks an order as paid and updates the daily collection only once per order/day.
+export async function markOrderPaid(tableId, paymentMethod = "cash") {
+  await recordOrderPayment(tableId, paymentMethod, "paid");
 }
 
 // Deletes the current order for a table after payment.
