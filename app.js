@@ -72,6 +72,7 @@ const elements = {
   orderStatusLive: document.querySelector("#orderStatusLive"),
   upiQr: document.querySelector("#upiQr"),
   upiIdText: document.querySelector("#upiIdText"),
+  paymentChoiceGrid: document.querySelector(".payment-choice-grid"),
   chooseOnlineBtn: document.querySelector("#chooseOnlineBtn"),
   chooseCashBtn: document.querySelector("#chooseCashBtn"),
   onlinePaymentPanel: document.querySelector("#onlinePaymentPanel"),
@@ -346,6 +347,7 @@ async function placeOrder() {
 
 function renderPayment(total, order = null) {
   const tableId = state.trackedTableId || state.tableId;
+  const isPaid = order?.status === "paid";
   const paymentLinks = buildPaymentLinks(tableId, total);
   elements.paymentSummary.innerHTML = `
     <p><strong>Table ${escapeHtml(tableId)}</strong></p>
@@ -357,14 +359,17 @@ function renderPayment(total, order = null) {
   elements.payGpayBtn.href = paymentLinks.googlePay;
   elements.payPaytmBtn.href = paymentLinks.paytm;
   elements.upiIdText.textContent = CONFIG.UPI_ID;
-  elements.paymentDoneBtn.disabled = false;
   elements.paymentDoneBtn.textContent = "I have paid online";
+  elements.paymentDoneBtn.disabled = isPaid;
+  elements.chooseOnlineBtn.disabled = isPaid;
+  elements.chooseCashBtn.disabled = isPaid;
   elements.onlinePaymentPanel.hidden = true;
   elements.upiIdText.hidden = true;
-  elements.chooseOnlineBtn.disabled = false;
-  elements.chooseCashBtn.disabled = false;
-  elements.paymentNote.textContent = "Choose how you want to pay for this order.";
-  elements.addMoreItems.hidden = tableId !== state.tableId;
+  elements.paymentChoiceGrid.hidden = isPaid;
+  elements.paymentNote.textContent = isPaid
+    ? "Payment completed. Thank you."
+    : "Choose how you want to pay for this order.";
+  elements.addMoreItems.hidden = isPaid || tableId !== state.tableId;
   updateOrderStatusBanner(order);
   renderTrackerSteps(order?.status || "new");
 }
@@ -399,7 +404,9 @@ function updateOrderStatusBanner(order) {
   elements.orderStatusLive.className = `order-status-live status-${order.status || "new"}`;
   renderTrackerSteps(order.status || "new");
 
-  if (order.paymentStatus === "cash_at_counter") {
+  if (order.status === "paid") {
+    elements.paymentNote.textContent = "Payment completed. Thank you.";
+  } else if (order.paymentStatus === "cash_at_counter") {
     elements.paymentNote.textContent = "Counter has been notified that you will pay cash.";
   } else if (order.paymentStatus === "customer_claimed_paid") {
     elements.paymentNote.textContent = "Payment sent for verification. Staff will confirm shortly.";
