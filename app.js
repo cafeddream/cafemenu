@@ -198,6 +198,15 @@ function saveCustomerProfile(profile) {
   localStorage.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(profile));
 }
 
+function clearCustomerProfile() {
+  try {
+    localStorage.removeItem(CUSTOMER_PROFILE_KEY);
+  } catch {
+    // Storage may be unavailable in private mode.
+  }
+  state.customerProfile = null;
+}
+
 function fillCustomerForm(profile) {
   elements.customerName.value = profile?.name || "";
   elements.customerMobile.value = profile?.mobile || "";
@@ -380,7 +389,7 @@ function subscribeOrderStatus() {
   state.orderUnsubscribe = listenToOrder(tableId, (order) => {
     state.trackedOrder = order;
     if (order) renderPaymentFromOrder(order);
-    else updateOrderStatusBanner(null);
+    else resetCustomerSessionAfterTableClear();
   });
 }
 
@@ -411,6 +420,24 @@ function updateOrderStatusBanner(order) {
   } else if (order.paymentStatus === "customer_claimed_paid") {
     elements.paymentNote.textContent = "Payment sent for verification. Staff will confirm shortly.";
   }
+}
+
+function resetCustomerSessionAfterTableClear() {
+  clearCustomerProfile();
+  state.trackedTableId = null;
+  state.trackedOrder = null;
+  state.lastOrderTotal = 0;
+  state.cart.clear();
+  elements.lookupResults.hidden = true;
+  elements.paymentSummary.innerHTML = "";
+  elements.onlinePaymentPanel.hidden = true;
+  elements.upiIdText.hidden = true;
+  elements.paymentChoiceGrid.hidden = false;
+  renderMenu();
+  updateBottomBar("menu");
+  showScreen("menu");
+  showCustomerStart();
+  showToast("Table cleared. Please enter details for a new order.");
 }
 
 function renderTrackerSteps(status) {
