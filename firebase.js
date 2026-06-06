@@ -86,6 +86,15 @@ export function orderRef(tableId) {
   return doc(db, "orders", tableId, "current", "order");
 }
 
+// Returns the canonical active order document. Billing is keyed by Order ID.
+export function activeOrderRef(orderId) {
+  return doc(db, "activeOrders", orderId);
+}
+
+export function receiptRef(orderId) {
+  return doc(db, "receipts", orderId);
+}
+
 // Returns the Firestore document used to store one day's collection total.
 export function dailySummaryRef(dateKey = getTodayKey()) {
   return doc(db, "dailySummaries", dateKey);
@@ -372,7 +381,56 @@ export function calculateTotal(items = []) {
 function cleanOrderItems(items = []) {
   return items
     .filter((item) => item.qty > 0)
-    .map((item) => ({ name: item.name, price: Number(item.price), qty: Number(item.qty) }));
+    .map((item, index) => ({
+      itemId: item.itemId || `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+      name: item.name,
+      price: Number(item.price),
+      qty: Number(item.qty),
+      status: item.status === "served" ? "served" : "pending"
+    }));
+}
+
+function normalizeOrderItems(items = []) {
+  return items
+    .filter((item) => Number(item.qty || 0) > 0)
+    .map((item, index) => ({
+      itemId: item.itemId || `${item.name || "item"}-${item.price || 0}-${index}`,
+      name: item.name,
+      price: Number(item.price || 0),
+      qty: Number(item.qty || 0),
+      status: item.status === "served" ? "served" : "pending",
+      servedAt: item.servedAt || null
+    }));
+}
+
+function getPendingItems(items = []) {
+  return normalizeOrderItems(items).filter((item) => item.status !== "served");
+}
+
+function getOrderServingStatus(items = []) {
+  return getPendingItems(items).length ? "preparing" : "served";
+}
+
+function createReceiptNumber(orderId) {
+  return `R-${String(orderId || createOrderId("ORD")).slice(0, 8).toUpperCase()}`;
+}
+
+function createReceiptPayload(order, paymentMethod) {
+  const items = normalizeOrderItems(order.items || []);
+  const total = calculateTotal(items);
+  const orderId = order.orderId;
+  return {
+    receiptNumber: order.receiptNumber || createReceiptNumber(orderId),
+    orderId,
+    tableId: order.tableId,
+    cafeName: CONFIG.RESTAURANT_NAME,
+    logoStatus: "pending_upload",
+    items,
+    total,
+    paymentMethod: paymentMethod === "online" ? "Online" : "Cash",
+    paymentStatus: "Verified",
+    generatedAt: serverTimestamp()
+  };
 }
 
 // Writes one staff audit log entry.
@@ -386,7 +444,7 @@ export async function logAuditEntry(action, tableId, details = {}) {
   });
 }
 
-// Places a new order or appends to the current unpaid order for a table.
+// Places a new independent order. Table ID is only a location/grouping label.
 export async function placeOrAppendOrder(tableId, cartItems, placedBy = "customer", customerProfile = null) {
   const cleanItems = cleanOrderItems(cartItems);
 
@@ -400,75 +458,30 @@ export async function placeOrAppendOrder(tableId, cartItems, placedBy = "custome
       }
     : {};
 
-  const ref = orderRef(tableId);
   const newOrderId = createOrderId(tableId);
-  await runTransaction(db, async (transaction) => {
-    const snapshot = await transaction.get(ref);
-    let items = cleanItems;
-    let status = "new";
-    let timestamp = serverTimestamp();
-    let orderId = newOrderId;
-    let paymentStatus = "pending";
-    let preferredPaymentMethod = null;
-    let pendingAddOnItems = [];
-    let pendingAddOnTotal = 0;
-    let pendingAddOnPaymentId = null;
-    let isAddOnPayment = false;
-
-    if (snapshot.exists()) {
-      const current = snapshot.data();
-      if (current.status && current.status !== "paid") {
-        const alreadyPaid = current.paymentStatus === "verified_paid" || Number(current.paidTotal || 0) > 0;
-        timestamp = current.timestamp || serverTimestamp();
-        orderId = current.orderId || newOrderId;
-        if (alreadyPaid && placedBy === "customer") {
-          items = current.items || [];
-          status = current.status || "preparing";
-          paymentStatus = "pending_addon";
-          pendingAddOnItems = mergeItems(current.pendingAddOnItems || [], cleanItems);
-          pendingAddOnTotal = calculateTotal(pendingAddOnItems);
-          pendingAddOnPaymentId = current.pendingAddOnPaymentId || createOrderId(tableId);
-          isAddOnPayment = true;
-        } else {
-          items = mergeItems(current.items || [], cleanItems);
-          status = current.status === "new" ? "new" : current.status;
-          paymentStatus = current.paymentStatus || paymentStatus;
-          preferredPaymentMethod = current.preferredPaymentMethod || preferredPaymentMethod;
-        }
-      }
-    }
-
-    const data = {
-      orderId,
+  const ref = activeOrderRef(newOrderId);
+  const legacyRef = orderRef(tableId);
+  const data = {
+      orderId: newOrderId,
       tableId,
-      items,
-      total: calculateTotal(items),
-      status,
+      items: cleanItems,
+      total: calculateTotal(cleanItems),
+      status: "new",
       placedBy,
-      paymentStatus,
-      preferredPaymentMethod,
-      timestamp,
+      paymentStatus: "pending",
+      preferredPaymentMethod: null,
+      timestamp: serverTimestamp(),
       updatedAt: serverTimestamp(),
       ...cleanProfile
     };
 
-    if (isAddOnPayment) {
-      data.pendingAddOnItems = pendingAddOnItems;
-      data.pendingAddOnTotal = pendingAddOnTotal;
-      data.pendingAddOnPaymentId = pendingAddOnPaymentId;
-      data.preferredPaymentMethod = null;
-      data.paymentClaimedAt = null;
-    } else {
-      data.pendingAddOnItems = [];
-      data.pendingAddOnTotal = 0;
-      data.pendingAddOnPaymentId = null;
-    }
-
+  await runTransaction(db, async (transaction) => {
     transaction.set(ref, data);
+    transaction.set(legacyRef, data);
   });
 
   if (placedBy === "counter") {
-    await logAuditEntry("order_placed", tableId, { placedBy });
+    await logAuditEntry("order_placed", tableId, { placedBy, orderId: newOrderId, total: data.total });
   }
 
   return getDoc(ref);
@@ -481,55 +494,44 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
   if (!cleanItems.length) return null;
 
   const method = paymentMethod === "online" ? "online" : "cash";
-  const orderDocument = orderRef(tableId);
-  const summaryDocument = dailySummaryRef();
   const newOrderId = createOrderId(tableId);
+  const orderDocument = activeOrderRef(newOrderId);
+  const legacyDocument = orderRef(tableId);
+  const summaryDocument = dailySummaryRef();
   let orderIdForAudit = newOrderId;
   let totalForAudit = 0;
 
   await runTransaction(db, async (transaction) => {
-    const orderSnapshot = await transaction.get(orderDocument);
-    let items = cleanItems;
-    let timestamp = serverTimestamp();
-    let orderId = newOrderId;
-
-    if (orderSnapshot.exists()) {
-      const current = orderSnapshot.data();
-      if (current.status && current.status !== "paid") {
-        items = mergeItems(current.items || [], cleanItems);
-        timestamp = current.timestamp || serverTimestamp();
-        orderId = current.orderId || newOrderId;
-      }
-    }
-
-    const total = calculateTotal(items);
     const amountDue = calculateTotal(cleanItems);
-    const paymentId = orderSnapshot.exists() ? createOrderId(tableId) : orderId;
-    const paymentDocument = paymentRef(paymentId);
-    const historyDocument = tableHistoryOrderRef(tableId, paymentId);
+    const paymentDocument = paymentRef(newOrderId);
+    const historyDocument = tableHistoryOrderRef(tableId, newOrderId);
+    const receiptDocument = receiptRef(newOrderId);
     const paymentSnapshot = await transaction.get(paymentDocument);
-    orderIdForAudit = orderId;
+    orderIdForAudit = newOrderId;
     totalForAudit = amountDue;
-
-    transaction.set(orderDocument, {
-      orderId,
+    const orderData = {
+      orderId: newOrderId,
       tableId,
-      items,
-      total,
+      items: cleanItems,
+      total: amountDue,
       status: "preparing",
       placedBy: "counter",
       paymentStatus: "verified_paid",
       preferredPaymentMethod: method,
       paymentMethod: method,
-      timestamp,
+      timestamp: serverTimestamp(),
       paidAt: serverTimestamp(),
       kitchenStartedAt: serverTimestamp(),
-      paidTotal: increment(amountDue),
-      paidItems: mergeItems(orderSnapshot.exists() ? orderSnapshot.data().paidItems || [] : [], cleanItems),
+      paidTotal: amountDue,
+      paidItems: cleanItems,
       updatedAt: serverTimestamp()
-    });
+    };
+
+    transaction.set(orderDocument, orderData);
+    transaction.set(legacyDocument, orderData);
 
     if (!paymentSnapshot.exists()) {
+      const receipt = createReceiptPayload(orderData, method);
       transaction.set(summaryDocument, {
         date: getTodayKey(),
         total: increment(amountDue),
@@ -539,15 +541,17 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
       }, { merge: true });
 
       transaction.set(paymentDocument, {
-        orderId: paymentId,
+        orderId: newOrderId,
         tableId,
         amount: amountDue,
         paymentMethod: method,
         paidAt: serverTimestamp()
       });
 
+      transaction.set(receiptDocument, receipt);
+
       transaction.set(historyDocument, {
-        orderId: paymentId,
+        orderId: newOrderId,
         tableId,
         items: cleanItems,
         total: amountDue,
@@ -558,8 +562,9 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
         customerMobileNormalized: null,
         paymentStatus: "verified_paid",
         paymentMethod: method,
-        orderedAt: timestamp,
+        orderedAt: orderData.timestamp,
         paidAt: serverTimestamp(),
+        receiptNumber: receipt.receiptNumber,
         savedAt: serverTimestamp()
       });
     }
@@ -579,10 +584,9 @@ export async function findActiveOrdersByMobile(mobile) {
   const normalized = normalizeIndianMobile(mobile);
   if (!normalized) return [];
 
-  const snapshots = await Promise.all(CONFIG.TABLES.map((tableId) => getDoc(orderRef(tableId))));
-  return snapshots
-    .filter((snapshot) => snapshot.exists())
-    .map((snapshot, index) => ({ id: CONFIG.TABLES[index], ...snapshot.data() }))
+  const snapshot = await getDocs(collection(db, "activeOrders"));
+  return snapshot.docs
+    .map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() }))
     .filter((order) => (
       ACTIVE_ORDER_STATUSES.includes(order.status || "new")
       && order.customerMobileNormalized === normalized
@@ -604,6 +608,20 @@ export async function cancelOrder(tableId) {
   return true;
 }
 
+export async function cancelActiveOrder(orderId) {
+  const snapshot = await getDoc(activeOrderRef(orderId));
+  if (!snapshot.exists()) return false;
+  const order = snapshot.data();
+  const status = order.status || "new";
+  if (status === "served" || status === "paid") return false;
+  await deleteDoc(activeOrderRef(orderId));
+  await logAuditEntry("order_cancelled", order.tableId, {
+    orderId,
+    total: order.total || 0
+  });
+  return true;
+}
+
 // Resets a customer payment claim so staff can re-verify.
 export async function rejectPaymentClaim(tableId) {
   await updateDoc(orderRef(tableId), {
@@ -616,10 +634,35 @@ export async function rejectPaymentClaim(tableId) {
   await logAuditEntry("payment_claim_rejected", tableId);
 }
 
+export async function rejectActivePaymentClaim(orderId) {
+  const snapshot = await getDoc(activeOrderRef(orderId));
+  if (!snapshot.exists()) return;
+  await updateDoc(activeOrderRef(orderId), {
+    paymentStatus: "pending",
+    preferredPaymentMethod: null,
+    paymentClaimedAt: null,
+    cashRequestedAt: null,
+    updatedAt: serverTimestamp()
+  });
+  await logAuditEntry("payment_claim_rejected", snapshot.data().tableId, { orderId });
+}
+
 // Subscribes to a table's current order and returns the unsubscribe function.
 export function listenToOrder(tableId, callback, onError) {
   return onSnapshot(orderRef(tableId), (snapshot) => {
     callback(snapshot.exists() ? { id: tableId, ...snapshot.data() } : null);
+  }, onError);
+}
+
+export function listenToActiveOrder(orderId, callback, onError) {
+  return onSnapshot(activeOrderRef(orderId), (snapshot) => {
+    callback(snapshot.exists() ? { id: orderId, ...snapshot.data() } : null);
+  }, onError);
+}
+
+export function listenToActiveOrders(callback, onError) {
+  return onSnapshot(collection(db, "activeOrders"), (snapshot) => {
+    callback(snapshot.docs.map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() })));
   }, onError);
 }
 
@@ -631,9 +674,45 @@ export async function updateOrderStatus(tableId, status) {
   });
 }
 
+export async function updateActiveOrderStatus(orderId, status) {
+  await updateDoc(activeOrderRef(orderId), {
+    status,
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function markOrderItemsServed(orderId, servedItemIds = []) {
+  const servedSet = new Set(servedItemIds);
+  const ref = activeOrderRef(orderId);
+  await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(ref);
+    if (!snapshot.exists()) return;
+    const order = snapshot.data();
+    const items = normalizeOrderItems(order.items || []).map((item) => (
+      servedSet.has(item.itemId)
+        ? { ...item, status: "served", servedAt: serverTimestamp() }
+        : item
+    ));
+    transaction.update(ref, {
+      items,
+      status: getOrderServingStatus(items),
+      updatedAt: serverTimestamp()
+    });
+  });
+}
+
 // Records that the customer says they completed the online UPI payment.
 export async function claimPaymentDone(tableId) {
   await updateDoc(orderRef(tableId), {
+    paymentStatus: "customer_claimed_paid",
+    preferredPaymentMethod: "online",
+    paymentClaimedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function claimActiveOrderPaymentDone(orderId) {
+  await updateDoc(activeOrderRef(orderId), {
     paymentStatus: "customer_claimed_paid",
     preferredPaymentMethod: "online",
     paymentClaimedAt: serverTimestamp(),
@@ -651,26 +730,26 @@ export async function requestCashAtCounter(tableId) {
   });
 }
 
-async function recordOrderPayment(tableId, paymentMethod = "cash", nextStatus = "paid") {
-  const orderDocument = orderRef(tableId);
+async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = "paid") {
+  const orderDocument = activeOrderRef(orderId);
   const summaryDocument = dailySummaryRef();
   const method = paymentMethod === "online" ? "online" : "cash";
+  let tableId = null;
 
   await runTransaction(db, async (transaction) => {
     const orderSnapshot = await transaction.get(orderDocument);
     if (!orderSnapshot.exists()) return;
 
     const order = orderSnapshot.data();
-    const orderId = order.orderId || `${tableId}-${order.timestamp?.seconds || Date.now()}`;
-    const hasPendingAddOn = Number(order.pendingAddOnTotal || 0) > 0;
-    const payableItems = hasPendingAddOn ? order.pendingAddOnItems || [] : order.items || [];
-    const amountDue = hasPendingAddOn ? Number(order.pendingAddOnTotal || 0) : Number(order.total || 0);
-    const paymentId = hasPendingAddOn ? order.pendingAddOnPaymentId || createOrderId(tableId) : orderId;
-    const mergedItems = hasPendingAddOn ? mergeItems(order.items || [], payableItems) : order.items || [];
-    const mergedTotal = hasPendingAddOn ? Number(order.total || 0) + amountDue : Number(order.total || 0);
-    const paymentDocument = paymentRef(paymentId);
-    const historyDocument = tableHistoryOrderRef(tableId, paymentId);
+    tableId = order.tableId;
+    const currentOrderId = order.orderId || orderId;
+    const payableItems = normalizeOrderItems(order.items || []);
+    const amountDue = calculateTotal(payableItems);
+    const paymentDocument = paymentRef(currentOrderId);
+    const historyDocument = tableHistoryOrderRef(tableId, currentOrderId);
+    const receiptDocument = receiptRef(currentOrderId);
     const paymentSnapshot = await transaction.get(paymentDocument);
+    const receipt = createReceiptPayload({ ...order, orderId: currentOrderId, items: payableItems, total: amountDue }, method);
 
     transaction.update(orderDocument, {
       status: nextStatus,
@@ -678,13 +757,11 @@ async function recordOrderPayment(tableId, paymentMethod = "cash", nextStatus = 
       paymentMethod: method,
       paidAt: serverTimestamp(),
       kitchenStartedAt: serverTimestamp(),
-      items: mergedItems,
-      total: mergedTotal,
-      paidTotal: Number(order.paidTotal || 0) + amountDue,
-      paidItems: mergeItems(order.paidItems || [], payableItems),
-      pendingAddOnItems: [],
-      pendingAddOnTotal: 0,
-      pendingAddOnPaymentId: null,
+      items: payableItems,
+      total: amountDue,
+      paidTotal: amountDue,
+      paidItems: payableItems,
+      receiptNumber: receipt.receiptNumber,
       paymentClaimedAt: null,
       updatedAt: serverTimestamp()
     });
@@ -699,17 +776,18 @@ async function recordOrderPayment(tableId, paymentMethod = "cash", nextStatus = 
       }, { merge: true });
 
       transaction.set(paymentDocument, {
-        orderId: paymentId,
+        orderId: currentOrderId,
         tableId,
         amount: amountDue,
         paymentMethod: method,
         paidAt: serverTimestamp()
       });
 
+      transaction.set(receiptDocument, receipt);
+
       transaction.set(historyDocument, {
-        orderId: paymentId,
+        orderId: currentOrderId,
         tableId,
-        parentOrderId: orderId,
         items: payableItems,
         total: amountDue,
         status: "paid",
@@ -721,27 +799,35 @@ async function recordOrderPayment(tableId, paymentMethod = "cash", nextStatus = 
         paymentMethod: method,
         orderedAt: order.timestamp || null,
         paidAt: serverTimestamp(),
+        receiptNumber: receipt.receiptNumber,
         savedAt: serverTimestamp()
       });
     }
   });
 
-  await logAuditEntry("order_paid", tableId, { paymentMethod: method });
+  await logAuditEntry("order_paid", tableId, { orderId, paymentMethod: method });
 }
 
 // Verifies payment and releases the order to the kitchen without completing the table.
-export async function verifyOrderPayment(tableId, paymentMethod = "online") {
-  await recordOrderPayment(tableId, paymentMethod, "preparing");
+export async function verifyOrderPayment(orderId, paymentMethod = "online") {
+  await recordOrderPayment(orderId, paymentMethod, "preparing");
 }
 
 // Marks an order as paid and updates the daily collection only once per order/day.
-export async function markOrderPaid(tableId, paymentMethod = "cash") {
-  await recordOrderPayment(tableId, paymentMethod, "paid");
+export async function markOrderPaid(orderId, paymentMethod = "cash") {
+  await recordOrderPayment(orderId, paymentMethod, "paid");
 }
 
 // Deletes the current order for a table after payment.
 export async function clearTable(tableId) {
-  await deleteDoc(orderRef(tableId));
+  const snapshot = await getDocs(collection(db, "activeOrders"));
+  const tableOrders = snapshot.docs
+    .map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() }))
+    .filter((order) => order.tableId === tableId);
+  const hasPendingItems = tableOrders.some((order) => getPendingItems(order.items || []).length > 0);
+  if (hasPendingItems) throw new Error("Cannot clear table while items are pending.");
+  await Promise.all(tableOrders.map((order) => deleteDoc(activeOrderRef(order.id || order.orderId))));
+  await deleteDoc(orderRef(tableId)).catch(() => {});
   await logAuditEntry("table_cleared", tableId);
 }
 
@@ -817,6 +903,54 @@ export async function fetchTodayReport() {
   return fetchReportForDateRange(todayKey, todayKey);
 }
 
+export async function fetchReceipt(orderId) {
+  const snapshot = await getDoc(receiptRef(orderId));
+  return snapshot.exists() ? { id: orderId, ...snapshot.data() } : null;
+}
+
+export function receiptToThermalHtml(receipt) {
+  if (!receipt) return "";
+  const generated = toDate(receipt.generatedAt) || new Date();
+  const rows = (receipt.items || []).map((item) => `
+    <tr>
+      <td>${escapeHtml(item.name)}</td>
+      <td>${Number(item.qty || 0)}</td>
+      <td>${formatCurrency(Number(item.price || 0) * Number(item.qty || 0))}</td>
+    </tr>
+  `).join("");
+  return `
+    <section class="thermal-receipt">
+      <div class="receipt-logo-placeholder">Cafe Logo</div>
+      <h1>${escapeHtml(receipt.cafeName || CONFIG.RESTAURANT_NAME)}</h1>
+      <p>Receipt: ${escapeHtml(receipt.receiptNumber)}</p>
+      <p>${escapeHtml(generated.toLocaleString())}</p>
+      <p>Table: ${escapeHtml(receipt.tableId)} | Order: ${escapeHtml(receipt.orderId)}</p>
+      <hr>
+      <table>
+        <thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <hr>
+      <p class="receipt-total"><span>Total</span><strong>${formatCurrency(receipt.total)}</strong></p>
+      <p>Payment Method:<br>${escapeHtml(receipt.paymentMethod || "")}</p>
+      <p>Payment Status:<br>${escapeHtml(receipt.paymentStatus || "Verified")}</p>
+      <hr>
+      <p class="receipt-thanks">Thank You<br>Visit Again</p>
+    </section>
+  `;
+}
+
+export function downloadReceiptHtml(receipt) {
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(receipt.receiptNumber)}</title></head><body>${receiptToThermalHtml(receipt)}</body></html>`;
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${receipt.receiptNumber || receipt.orderId}.html`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 // Converts a report object to CSV text for download.
 export function reportToCsv(report) {
   const lines = [
@@ -839,19 +973,19 @@ export function reportToCsv(report) {
 }
 
 // Builds the QR service URL for the current UPI payment details.
-export function buildUpiQrUrl(tableId, total) {
-  const upiString = buildUpiString(tableId, total);
+export function buildUpiQrUrl(tableId, total, orderId = tableId) {
+  const upiString = buildUpiString(tableId, total, orderId);
   return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiString)}`;
 }
 
 // Builds the universal UPI intent string used by Paytm, Google Pay, PhonePe, and BHIM.
-export function buildUpiString(tableId, total) {
-  return `upi://pay?${buildUpiQuery(tableId, total)}`;
+export function buildUpiString(tableId, total, orderId = tableId) {
+  return `upi://pay?${buildUpiQuery(tableId, total, orderId)}`;
 }
 
 // Builds app-specific payment links plus a universal UPI fallback.
-export function buildPaymentLinks(tableId, total) {
-  const query = buildUpiQuery(tableId, total);
+export function buildPaymentLinks(tableId, total, orderId = tableId) {
+  const query = buildUpiQuery(tableId, total, orderId);
   return {
     upi: `upi://pay?${query}`,
     googlePay: `tez://upi/pay?${query}`,
@@ -861,13 +995,13 @@ export function buildPaymentLinks(tableId, total) {
 }
 
 // Encodes common UPI payment parameters for QR and app links.
-function buildUpiQuery(tableId, total) {
+function buildUpiQuery(tableId, total, orderId = tableId) {
   return new URLSearchParams({
     pa: CONFIG.UPI_ID,
     pn: CONFIG.UPI_NAME,
     am: String(Number(total || 0)),
     cu: "INR",
-    tn: `Order_${tableId}`
+    tn: `Order_${orderId}_Table_${tableId}`
   }).toString();
 }
 

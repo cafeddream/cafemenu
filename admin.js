@@ -1,7 +1,7 @@
 import {
   CONFIG,
   STATUS_LABELS,
-  cancelOrder,
+  cancelActiveOrder,
   clearTable,
   escapeHtml,
   fetchMenu,
@@ -10,15 +10,15 @@ import {
   formatCurrency,
   formatTime,
   getTodayKey,
-  listenToOrder,
+  listenToActiveOrders,
   listenToTodaySummary,
   maskMobile,
   placeCounterOrderWithPayment,
   registerServiceWorker,
-  rejectPaymentClaim,
+  rejectActivePaymentClaim,
   reportToCsv,
   showToast,
-  updateOrderStatus,
+  updateActiveOrderStatus,
   verifyOrderPayment
 } from "./firebase.js";
 import {
@@ -35,6 +35,7 @@ const state = {
   orders: new Map(),
   knownOccupied: new Set(),
   pendingPaidTable: null,
+  pendingPaidOrderId: null,
   pendingPaymentItems: null,
   pendingPaymentIsCounterOrder: false,
   hoverPreview: null,
@@ -175,24 +176,23 @@ function startClock() {
 }
 
 function renderEmptyCards() {
-  elements.tableGrid.innerHTML = CONFIG.TABLES.map((tableId) => tableCardHtml(tableId, null)).join("");
+  elements.tableGrid.innerHTML = CONFIG.TABLES.map((tableId) => tableCardHtml(tableId, [])).join("");
 }
 
 function subscribeToTables() {
-  CONFIG.TABLES.forEach((tableId) => {
-    listenToOrder(tableId, (order) => {
-      const wasEmpty = !state.knownOccupied.has(tableId);
-      if (order) {
-        state.orders.set(tableId, order);
-        state.knownOccupied.add(tableId);
-        if (wasEmpty) notifyNewOrder();
-      } else {
-        state.orders.delete(tableId);
-        state.knownOccupied.delete(tableId);
-      }
-      renderTables(tableId);
-    }, () => showToast("Connection error, please refresh"));
-  });
+  listenToActiveOrders((orders) => {
+    const previousTables = new Set(state.knownOccupied);
+    state.orders.clear();
+    state.knownOccupied.clear();
+    orders.forEach((order) => {
+      const orderId = order.orderId || order.id;
+      state.orders.set(orderId, { ...order, orderId });
+      state.knownOccupied.add(order.tableId);
+    });
+    const flashedTable = [...state.knownOccupied].find((tableId) => !previousTables.has(tableId)) || null;
+    if (flashedTable) notifyNewOrder();
+    renderTables(flashedTable);
+  }, () => showToast("Connection error, please refresh"));
 }
 
 function subscribeToSummary() {
@@ -203,16 +203,26 @@ function subscribeToSummary() {
 
 function renderTables(flashTableId = null) {
   elements.tableGrid.innerHTML = CONFIG.TABLES.map((tableId) => {
-    const order = state.orders.get(tableId) || null;
-    return tableCardHtml(tableId, order, tableId === flashTableId && order?.status === "new");
+    const orders = getOrdersForTable(tableId);
+    return tableCardHtml(tableId, orders, tableId === flashTableId && orders.some((order) => order.status === "new"));
   }).join("");
 
-  elements.activeTables.textContent = `Active Tables: ${state.orders.size}`;
+  elements.activeTables.textContent = `Active Tables: ${state.knownOccupied.size}`;
   bindCardActions();
 }
 
-function tableCardHtml(tableId, order, flash = false) {
-  if (!order) {
+function getOrdersForTable(tableId) {
+  return [...state.orders.values()]
+    .filter((order) => order.tableId === tableId)
+    .sort((a, b) => (a.timestamp?.toMillis?.() || 0) - (b.timestamp?.toMillis?.() || 0));
+}
+
+function hasPendingItems(order) {
+  return (order.items || []).some((item) => item.status !== "served");
+}
+
+function tableCardHtml(tableId, orders, flash = false) {
+  if (!orders.length) {
     return `
       <article class="table-card table-card-orderable ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}" tabindex="0" aria-label="Take order for ${escapeHtml(tableId)}">
         <div class="table-head">
@@ -223,8 +233,26 @@ function tableCardHtml(tableId, order, flash = false) {
     `;
   }
 
+  const canOrder = true;
+  const clearEnabled = orders.every((order) => !hasPendingItems(order));
+  const orderBlocks = orders.map(orderBlockHtml).join("");
+
+  return `
+    <article class="table-card table-card-orderable ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}" tabindex="0" aria-label="Add items for ${escapeHtml(tableId)}">
+      <div class="table-head">
+        <span class="table-id">${escapeHtml(tableId)}</span>
+        <span class="badge">${orders.length} order${orders.length === 1 ? "" : "s"}</span>
+      </div>
+      <div class="table-order-group">${orderBlocks}</div>
+      <div class="card-actions table-clear-actions" data-table="${escapeHtml(tableId)}">
+        <button class="danger-btn" type="button" data-action="clear" ${clearEnabled ? "" : "disabled"}>Clear Table</button>
+      </div>
+    </article>
+  `;
+}
+
+function orderBlockHtml(order) {
   const status = order.status || "new";
-  const canOrder = status !== "paid";
   const paymentClaimed = order.paymentStatus === "customer_claimed_paid";
   const cashRequested = order.paymentStatus === "cash_at_counter";
   const paymentVerified = order.paymentStatus === "verified_paid";
@@ -237,29 +265,27 @@ function tableCardHtml(tableId, order, flash = false) {
   const lines = renderAdminItemsHtml(order.items || []);
 
   return `
-    <article class="table-card status-${escapeHtml(status)} ${canOrder ? "table-card-orderable" : ""} ${flash ? "flash" : ""}" ${canOrder ? `data-table="${escapeHtml(tableId)}" tabindex="0" aria-label="Add items for ${escapeHtml(tableId)}"` : ""}>
-      <div class="table-head">
-        <span class="table-id">${escapeHtml(tableId)}</span>
+    <section class="admin-order-block status-${escapeHtml(status)}" data-order="${escapeHtml(order.orderId || order.id)}">
+      <div class="admin-order-head">
+        <span class="admin-order-id">${escapeHtml(String(order.orderId || order.id).slice(0, 8))}</span>
         <span class="badge">${escapeHtml(STATUS_LABELS[status] || status)}</span>
         ${sourceBadge}
       </div>
       ${customerLine}
       ${paymentClaimed ? "<div class=\"payment-alert\">Customer says payment done - verify UPI</div>" : ""}
       ${cashRequested ? "<div class=\"payment-alert cash-alert\">Customer will pay cash at counter</div>" : ""}
-      <ul class="order-lines" data-item-detail role="button" tabindex="0" aria-label="View all items for ${escapeHtml(tableId)}">${lines}</ul>
+      <ul class="order-lines" data-item-detail role="button" tabindex="0" aria-label="View all items for ${escapeHtml(order.orderId || order.id)}">${lines}</ul>
       <div class="card-meta">
         <strong>${formatCurrency(order.total)}</strong>
         <span>${formatTime(order.timestamp)}</span>
       </div>
-      <div class="card-actions" data-table="${escapeHtml(tableId)}" data-status="${escapeHtml(status)}">
+      <div class="card-actions" data-table="${escapeHtml(order.tableId)}" data-order="${escapeHtml(order.orderId || order.id)}" data-status="${escapeHtml(status)}">
         ${paymentClaimed ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"reject-pay\">Reject Payment Claim</button>" : ""}
         ${status === "new" || status === "preparing" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"cancel\">Cancel Order</button>" : ""}
-        ${paymentVerified && (status === "new" || status === "preparing") ? "<button class=\"secondary-btn\" type=\"button\" data-action=\"served\">Mark Served</button>" : ""}
         ${status !== "paid" && !paymentVerified ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Confirm Payment</button>" : ""}
-        ${status === "paid" || (paymentVerified && status === "served") ? "<button class=\"danger-btn\" type=\"button\" data-action=\"clear\">Clear Table</button>" : ""}
         <button class="ghost-btn" type="button" data-action="print">Print Bill</button>
       </div>
-    </article>
+    </section>
   `;
 }
 
@@ -279,23 +305,23 @@ function bindCardActions() {
     button.addEventListener("click", async (event) => {
       event.stopPropagation();
       const tableId = button.closest(".card-actions").dataset.table;
+      const orderId = button.closest(".card-actions").dataset.order;
       const action = button.dataset.action;
       button.disabled = true;
 
       try {
-        if (action === "preparing") await updateOrderStatus(tableId, "preparing");
-        if (action === "served") await updateOrderStatus(tableId, "served");
-        if (action === "reject-pay") await rejectPaymentClaim(tableId);
+        if (action === "preparing") await updateActiveOrderStatus(orderId, "preparing");
+        if (action === "reject-pay") await rejectActivePaymentClaim(orderId);
         if (action === "cancel") {
-          const currentOrder = state.orders.get(tableId);
+          const currentOrder = state.orders.get(orderId);
           if (currentOrder?.status === "served" || currentOrder?.status === "paid") {
             showToast("Served orders cannot be cancelled.");
             button.disabled = false;
             return;
           }
 
-          if (window.confirm(`Cancel order for ${tableId}?`)) {
-            const cancelled = await cancelOrder(tableId);
+          if (window.confirm(`Cancel order ${String(orderId).slice(0, 8)} for ${tableId}?`)) {
+            const cancelled = await cancelActiveOrder(orderId);
             if (!cancelled) {
               showToast("Served orders cannot be cancelled.");
               button.disabled = false;
@@ -306,12 +332,12 @@ function bindCardActions() {
           return;
         }
         if (action === "paid") {
-          openPaymentMethodModal(tableId);
+          openPaymentMethodModal(tableId, { orderId });
           button.disabled = false;
           return;
         }
         if (action === "clear") await clearTable(tableId);
-        if (action === "print") printTableBill(tableId);
+        if (action === "print") printTableBill(tableId, orderId);
       } catch {
         showToast("Connection error, please refresh");
         button.disabled = false;
@@ -320,9 +346,9 @@ function bindCardActions() {
   });
 
   elements.tableGrid.querySelectorAll(".order-lines[data-item-detail]").forEach((itemArea) => {
-    const card = itemArea.closest(".table-card");
-    itemArea.addEventListener("mouseenter", () => showAdminHoverPreview(card));
-    itemArea.addEventListener("focus", () => showAdminHoverPreview(card));
+    const orderBlock = itemArea.closest(".admin-order-block");
+    itemArea.addEventListener("mouseenter", () => showAdminHoverPreview(orderBlock));
+    itemArea.addEventListener("focus", () => showAdminHoverPreview(orderBlock));
     itemArea.addEventListener("mouseleave", hideAdminHoverPreview);
     itemArea.addEventListener("blur", hideAdminHoverPreview);
   });
@@ -340,7 +366,7 @@ function renderAdminItemsHtml(items = []) {
   const visibleItems = items.slice(0, 3);
   const moreCount = Math.max(0, items.length - visibleItems.length);
   return `${visibleItems.map((item) => `
-    <li><span>${escapeHtml(item.name)}</span><strong>x${Number(item.qty || 0)}</strong></li>
+    <li class="${item.status === "served" ? "served-item" : ""}"><span>${escapeHtml(item.name)}</span><strong>x${Number(item.qty || 0)}</strong></li>
   `).join("")}${moreCount ? `
     <li class="order-more-line"><span>+${moreCount} more</span><strong></strong></li>
   ` : ""}`;
@@ -350,7 +376,7 @@ function renderAdminDetailItemsHtml(items = []) {
   if (!items.length) return "<li class=\"kitchen-detail-item\"><span>No items</span></li>";
 
   return items.map((item) => `
-    <li class="kitchen-detail-item">
+    <li class="kitchen-detail-item ${item.status === "served" ? "served-item" : ""}">
       <span class="kitchen-detail-qty">${Number(item.qty || 0)}&times;</span>
       <span class="kitchen-detail-name">${escapeHtml(item.name)}</span>
     </li>
@@ -369,20 +395,20 @@ function getAdminHoverPreview() {
   return preview;
 }
 
-function showAdminHoverPreview(card) {
-  if (!card || !window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+function showAdminHoverPreview(orderBlock) {
+  if (!orderBlock || !window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
 
-  const tableId = card.querySelector(".card-actions")?.dataset.table || card.dataset.table;
-  const order = state.orders.get(tableId);
+  const orderId = orderBlock.dataset.order;
+  const order = state.orders.get(orderId);
   if (!order) return;
 
   const preview = getAdminHoverPreview();
-  const cardRect = card.getBoundingClientRect();
+  const cardRect = orderBlock.getBoundingClientRect();
   preview.style.width = `${Math.min(360, Math.max(260, cardRect.width))}px`;
   preview.style.left = "0px";
   preview.style.top = "0px";
   preview.innerHTML = `
-    <strong>Order ${escapeHtml(tableId)}</strong>
+    <strong>Order ${escapeHtml(String(order.orderId || order.id).slice(0, 8))}</strong>
     <ul class="kitchen-detail-list">${renderAdminDetailItemsHtml(order.items || [])}</ul>
   `;
   preview.hidden = false;
@@ -403,8 +429,8 @@ function hideAdminHoverPreview() {
   if (state.hoverPreview) state.hoverPreview.hidden = true;
 }
 
-function printTableBill(tableId) {
-  const order = state.orders.get(tableId);
+function printTableBill(tableId, orderId) {
+  const order = state.orders.get(orderId);
   if (!order) return;
   const lines = (order.items || []).map((item) => `
     <tr><td>${escapeHtml(item.name)}</td><td>${item.qty}</td><td>${formatCurrency(item.price * item.qty)}</td></tr>
@@ -412,6 +438,7 @@ function printTableBill(tableId) {
   const html = `
     <html><head><title>Bill ${tableId}</title></head><body>
     <h2>${escapeHtml(CONFIG.RESTAURANT_NAME)} — ${escapeHtml(tableId)}</h2>
+    <p>Order: ${escapeHtml(order.orderId || orderId)}</p>
     ${order.customerName || order.customerMobileNormalized ? `<p>Customer: ${escapeHtml(order.customerName || "Customer")} ${escapeHtml(maskMobile(order.customerMobileNormalized || order.customerMobile))}</p>` : ""}
     <table border="1" cellpadding="8"><tr><th>Item</th><th>Qty</th><th>Amount</th></tr>${lines}</table>
     <p><strong>Total: ${formatCurrency(order.total)}</strong></p>
@@ -543,9 +570,10 @@ function exportReportCsv() {
 }
 
 function openPaymentMethodModal(tableId, options = {}) {
-  const order = state.orders.get(tableId);
+  const order = options.orderId ? state.orders.get(options.orderId) : null;
   const amount = Number(options.amount ?? order?.total ?? 0);
   state.pendingPaidTable = tableId;
+  state.pendingPaidOrderId = options.orderId || null;
   state.pendingPaymentItems = options.items ? cloneOrderItems(options.items) : null;
   state.pendingPaymentIsCounterOrder = Boolean(options.isCounterOrder);
   elements.paymentMethodTable.innerHTML = `
@@ -557,6 +585,7 @@ function openPaymentMethodModal(tableId, options = {}) {
 
 function closePaymentMethodModal() {
   state.pendingPaidTable = null;
+  state.pendingPaidOrderId = null;
   state.pendingPaymentItems = null;
   state.pendingPaymentIsCounterOrder = false;
   elements.paymentMethodModal.hidden = true;
@@ -565,6 +594,7 @@ function closePaymentMethodModal() {
 async function confirmPaidWithMethod(method) {
   if (!state.pendingPaidTable) return;
   const tableId = state.pendingPaidTable;
+  const orderId = state.pendingPaidOrderId;
   const pendingItems = state.pendingPaymentItems ? cloneOrderItems(state.pendingPaymentItems) : null;
   const isCounterOrder = state.pendingPaymentIsCounterOrder;
   elements.paidCashBtn.disabled = true;
@@ -575,7 +605,7 @@ async function confirmPaidWithMethod(method) {
       await placeCounterOrderWithPayment(tableId, pendingItems, method);
       showToast(`Order placed for ${tableId}`);
     } else {
-      await verifyOrderPayment(tableId, method);
+      await verifyOrderPayment(orderId, method);
     }
     closePaymentMethodModal();
   } catch {
@@ -695,13 +725,12 @@ async function placeAdminOrder() {
   if (!items.length) return;
 
   const tableId = state.orderTableId;
-  const existingTotal = Number(state.orders.get(tableId)?.total || 0);
   elements.adminPlaceOrderBtn.disabled = true;
 
   closeAdminOrderModal();
   openPaymentMethodModal(tableId, {
     items,
-    amount: existingTotal + total,
+    amount: total,
     isCounterOrder: true
   });
   elements.adminPlaceOrderBtn.disabled = false;

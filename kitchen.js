@@ -3,10 +3,11 @@ import {
   escapeHtml,
   formatKitchenTimer,
   getKitchenTimerState,
-  listenToOrder,
+  listenToActiveOrders,
+  markOrderItemsServed,
   registerServiceWorker,
   showToast,
-  updateOrderStatus
+  updateActiveOrderStatus
 } from "./firebase.js";
 import { requireStaffAuth } from "./staff-auth.js";
 
@@ -126,22 +127,53 @@ function bindKitchenItemModal() {
 }
 
 function closeKitchenItemsModal() {
+  elements.itemModal?.querySelector(".served-confirm-btn")?.remove();
   if (elements.itemModal) elements.itemModal.hidden = true;
 }
 
 function openKitchenItemsModal(order) {
   if (!elements.itemModal || !order) return;
 
-  const items = order.items || [];
+  elements.itemModal?.querySelector(".served-confirm-btn")?.remove();
+  const items = getPendingItems(order.items || []);
   const count = items.reduce((sum, item) => sum + Number(item.qty || 0), 0);
   const source = order.placedBy === "counter" ? "Counter" : "Customer";
 
-  elements.itemModalTitle.textContent = `Order ${order.tableId}`;
-  elements.itemModalMeta.textContent = `${source} - ${count} item${count === 1 ? "" : "s"}`;
-  elements.itemModalList.innerHTML = renderKitchenDetailItemsHtml(items);
+  elements.itemModalTitle.textContent = "Select Served Items";
+  elements.itemModalMeta.textContent = `${order.tableId} - ${String(order.orderId || order.id).slice(0, 8)} - ${source} - ${count} pending`;
+  elements.itemModalList.innerHTML = items.map((item) => `
+    <li class="kitchen-detail-item">
+      <label class="served-check">
+        <input type="checkbox" value="${escapeHtml(item.itemId)}">
+        <span class="kitchen-detail-qty">${Number(item.qty || 0)}&times;</span>
+        <span class="kitchen-detail-name">${escapeHtml(item.name)}</span>
+      </label>
+    </li>
+  `).join("");
+  elements.itemModalList.insertAdjacentHTML("afterend", "<button class=\"primary-btn served-confirm-btn\" type=\"button\">Confirm</button>");
+  const confirmBtn = elements.itemModal.querySelector(".served-confirm-btn");
+  confirmBtn.onclick = async () => {
+    const selected = [...elements.itemModalList.querySelectorAll("input:checked")].map((input) => input.value);
+    if (!selected.length) {
+      showToast("Select at least one item");
+      return;
+    }
+    confirmBtn.disabled = true;
+    try {
+      await markOrderItemsServed(order.orderId || order.id, selected);
+      closeKitchenItemsModal();
+    } catch {
+      showToast("Connection error, please refresh");
+      confirmBtn.disabled = false;
+    }
+  };
   elements.itemModal.hidden = false;
   hideKitchenHoverPreview();
   elements.closeItemModal.focus();
+}
+
+function getPendingItems(items = []) {
+  return items.filter((item) => item.status !== "served");
 }
 
 function getKitchenHoverPreview() {
@@ -159,7 +191,7 @@ function getKitchenHoverPreview() {
 function showKitchenHoverPreview(card) {
   if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
 
-  const order = state.orders.get(card.dataset.table);
+  const order = state.orders.get(card.dataset.order);
   if (!order) return;
 
   const preview = getKitchenHoverPreview();
@@ -193,11 +225,11 @@ function bindKitchenItemDetails(card) {
   const itemArea = card.querySelector("[data-item-detail]");
   if (!itemArea) return;
 
-  itemArea.onclick = () => openKitchenItemsModal(state.orders.get(card.dataset.table));
+  itemArea.onclick = () => openKitchenItemsModal(state.orders.get(card.dataset.order));
   itemArea.onkeydown = (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      openKitchenItemsModal(state.orders.get(card.dataset.table));
+      openKitchenItemsModal(state.orders.get(card.dataset.order));
     }
   };
   itemArea.onmouseenter = () => showKitchenHoverPreview(card);
@@ -208,25 +240,24 @@ function bindKitchenItemDetails(card) {
 
 // Listens to every table and keeps only cooking-relevant orders.
 function subscribeToActiveOrders() {
-  CONFIG.TABLES.forEach((tableId) => {
-    listenToOrder(tableId, (order) => {
-      const isActive = order
-        && ["new", "preparing"].includes(order.status)
-        && order.paymentStatus === "verified_paid";
-      const wasVisible = state.visibleIds.has(tableId);
-
+  listenToActiveOrders((orders) => {
+    const previousVisible = new Set(state.visibleIds);
+    state.orders.clear();
+    state.visibleIds.clear();
+    orders.forEach((order) => {
+      const orderId = order.orderId || order.id;
+      const pendingItems = getPendingItems(order.items || []);
+      const isActive = ["new", "preparing"].includes(order.status)
+        && order.paymentStatus === "verified_paid"
+        && pendingItems.length > 0;
       if (isActive) {
-        state.orders.set(tableId, order);
-        state.visibleIds.add(tableId);
-        if (!wasVisible) playKitchenBeep();
-      } else {
-        state.orders.delete(tableId);
-        state.visibleIds.delete(tableId);
+        state.orders.set(orderId, { ...order, orderId, items: pendingItems });
+        state.visibleIds.add(orderId);
+        if (!previousVisible.has(orderId)) playKitchenBeep();
       }
-
-      syncKitchenCards();
-    }, () => showToast("Connection error, please refresh"));
-  });
+    });
+    syncKitchenCards();
+  }, () => showToast("Connection error, please refresh"));
 }
 
 // Returns active orders sorted oldest first.
@@ -262,25 +293,26 @@ function syncKitchenCards() {
     grid = elements.main.querySelector(".kitchen-grid");
   }
 
-  const activeIds = new Set(orders.map((order) => order.tableId));
-  state.cards.forEach((card, tableId) => {
-    if (!activeIds.has(tableId)) {
+  const activeIds = new Set(orders.map((order) => order.orderId || order.id));
+  state.cards.forEach((card, orderId) => {
+    if (!activeIds.has(orderId)) {
       card.remove();
-      state.cards.delete(tableId);
+      state.cards.delete(orderId);
     }
   });
 
   orders.forEach((order) => {
-    let card = state.cards.get(order.tableId);
+    const orderId = order.orderId || order.id;
+    let card = state.cards.get(orderId);
     if (!card) {
       grid.insertAdjacentHTML("beforeend", kitchenCardHtml(order));
       card = grid.lastElementChild;
-      state.cards.set(order.tableId, card);
+      state.cards.set(orderId, card);
       bindKitchenCardActions(card);
     } else if (!card.querySelector(".kitchen-item")) {
       card.outerHTML = kitchenCardHtml(order);
-      card = grid.querySelector(`[data-table="${order.tableId}"]`);
-      state.cards.set(order.tableId, card);
+      card = grid.querySelector(`[data-order="${orderId}"]`);
+      state.cards.set(orderId, card);
       bindKitchenCardActions(card);
     } else {
       updateKitchenCardBody(card, order);
