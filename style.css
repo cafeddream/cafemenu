@@ -233,6 +233,12 @@ button:disabled {
   line-height: 1.1;
 }
 
+.topbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .subtle {
   color: var(--muted);
   font-size: 14px;
@@ -526,6 +532,105 @@ button:disabled {
   font-size: 14px;
 }
 
+.tracker-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 12px 0 16px;
+}
+
+.tracker-step {
+  display: grid;
+  gap: 5px;
+  justify-items: center;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.tracker-step span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #eef0f3;
+  color: #535b65;
+}
+
+.tracker-step.active {
+  color: var(--ink);
+}
+
+.tracker-step.active span {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.lookup-results {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  text-align: left;
+}
+
+.lookup-results[hidden] {
+  display: none;
+}
+
+.customer-modal {
+  width: min(100%, 420px);
+  padding: 20px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.26);
+}
+
+.customer-modal h2 {
+  margin: 0 0 8px;
+}
+
+.customer-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.customer-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.customer-form input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+}
+
+.form-error {
+  min-height: 20px;
+  margin: 0;
+  color: var(--danger);
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.customer-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.customer-modal-actions button {
+  flex: 1 1 0;
+}
+
 .toast {
   position: fixed;
   left: 50%;
@@ -663,6 +768,17 @@ button:disabled {
   color: #0f7a41;
   font-size: 14px;
   font-weight: 850;
+}
+
+.customer-id-line {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.customer-id-line span {
+  margin-left: 6px;
 }
 
 .cash-alert {
@@ -1489,6 +1605,21 @@ button:disabled {
 
   .summary-bar {
     justify-content: flex-start;
+  }
+
+  .topbar {
+    gap: 10px;
+  }
+
+  .topbar-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .topbar-actions .ghost-btn {
+    min-height: 38px;
+    padding: 8px 10px;
+    font-size: 13px;
   }
 
   .table-grid {

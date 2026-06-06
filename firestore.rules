@@ -19,12 +19,24 @@ service cloud.firestore {
       return status == 'new' || status == 'preparing' || status == 'served';
     }
 
+    function validCustomerProfile() {
+      let data = request.resource.data;
+      return data.customerName is string
+        && data.customerName.size() > 0
+        && data.customerName.size() <= 60
+        && data.customerMobile is string
+        && data.customerMobile.matches('^[6-9][0-9]{9}$')
+        && data.customerMobileNormalized is string
+        && data.customerMobileNormalized == data.customerMobile;
+    }
+
     function customerPlacesOrder() {
       let data = request.resource.data;
       return data.tableId == tableId
         && data.placedBy == 'customer'
         && validOrderItems(data.items)
         && validCustomerStatus()
+        && validCustomerProfile()
         && data.status != 'paid';
     }
 

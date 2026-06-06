@@ -79,6 +79,8 @@ export const STATUS_LABELS = {
   paid: "Paid"
 };
 
+export const ACTIVE_ORDER_STATUSES = ["new", "preparing", "served", "paid"];
+
 // Returns the valid Firestore document reference for one table's active order.
 export function orderRef(tableId) {
   return doc(db, "orders", tableId, "current", "order");
@@ -218,6 +220,21 @@ export function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+// Normalizes Indian mobile numbers to the final 10 digits used for lookup.
+export function normalizeIndianMobile(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  const withoutCountry = digits.length > 10 && digits.startsWith("91")
+    ? digits.slice(2)
+    : digits;
+  const mobile = withoutCountry.slice(-10);
+  return /^[6-9]\d{9}$/.test(mobile) ? mobile : "";
+}
+
+export function maskMobile(value) {
+  const mobile = normalizeIndianMobile(value);
+  return mobile ? `${mobile.slice(0, 2)}******${mobile.slice(-2)}` : "";
 }
 
 // Parses a CSV line while respecting quoted fields and escaped quotes.
@@ -364,12 +381,20 @@ export async function logAuditEntry(action, tableId, details = {}) {
 }
 
 // Places a new order or appends to the current unpaid order for a table.
-export async function placeOrAppendOrder(tableId, cartItems, placedBy = "customer") {
+export async function placeOrAppendOrder(tableId, cartItems, placedBy = "customer", customerProfile = null) {
   const cleanItems = cartItems
     .filter((item) => item.qty > 0)
     .map((item) => ({ name: item.name, price: Number(item.price), qty: Number(item.qty) }));
 
   if (!cleanItems.length) return null;
+
+  const cleanProfile = customerProfile && placedBy === "customer"
+    ? {
+        customerName: String(customerProfile.name || "").trim().slice(0, 60),
+        customerMobile: normalizeIndianMobile(customerProfile.mobile),
+        customerMobileNormalized: normalizeIndianMobile(customerProfile.mobile)
+      }
+    : {};
 
   const ref = orderRef(tableId);
   const newOrderId = createOrderId(tableId);
@@ -399,7 +424,8 @@ export async function placeOrAppendOrder(tableId, cartItems, placedBy = "custome
       placedBy,
       paymentStatus: "pending",
       timestamp,
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
+      ...cleanProfile
     });
   });
 
@@ -408,6 +434,21 @@ export async function placeOrAppendOrder(tableId, cartItems, placedBy = "custome
   }
 
   return getDoc(ref);
+}
+
+// Finds live/current orders for a customer mobile across configured tables.
+export async function findActiveOrdersByMobile(mobile) {
+  const normalized = normalizeIndianMobile(mobile);
+  if (!normalized) return [];
+
+  const snapshots = await Promise.all(CONFIG.TABLES.map((tableId) => getDoc(orderRef(tableId))));
+  return snapshots
+    .filter((snapshot) => snapshot.exists())
+    .map((snapshot, index) => ({ id: CONFIG.TABLES[index], ...snapshot.data() }))
+    .filter((order) => (
+      ACTIVE_ORDER_STATUSES.includes(order.status || "new")
+      && order.customerMobileNormalized === normalized
+    ));
 }
 
 // Cancels the current table order (staff only).
@@ -516,6 +557,9 @@ export async function markOrderPaid(tableId, paymentMethod = "cash") {
         total: Number(order.total || 0),
         status: "paid",
         placedBy: order.placedBy || "customer",
+        customerName: order.customerName || null,
+        customerMobile: order.customerMobile || null,
+        customerMobileNormalized: order.customerMobileNormalized || null,
         paymentStatus: "verified_paid",
         paymentMethod: method,
         orderedAt: order.timestamp || null,

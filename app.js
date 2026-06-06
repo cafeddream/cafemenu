@@ -5,9 +5,12 @@ import {
   buildUpiQrUrl,
   claimPaymentDone,
   fetchMenu,
+  findActiveOrdersByMobile,
   formatCurrency,
   getFirebaseErrorMessage,
   listenToOrder,
+  maskMobile,
+  normalizeIndianMobile,
   placeOrAppendOrder,
   registerServiceWorker,
   requestCashAtCounter,
@@ -30,7 +33,19 @@ const state = {
   activeCategory: "",
   cart: new Map(),
   lastOrderTotal: 0,
-  orderUnsubscribe: null
+  orderUnsubscribe: null,
+  customerProfile: null,
+  trackedTableId: null,
+  trackedOrder: null
+};
+
+const CUSTOMER_PROFILE_KEY = "cafe_customer_profile_v1";
+const TRACKING_STEPS = ["new", "preparing", "served", "paid"];
+const TRACKING_LABELS = {
+  new: "Order Received",
+  preparing: "Preparing",
+  served: "Served",
+  paid: "Paid"
 };
 
 const elements = {
@@ -66,7 +81,20 @@ const elements = {
   paymentDoneBtn: document.querySelector("#paymentDoneBtn"),
   paymentNote: document.querySelector("#paymentNote"),
   addMoreItems: document.querySelector("#addMoreItems"),
-  addMoreTop: document.querySelector("#addMoreTop")
+  addMoreTop: document.querySelector("#addMoreTop"),
+  trackTop: document.querySelector("#trackTop"),
+  trackerSteps: document.querySelector("#trackerSteps"),
+  lookupResults: document.querySelector("#lookupResults"),
+  customerModal: document.querySelector("#customerModal"),
+  customerModalTitle: document.querySelector("#customerModalTitle"),
+  customerModalText: document.querySelector("#customerModalText"),
+  customerForm: document.querySelector("#customerForm"),
+  customerName: document.querySelector("#customerName"),
+  customerMobile: document.querySelector("#customerMobile"),
+  customerError: document.querySelector("#customerError"),
+  startOrderBtn: document.querySelector("#startOrderBtn"),
+  trackFromModal: document.querySelector("#trackFromModal"),
+  backToStart: document.querySelector("#backToStart")
 };
 
 async function init() {
@@ -84,6 +112,14 @@ async function init() {
   state.tableId = tableId;
   elements.tableLabel.textContent = `Table ${tableId}`;
   bindEvents();
+  state.customerProfile = readCustomerProfile();
+  if (state.customerProfile) {
+    fillCustomerForm(state.customerProfile);
+    autoResumeTracking();
+    hideCustomerModal();
+  } else {
+    showCustomerStart();
+  }
   await loadMenu();
 }
 
@@ -122,6 +158,10 @@ function bindEvents() {
   elements.chooseOnlineBtn.addEventListener("click", chooseOnlinePayment);
   elements.chooseCashBtn.addEventListener("click", chooseCashPayment);
   elements.paymentDoneBtn.addEventListener("click", markCustomerPaid);
+  elements.trackTop.addEventListener("click", showCustomerTrack);
+  elements.trackFromModal.addEventListener("click", showCustomerTrack);
+  elements.backToStart.addEventListener("click", showCustomerStart);
+  elements.customerForm.addEventListener("submit", handleCustomerSubmit);
 }
 
 function showScreen(name) {
@@ -139,6 +179,95 @@ function showScreen(name) {
 
   if (name === "payment") subscribeOrderStatus();
   else unsubscribeOrderStatus();
+}
+
+function readCustomerProfile() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CUSTOMER_PROFILE_KEY) || "null");
+    const mobile = normalizeIndianMobile(parsed?.mobile);
+    const name = String(parsed?.name || "").trim();
+    if (!name || !mobile) return null;
+    return { name, mobile };
+  } catch {
+    return null;
+  }
+}
+
+function saveCustomerProfile(profile) {
+  localStorage.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(profile));
+}
+
+function fillCustomerForm(profile) {
+  elements.customerName.value = profile?.name || "";
+  elements.customerMobile.value = profile?.mobile || "";
+}
+
+function hideCustomerModal() {
+  elements.customerModal.hidden = true;
+}
+
+function showCustomerStart() {
+  elements.customerModal.hidden = false;
+  elements.customerModalTitle.textContent = "Start Your Order";
+  elements.customerModalText.textContent = "Enter your details once for order updates and counter billing.";
+  elements.customerForm.hidden = false;
+  elements.startOrderBtn.textContent = "Start Order";
+  elements.trackFromModal.hidden = false;
+  elements.backToStart.hidden = true;
+  elements.customerError.textContent = "";
+  fillCustomerForm(state.customerProfile);
+  setTimeout(() => elements.customerName.focus(), 0);
+}
+
+function showCustomerTrack() {
+  elements.customerModal.hidden = false;
+  elements.customerModalTitle.textContent = "Track Order";
+  elements.customerModalText.textContent = "Enter your mobile number to find active orders.";
+  elements.customerForm.hidden = false;
+  elements.startOrderBtn.textContent = "Track Order";
+  elements.trackFromModal.hidden = true;
+  elements.backToStart.hidden = !state.customerProfile;
+  elements.customerError.textContent = "";
+  fillCustomerForm(state.customerProfile);
+  setTimeout(() => elements.customerMobile.focus(), 0);
+}
+
+async function handleCustomerSubmit(event) {
+  event.preventDefault();
+  const name = elements.customerName.value.trim();
+  const mobile = normalizeIndianMobile(elements.customerMobile.value);
+  const isTracking = elements.startOrderBtn.textContent === "Track Order";
+
+  if (!isTracking && !name) {
+    elements.customerError.textContent = "Please enter your name.";
+    return;
+  }
+  if (!mobile) {
+    elements.customerError.textContent = "Enter a valid 10-digit Indian mobile number.";
+    return;
+  }
+
+  const profile = { name: name || state.customerProfile?.name || "Guest", mobile };
+  state.customerProfile = profile;
+  saveCustomerProfile(profile);
+  fillCustomerForm(profile);
+  elements.customerError.textContent = "";
+
+  if (isTracking) {
+    await lookupOrdersByMobile(mobile);
+  } else {
+    hideCustomerModal();
+    showToast("Ready to order");
+  }
+}
+
+async function autoResumeTracking() {
+  const orders = await findActiveOrdersByMobile(state.customerProfile.mobile).catch(() => []);
+  if (orders.length === 1) startTrackingOrder(orders[0].tableId);
+  if (orders.length > 1) {
+    renderLookupResults(orders);
+    showScreen("payment");
+  }
 }
 
 function showError(title, message, canRetry = false) {
@@ -190,14 +319,19 @@ function renderCart() {
 async function placeOrder() {
   const { items, total } = getCartTotals(state.cart);
   if (!items.length) return;
+  if (!state.customerProfile) {
+    showCustomerStart();
+    return;
+  }
 
   try {
     elements.placeOrderBtn.disabled = true;
-    await placeOrAppendOrder(state.tableId, items, "customer");
+    await placeOrAppendOrder(state.tableId, items, "customer", state.customerProfile);
     state.lastOrderTotal = total;
+    state.trackedTableId = state.tableId;
     state.cart.clear();
     renderMenu();
-    renderPayment(total);
+    renderPayment(total, null);
     showToast("Order Placed!");
     showScreen("payment");
   } catch (error) {
@@ -210,13 +344,15 @@ async function placeOrder() {
   }
 }
 
-function renderPayment(total) {
-  const paymentLinks = buildPaymentLinks(state.tableId, total);
+function renderPayment(total, order = null) {
+  const tableId = state.trackedTableId || state.tableId;
+  const paymentLinks = buildPaymentLinks(tableId, total);
   elements.paymentSummary.innerHTML = `
-    <p><strong>Table ${escapeHtml(state.tableId)}</strong></p>
+    <p><strong>Table ${escapeHtml(tableId)}</strong></p>
     <p><strong>${formatCurrency(total)}</strong></p>
+    ${state.customerProfile ? `<p class="subtle">${escapeHtml(state.customerProfile.name)} - ${escapeHtml(maskMobile(state.customerProfile.mobile))}</p>` : ""}
   `;
-  elements.upiQr.src = buildUpiQrUrl(state.tableId, total);
+  elements.upiQr.src = buildUpiQrUrl(tableId, total);
   elements.payUpiBtn.href = paymentLinks.upi;
   elements.payGpayBtn.href = paymentLinks.googlePay;
   elements.payPaytmBtn.href = paymentLinks.paytm;
@@ -228,13 +364,18 @@ function renderPayment(total) {
   elements.chooseOnlineBtn.disabled = false;
   elements.chooseCashBtn.disabled = false;
   elements.paymentNote.textContent = "Choose how you want to pay for this order.";
-  updateOrderStatusBanner(null);
+  elements.addMoreItems.hidden = tableId !== state.tableId;
+  updateOrderStatusBanner(order);
+  renderTrackerSteps(order?.status || "new");
 }
 
 function subscribeOrderStatus() {
   unsubscribeOrderStatus();
-  state.orderUnsubscribe = listenToOrder(state.tableId, (order) => {
-    updateOrderStatusBanner(order);
+  const tableId = state.trackedTableId || state.tableId;
+  state.orderUnsubscribe = listenToOrder(tableId, (order) => {
+    state.trackedOrder = order;
+    if (order) renderPaymentFromOrder(order);
+    else updateOrderStatusBanner(null);
   });
 }
 
@@ -256,12 +397,77 @@ function updateOrderStatusBanner(order) {
   const label = STATUS_LABELS[order.status] || order.status;
   elements.orderStatusLive.textContent = `Order status: ${label}`;
   elements.orderStatusLive.className = `order-status-live status-${order.status || "new"}`;
+  renderTrackerSteps(order.status || "new");
 
   if (order.paymentStatus === "cash_at_counter") {
     elements.paymentNote.textContent = "Counter has been notified that you will pay cash.";
   } else if (order.paymentStatus === "customer_claimed_paid") {
     elements.paymentNote.textContent = "Payment sent for verification. Staff will confirm shortly.";
   }
+}
+
+function renderTrackerSteps(status) {
+  const activeIndex = Math.max(0, TRACKING_STEPS.indexOf(status || "new"));
+  elements.trackerSteps.innerHTML = TRACKING_STEPS.map((step, index) => `
+    <div class="tracker-step ${index <= activeIndex ? "active" : ""}">
+      <span>${index + 1}</span>
+      <strong>${escapeHtml(TRACKING_LABELS[step])}</strong>
+    </div>
+  `).join("");
+}
+
+function renderPaymentFromOrder(order) {
+  state.lastOrderTotal = Number(order.total || 0);
+  state.customerProfile = state.customerProfile || {
+    name: order.customerName || "Guest",
+    mobile: order.customerMobileNormalized || order.customerMobile || ""
+  };
+  renderPayment(state.lastOrderTotal, order);
+}
+
+async function lookupOrdersByMobile(mobile) {
+  elements.startOrderBtn.disabled = true;
+  elements.customerError.textContent = "Checking active orders...";
+  try {
+    const orders = await findActiveOrdersByMobile(mobile);
+    if (!orders.length) {
+      elements.customerError.textContent = "No active order found for this mobile.";
+      return;
+    }
+    hideCustomerModal();
+    if (orders.length === 1) {
+      startTrackingOrder(orders[0].tableId);
+    } else {
+      renderLookupResults(orders);
+      showScreen("payment");
+    }
+  } catch {
+    elements.customerError.textContent = "Unable to check orders. Please try again.";
+  } finally {
+    elements.startOrderBtn.disabled = false;
+  }
+}
+
+function renderLookupResults(orders) {
+  elements.lookupResults.hidden = false;
+  elements.lookupResults.innerHTML = `
+    <strong>Select your active order</strong>
+    ${orders.map((order) => `
+      <button class="ghost-btn" type="button" data-track-table="${escapeHtml(order.tableId)}">
+        Table ${escapeHtml(order.tableId)} - ${formatCurrency(order.total)} - ${escapeHtml(STATUS_LABELS[order.status] || order.status || "New")}
+      </button>
+    `).join("")}
+  `;
+  elements.lookupResults.querySelectorAll("[data-track-table]").forEach((button) => {
+    button.addEventListener("click", () => startTrackingOrder(button.dataset.trackTable));
+  });
+}
+
+function startTrackingOrder(tableId) {
+  state.trackedTableId = tableId;
+  elements.lookupResults.hidden = true;
+  renderPayment(0, null);
+  showScreen("payment");
 }
 
 function chooseOnlinePayment() {
@@ -275,7 +481,7 @@ function chooseOnlinePayment() {
 async function chooseCashPayment() {
   try {
     elements.chooseCashBtn.disabled = true;
-    await requestCashAtCounter(state.tableId);
+    await requestCashAtCounter(state.trackedTableId || state.tableId);
     elements.onlinePaymentPanel.hidden = true;
     elements.upiIdText.hidden = true;
     elements.paymentNote.textContent = "Counter has been notified that you will pay cash.";
@@ -290,7 +496,7 @@ async function chooseCashPayment() {
 async function markCustomerPaid() {
   try {
     elements.paymentDoneBtn.disabled = true;
-    await claimPaymentDone(state.tableId);
+    await claimPaymentDone(state.trackedTableId || state.tableId);
     elements.paymentDoneBtn.textContent = "Payment sent for verification";
     elements.paymentNote.textContent = "Counter has been notified. Staff will verify and mark the bill paid.";
     showToast("Counter notified");

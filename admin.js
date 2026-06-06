@@ -13,6 +13,7 @@ import {
   listenToOrder,
   listenToTodaySummary,
   markOrderPaid,
+  maskMobile,
   placeOrAppendOrder,
   registerServiceWorker,
   rejectPaymentClaim,
@@ -221,6 +222,9 @@ function tableCardHtml(tableId, order, flash = false) {
   const canOrder = status !== "paid";
   const paymentClaimed = order.paymentStatus === "customer_claimed_paid";
   const cashRequested = order.paymentStatus === "cash_at_counter";
+  const customerLine = order.customerName || order.customerMobileNormalized
+    ? `<div class="customer-id-line">${escapeHtml(order.customerName || "Customer")} ${order.customerMobileNormalized ? `<span>${escapeHtml(maskMobile(order.customerMobileNormalized))}</span>` : ""}</div>`
+    : "";
   const sourceBadge = order.placedBy === "counter"
     ? "<span class=\"badge source-badge\">Counter</span>"
     : "";
@@ -235,6 +239,7 @@ function tableCardHtml(tableId, order, flash = false) {
         <span class="badge">${escapeHtml(STATUS_LABELS[status] || status)}</span>
         ${sourceBadge}
       </div>
+      ${customerLine}
       ${paymentClaimed ? "<div class=\"payment-alert\">Customer says payment done - verify UPI</div>" : ""}
       ${cashRequested ? "<div class=\"payment-alert cash-alert\">Customer will pay cash at counter</div>" : ""}
       <ul class="order-lines">${lines}</ul>
@@ -307,6 +312,7 @@ function printTableBill(tableId) {
   const html = `
     <html><head><title>Bill ${tableId}</title></head><body>
     <h2>${escapeHtml(CONFIG.RESTAURANT_NAME)} — ${escapeHtml(tableId)}</h2>
+    ${order.customerName || order.customerMobileNormalized ? `<p>Customer: ${escapeHtml(order.customerName || "Customer")} ${escapeHtml(maskMobile(order.customerMobileNormalized || order.customerMobile))}</p>` : ""}
     <table border="1" cellpadding="8"><tr><th>Item</th><th>Qty</th><th>Amount</th></tr>${lines}</table>
     <p><strong>Total: ${formatCurrency(order.total)}</strong></p>
     </body></html>
@@ -371,6 +377,7 @@ function historyRowHtml(order) {
         <div>
           <strong>${formatCurrency(order.total)}</strong>
           <div class="subtle">${escapeHtml(paymentMethodLabel(order.paymentMethod))} · ${escapeHtml(order.placedBy || "customer")}</div>
+          ${order.customerName || order.customerMobileNormalized ? `<div class="subtle">${escapeHtml(order.customerName || "Customer")} - ${escapeHtml(maskMobile(order.customerMobileNormalized || order.customerMobile))}</div>` : ""}
           <div class="subtle">Bill ${escapeHtml(String(order.orderId || order.id || "").slice(0, 8))}</div>
         </div>
         <div class="history-times">
