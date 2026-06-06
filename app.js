@@ -375,13 +375,14 @@ function renderPayment(total, order = null) {
   const tableId = state.trackedTableId || state.tableId;
   const isPaid = order?.status === "paid";
   const isClaimedPaid = order?.paymentStatus === "customer_claimed_paid";
-  const paymentLinks = buildPaymentLinks(tableId, total);
+  const amountDue = order ? getOrderAmountDue(order) : total;
+  const paymentLinks = buildPaymentLinks(tableId, amountDue);
   elements.paymentSummary.innerHTML = `
     <p><strong>Table ${escapeHtml(tableId)}</strong></p>
-    <p><strong>${formatCurrency(total)}</strong></p>
+    <p><strong>${formatCurrency(amountDue)}</strong></p>
     ${state.customerProfile ? `<p class="subtle">${escapeHtml(state.customerProfile.name)} - ${escapeHtml(maskMobile(state.customerProfile.mobile))}</p>` : ""}
   `;
-  elements.upiQr.src = buildUpiQrUrl(tableId, total);
+  elements.upiQr.src = buildUpiQrUrl(tableId, amountDue);
   elements.payGpayBtn.href = paymentLinks.googlePay;
   elements.payPaytmBtn.href = paymentLinks.paytm;
   elements.payPhonePeBtn.href = paymentLinks.phonePe;
@@ -394,7 +395,7 @@ function renderPayment(total, order = null) {
   elements.showQrBtn.innerHTML = "<span>QR</span><strong>Show Payment QR</strong>";
   elements.upiIdText.hidden = true;
   if (elements.paymentChoiceGrid) elements.paymentChoiceGrid.hidden = true;
-  elements.paymentBackBtn.hidden = isPaid || tableId !== state.tableId;
+  elements.paymentBackBtn.hidden = isPaid || tableId !== state.tableId || Number(order?.paidTotal || 0) > 0 || order?.paymentStatus === "verified_paid";
   elements.paymentNote.textContent = isPaid
     ? "Payment completed. Thank you."
     : "Tap a UPI app or show the payment QR to complete payment.";
@@ -439,6 +440,8 @@ function updateOrderStatusBanner(order) {
     elements.paymentNote.textContent = "Payment sent for verification. Staff will confirm shortly.";
   } else if (order.paymentStatus === "verified_paid") {
     elements.paymentNote.textContent = "Payment confirmed. Kitchen will start preparing your order.";
+  } else if (order.paymentStatus === "pending_addon") {
+    elements.paymentNote.textContent = "Complete payment for the new items only.";
   }
 }
 
@@ -545,6 +548,13 @@ function hasActiveOrderForThisTable() {
   return state.trackedTableId === state.tableId
     && state.lastOrderTotal > 0
     && state.trackedOrder?.status !== "paid";
+}
+
+function getOrderAmountDue(order) {
+  const pendingAddOnTotal = Number(order?.pendingAddOnTotal || 0);
+  if (pendingAddOnTotal > 0) return pendingAddOnTotal;
+  if (order?.paymentStatus === "verified_paid") return 0;
+  return Number(order?.total || 0);
 }
 
 function cloneOrderItems(items = []) {

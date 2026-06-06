@@ -369,6 +369,12 @@ export function calculateTotal(items = []) {
   return items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0);
 }
 
+function cleanOrderItems(items = []) {
+  return items
+    .filter((item) => item.qty > 0)
+    .map((item) => ({ name: item.name, price: Number(item.price), qty: Number(item.qty) }));
+}
+
 // Writes one staff audit log entry.
 export async function logAuditEntry(action, tableId, details = {}) {
   await addDoc(collection(db, "auditLog"), {
@@ -382,9 +388,7 @@ export async function logAuditEntry(action, tableId, details = {}) {
 
 // Places a new order or appends to the current unpaid order for a table.
 export async function placeOrAppendOrder(tableId, cartItems, placedBy = "customer", customerProfile = null) {
-  const cleanItems = cartItems
-    .filter((item) => item.qty > 0)
-    .map((item) => ({ name: item.name, price: Number(item.price), qty: Number(item.qty) }));
+  const cleanItems = cleanOrderItems(cartItems);
 
   if (!cleanItems.length) return null;
 
@@ -406,20 +410,35 @@ export async function placeOrAppendOrder(tableId, cartItems, placedBy = "custome
     let orderId = newOrderId;
     let paymentStatus = "pending";
     let preferredPaymentMethod = null;
+    let pendingAddOnItems = [];
+    let pendingAddOnTotal = 0;
+    let pendingAddOnPaymentId = null;
+    let isAddOnPayment = false;
 
     if (snapshot.exists()) {
       const current = snapshot.data();
       if (current.status && current.status !== "paid") {
-        items = mergeItems(current.items || [], cleanItems);
-        status = current.status === "new" ? "new" : current.status;
+        const alreadyPaid = current.paymentStatus === "verified_paid" || Number(current.paidTotal || 0) > 0;
         timestamp = current.timestamp || serverTimestamp();
         orderId = current.orderId || newOrderId;
-        paymentStatus = current.paymentStatus || paymentStatus;
-        preferredPaymentMethod = current.preferredPaymentMethod || preferredPaymentMethod;
+        if (alreadyPaid && placedBy === "customer") {
+          items = current.items || [];
+          status = current.status || "preparing";
+          paymentStatus = "pending_addon";
+          pendingAddOnItems = mergeItems(current.pendingAddOnItems || [], cleanItems);
+          pendingAddOnTotal = calculateTotal(pendingAddOnItems);
+          pendingAddOnPaymentId = current.pendingAddOnPaymentId || createOrderId(tableId);
+          isAddOnPayment = true;
+        } else {
+          items = mergeItems(current.items || [], cleanItems);
+          status = current.status === "new" ? "new" : current.status;
+          paymentStatus = current.paymentStatus || paymentStatus;
+          preferredPaymentMethod = current.preferredPaymentMethod || preferredPaymentMethod;
+        }
       }
     }
 
-    transaction.set(ref, {
+    const data = {
       orderId,
       tableId,
       items,
@@ -431,7 +450,21 @@ export async function placeOrAppendOrder(tableId, cartItems, placedBy = "custome
       timestamp,
       updatedAt: serverTimestamp(),
       ...cleanProfile
-    });
+    };
+
+    if (isAddOnPayment) {
+      data.pendingAddOnItems = pendingAddOnItems;
+      data.pendingAddOnTotal = pendingAddOnTotal;
+      data.pendingAddOnPaymentId = pendingAddOnPaymentId;
+      data.preferredPaymentMethod = null;
+      data.paymentClaimedAt = null;
+    } else {
+      data.pendingAddOnItems = [];
+      data.pendingAddOnTotal = 0;
+      data.pendingAddOnPaymentId = null;
+    }
+
+    transaction.set(ref, data);
   });
 
   if (placedBy === "counter") {
@@ -443,9 +476,7 @@ export async function placeOrAppendOrder(tableId, cartItems, placedBy = "custome
 
 // Places a counter order only after staff chooses a payment method.
 export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMethod = "cash") {
-  const cleanItems = cartItems
-    .filter((item) => item.qty > 0)
-    .map((item) => ({ name: item.name, price: Number(item.price), qty: Number(item.qty) }));
+  const cleanItems = cleanOrderItems(cartItems);
 
   if (!cleanItems.length) return null;
 
@@ -472,49 +503,54 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
     }
 
     const total = calculateTotal(items);
-    const paymentDocument = paymentRef(orderId);
-    const historyDocument = tableHistoryOrderRef(tableId, orderId);
+    const amountDue = calculateTotal(cleanItems);
+    const paymentId = orderSnapshot.exists() ? createOrderId(tableId) : orderId;
+    const paymentDocument = paymentRef(paymentId);
+    const historyDocument = tableHistoryOrderRef(tableId, paymentId);
     const paymentSnapshot = await transaction.get(paymentDocument);
     orderIdForAudit = orderId;
-    totalForAudit = total;
+    totalForAudit = amountDue;
 
     transaction.set(orderDocument, {
       orderId,
       tableId,
       items,
       total,
-      status: "new",
+      status: "preparing",
       placedBy: "counter",
       paymentStatus: "verified_paid",
       preferredPaymentMethod: method,
       paymentMethod: method,
       timestamp,
       paidAt: serverTimestamp(),
+      kitchenStartedAt: serverTimestamp(),
+      paidTotal: increment(amountDue),
+      paidItems: mergeItems(orderSnapshot.exists() ? orderSnapshot.data().paidItems || [] : [], cleanItems),
       updatedAt: serverTimestamp()
     });
 
     if (!paymentSnapshot.exists()) {
       transaction.set(summaryDocument, {
         date: getTodayKey(),
-        total: increment(total),
-        cash: increment(method === "cash" ? total : 0),
-        online: increment(method === "online" ? total : 0),
+        total: increment(amountDue),
+        cash: increment(method === "cash" ? amountDue : 0),
+        online: increment(method === "online" ? amountDue : 0),
         updatedAt: serverTimestamp()
       }, { merge: true });
 
       transaction.set(paymentDocument, {
-        orderId,
+        orderId: paymentId,
         tableId,
-        amount: total,
+        amount: amountDue,
         paymentMethod: method,
         paidAt: serverTimestamp()
       });
 
       transaction.set(historyDocument, {
-        orderId,
+        orderId: paymentId,
         tableId,
-        items,
-        total,
+        items: cleanItems,
+        total: amountDue,
         status: "paid",
         placedBy: "counter",
         customerName: null,
@@ -626,8 +662,14 @@ async function recordOrderPayment(tableId, paymentMethod = "cash", nextStatus = 
 
     const order = orderSnapshot.data();
     const orderId = order.orderId || `${tableId}-${order.timestamp?.seconds || Date.now()}`;
-    const paymentDocument = paymentRef(orderId);
-    const historyDocument = tableHistoryOrderRef(tableId, orderId);
+    const hasPendingAddOn = Number(order.pendingAddOnTotal || 0) > 0;
+    const payableItems = hasPendingAddOn ? order.pendingAddOnItems || [] : order.items || [];
+    const amountDue = hasPendingAddOn ? Number(order.pendingAddOnTotal || 0) : Number(order.total || 0);
+    const paymentId = hasPendingAddOn ? order.pendingAddOnPaymentId || createOrderId(tableId) : orderId;
+    const mergedItems = hasPendingAddOn ? mergeItems(order.items || [], payableItems) : order.items || [];
+    const mergedTotal = hasPendingAddOn ? Number(order.total || 0) + amountDue : Number(order.total || 0);
+    const paymentDocument = paymentRef(paymentId);
+    const historyDocument = tableHistoryOrderRef(tableId, paymentId);
     const paymentSnapshot = await transaction.get(paymentDocument);
 
     transaction.update(orderDocument, {
@@ -635,31 +677,41 @@ async function recordOrderPayment(tableId, paymentMethod = "cash", nextStatus = 
       paymentStatus: "verified_paid",
       paymentMethod: method,
       paidAt: serverTimestamp(),
+      kitchenStartedAt: serverTimestamp(),
+      items: mergedItems,
+      total: mergedTotal,
+      paidTotal: Number(order.paidTotal || 0) + amountDue,
+      paidItems: mergeItems(order.paidItems || [], payableItems),
+      pendingAddOnItems: [],
+      pendingAddOnTotal: 0,
+      pendingAddOnPaymentId: null,
+      paymentClaimedAt: null,
       updatedAt: serverTimestamp()
     });
 
     if (!paymentSnapshot.exists()) {
       transaction.set(summaryDocument, {
         date: getTodayKey(),
-        total: increment(Number(order.total || 0)),
-        cash: increment(method === "cash" ? Number(order.total || 0) : 0),
-        online: increment(method === "online" ? Number(order.total || 0) : 0),
+        total: increment(amountDue),
+        cash: increment(method === "cash" ? amountDue : 0),
+        online: increment(method === "online" ? amountDue : 0),
         updatedAt: serverTimestamp()
       }, { merge: true });
 
       transaction.set(paymentDocument, {
-        orderId,
+        orderId: paymentId,
         tableId,
-        amount: Number(order.total || 0),
+        amount: amountDue,
         paymentMethod: method,
         paidAt: serverTimestamp()
       });
 
       transaction.set(historyDocument, {
-        orderId,
+        orderId: paymentId,
         tableId,
-        items: order.items || [],
-        total: Number(order.total || 0),
+        parentOrderId: orderId,
+        items: payableItems,
+        total: amountDue,
         status: "paid",
         placedBy: order.placedBy || "customer",
         customerName: order.customerName || null,
@@ -679,7 +731,7 @@ async function recordOrderPayment(tableId, paymentMethod = "cash", nextStatus = 
 
 // Verifies payment and releases the order to the kitchen without completing the table.
 export async function verifyOrderPayment(tableId, paymentMethod = "online") {
-  await recordOrderPayment(tableId, paymentMethod, "new");
+  await recordOrderPayment(tableId, paymentMethod, "preparing");
 }
 
 // Marks an order as paid and updates the daily collection only once per order/day.
