@@ -49,7 +49,17 @@
     <section class="screen" id="paymentScreen">
       <div class="content">
         <div class="payment-panel">
-          <h2>Pay via UPI</h2>
+          <div class="payment-panel-head">
+            <h2>Pay via</h2>
+            <div class="payment-panel-actions" aria-label="Payment navigation">
+              <button class="icon-btn payment-nav-btn" id="paymentBackBtn" type="button" aria-label="Back to cart" title="Back to cart">
+                <span aria-hidden="true">&larr;</span>
+              </button>
+              <button class="icon-btn payment-nav-btn" id="paymentCloseBtn" type="button" aria-label="Close payment and return to menu" title="Close">
+                <span aria-hidden="true">&times;</span>
+              </button>
+            </div>
+          </div>
           <div class="payment-warning">Order will be considered only after payment.</div>
           <p class="order-status-live" id="orderStatusLive" aria-live="polite">Order status: New Order</p>
           <div class="tracker-steps" id="trackerSteps" aria-label="Order progress"></div>
@@ -57,11 +67,19 @@
           <div id="paymentSummary"></div>
           <div class="online-payment-panel" id="onlinePaymentPanel" hidden>
             <div class="payment-buttons">
-              <a class="primary-btn pay-link" id="payUpiBtn" href="#"><span>UPI</span><strong>Pay</strong></a>
-              <a class="secondary-btn pay-link" id="payGpayBtn" href="#"><span>GPay</span><strong>Pay</strong></a>
-              <a class="secondary-btn pay-link" id="payPaytmBtn" href="#"><span>Paytm</span><strong>Pay</strong></a>
-              <a class="secondary-btn pay-link" id="payPhonePeBtn" href="#"><span>PhonePe</span><strong>Pay</strong></a>
-              <button class="ghost-btn pay-link" id="showQrBtn" type="button"><span>QR</span><strong>Show QR</strong></button>
+              <a class="secondary-btn pay-link pay-app-link" id="payGpayBtn" href="#" data-payment-app="GPay" aria-label="Pay with GPay">
+                <img src="./assets/icons/gpay.svg" alt="" width="44" height="44">
+                <span>GPay</span>
+              </a>
+              <a class="secondary-btn pay-link pay-app-link" id="payPaytmBtn" href="#" data-payment-app="Paytm" aria-label="Pay with Paytm">
+                <img src="./assets/icons/paytm.svg" alt="" width="44" height="44">
+                <span>Paytm</span>
+              </a>
+              <a class="secondary-btn pay-link pay-app-link" id="payPhonePeBtn" href="#" data-payment-app="PhonePe" aria-label="Pay with PhonePe">
+                <img src="./assets/icons/phonepe.svg" alt="" width="44" height="44">
+                <span>PhonePe</span>
+              </a>
+              <button class="ghost-btn pay-link qr-pay-link" id="showQrBtn" type="button"><span>QR</span><strong>Show Payment QR</strong></button>
             </div>
             <img class="qr-img" id="upiQr" alt="UPI QR code" hidden>
             <button class="ghost-btn paid-claim-btn" id="paymentDoneBtn" type="button">I have paid online</button>
