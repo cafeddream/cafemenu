@@ -1,7 +1,7 @@
 category,item_name,price,available
-Combos,Combo 1 - French Fries + 2 Coke,149,yes
-Combos,Combo 2 - Onion Pizza (L) + 2 Coke,299,yes
-Combos,Combo 3 - Chilli Potato + 2 Burger + 2 Cold Coffee,349,yes
+C1-French Fries + 2Coke,149,yes
+C2-Onion Pizza(L) + 2Coke,299,yes
+C3-Chilli Potato + 2Burger + 2Cold Coffee,349,yes
 Tea,Regular Tea,30,yes
 Tea,Masala Tea,45,yes
 Tea,Kulhhad Tea,45,yes
