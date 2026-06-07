@@ -49,7 +49,7 @@ export const MENU_CACHE_KEY = "cafe_menu_cache_v1";
 export const CONFIG = {
   GOOGLE_SHEET_CSV_URL: "PASTE_YOUR_SHEET_CSV_URL_HERE",
   UPI_ID: "paytmqr6xusep@ptys",
-  UPI_NAME: "Cafe D Dream",
+  UPI_NAME: "RAMAN",
   RESTAURANT_NAME: "Cafe D Dream",
   KITCHEN_TIMER_MINUTES: 20,
   RECEIPT_LOGO_SRC: "./assets/receipt-logo.png",
