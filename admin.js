@@ -34,6 +34,8 @@ import { requireStaffAuth, signOutStaff } from "./staff-auth.js";
 const state = {
   orders: new Map(),
   knownOccupied: new Set(),
+  activeSectionId: CONFIG.TABLE_SECTIONS[0]?.id || "",
+  previousOrderIds: new Set(),
   pendingPaidTable: null,
   pendingPaidOrderId: null,
   pendingPaymentItems: null,
@@ -176,12 +178,12 @@ function startClock() {
 }
 
 function renderEmptyCards() {
-  elements.tableGrid.innerHTML = CONFIG.TABLES.map((tableId) => tableCardHtml(tableId, [])).join("");
+  renderTables();
 }
 
 function subscribeToTables() {
   listenToActiveOrders((orders) => {
-    const previousTables = new Set(state.knownOccupied);
+    const previousOrderIds = new Set(state.previousOrderIds);
     state.orders.clear();
     state.knownOccupied.clear();
     orders.forEach((order) => {
@@ -189,7 +191,9 @@ function subscribeToTables() {
       state.orders.set(orderId, { ...order, orderId });
       state.knownOccupied.add(order.tableId);
     });
-    const flashedTable = [...state.knownOccupied].find((tableId) => !previousTables.has(tableId)) || null;
+    state.previousOrderIds = new Set(state.orders.keys());
+    const flashedOrder = [...state.orders.values()].find((order) => !previousOrderIds.has(order.orderId));
+    const flashedTable = flashedOrder?.tableId || null;
     if (flashedTable) notifyNewOrder();
     renderTables(flashedTable);
   }, () => showToast("Connection error, please refresh"));
@@ -202,13 +206,65 @@ function subscribeToSummary() {
 }
 
 function renderTables(flashTableId = null) {
-  elements.tableGrid.innerHTML = CONFIG.TABLES.map((tableId) => {
+  const activeSection = getActiveSection();
+  elements.tableGrid.className = "admin-dashboard";
+  elements.tableGrid.innerHTML = `
+    <aside class="admin-section-sidebar" aria-label="Table sections">
+      ${CONFIG.TABLE_SECTIONS.map(sectionButtonHtml).join("")}
+    </aside>
+    <section class="admin-section-panel" aria-live="polite">
+      <div class="section-header">
+        <h2>${escapeHtml(activeSection.name)}</h2>
+        <span>${activeSection.tables.length} tables</span>
+      </div>
+      <div class="section-table-row">
+        ${activeSection.tables.map((tableId) => {
     const orders = getOrdersForTable(tableId);
     return tableCardHtml(tableId, orders, tableId === flashTableId && orders.some((order) => order.status === "new"));
-  }).join("");
+  }).join("")}
+      </div>
+    </section>
+  `;
 
   elements.activeTables.textContent = `Active Tables: ${state.knownOccupied.size}`;
+  bindSectionActions();
   bindCardActions();
+}
+
+function getActiveSection() {
+  return CONFIG.TABLE_SECTIONS.find((section) => section.id === state.activeSectionId) || CONFIG.TABLE_SECTIONS[0];
+}
+
+function getSectionForTable(tableId) {
+  return CONFIG.TABLE_SECTIONS.find((section) => section.tables.includes(tableId));
+}
+
+function getSectionAlertCount(section) {
+  if (section.id === state.activeSectionId) return 0;
+  return [...state.orders.values()].filter((order) => (
+    section.tables.includes(order.tableId)
+    && (order.status === "new" || order.paymentStatus === "customer_claimed_paid")
+  )).length;
+}
+
+function sectionButtonHtml(section) {
+  const alertCount = getSectionAlertCount(section);
+  const isActive = section.id === state.activeSectionId;
+  return `
+    <button class="admin-section-btn ${isActive ? "active" : ""}" type="button" data-section="${escapeHtml(section.id)}">
+      <span>${escapeHtml(section.name)}</span>
+      ${alertCount ? `<strong>${alertCount} New</strong>` : ""}
+    </button>
+  `;
+}
+
+function bindSectionActions() {
+  elements.tableGrid.querySelectorAll("[data-section]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeSectionId = button.dataset.section;
+      renderTables();
+    });
+  });
 }
 
 function getOrdersForTable(tableId) {
@@ -233,7 +289,6 @@ function tableCardHtml(tableId, orders, flash = false) {
     `;
   }
 
-  const canOrder = true;
   const clearEnabled = orders.every((order) => !hasPendingItems(order));
   const orderBlocks = orders.map(orderBlockHtml).join("");
 
@@ -264,11 +319,16 @@ function orderBlockHtml(order) {
     : "";
   const lines = renderAdminItemsHtml(order.items || []);
 
+  const statusLabel = paymentVerified && status === "served"
+    ? "Served"
+    : paymentVerified
+      ? "Payment Verified"
+      : STATUS_LABELS[status] || status;
   return `
     <section class="admin-order-block status-${escapeHtml(status)}" data-order="${escapeHtml(order.orderId || order.id)}">
       <div class="admin-order-head">
         <span class="admin-order-id">${escapeHtml(String(order.orderId || order.id).slice(0, 8))}</span>
-        <span class="badge">${escapeHtml(STATUS_LABELS[status] || status)}</span>
+        <span class="badge">${escapeHtml(statusLabel)}</span>
         ${sourceBadge}
       </div>
       ${customerLine}
@@ -637,7 +697,7 @@ function closeAdminMenu() {
 async function openAdminOrderModal(tableId) {
   state.orderTableId = tableId;
   state.cart.clear();
-  const hasOrder = state.orders.has(tableId);
+  const hasOrder = getOrdersForTable(tableId).length > 0;
   elements.adminOrderTitle.textContent = hasOrder ? `Add Items — ${tableId}` : `Take Order — ${tableId}`;
   elements.adminOrderModal.hidden = false;
   showAdminOrderScreen("menu");

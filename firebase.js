@@ -52,7 +52,13 @@ export const CONFIG = {
   UPI_NAME: "Cafe D Dream",
   RESTAURANT_NAME: "Cafe D Dream",
   KITCHEN_TIMER_MINUTES: 20,
-  TABLES: ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12", "T13", "T14", "T15"],
+  RECEIPT_LOGO_SRC: "./assets/receipt-logo.png",
+  TABLE_SECTIONS: [
+    { id: "private-sitting", name: "Private Sitting", tables: ["PS 1", "PS 2", "PS 3", "PS 4", "PS 5", "PS 6", "PS 7", "PS 8", "PS 9", "PS 10"] },
+    { id: "party-hall", name: "Party Hall", tables: ["COUNTER", "H 1", "H 2", "H 3", "H 4", "HUT"] },
+    { id: "tatoo-studio", name: "Tatoo Studio", tables: ["T 1", "T 2", "T 3", "T 4"] },
+    { id: "hotel", name: "Hotel", tables: ["D 1", "D 2", "D 3", "D 4", "D 5", "D 6", "D 7", "D 8", "D 9", "D 10"] }
+  ],
   FIREBASE: {
     apiKey: "AIzaSyCTooPUmZqPwPWF_GUB_bI_7ULIYqE_PU8",
     authDomain: "cafe-d-dream.firebaseapp.com",
@@ -63,6 +69,8 @@ export const CONFIG = {
     measurementId: "G-X72457ZL05"
   }
 };
+
+CONFIG.TABLES = CONFIG.TABLE_SECTIONS.flatMap((section) => section.tables);
 
 const app = initializeApp(CONFIG.FIREBASE);
 export const auth = getAuth(app);
@@ -75,7 +83,7 @@ export function getKitchenTimerSeconds() {
 export const STATUS_LABELS = {
   new: "New Order",
   preparing: "Preparing",
-  served: "Served - Pending Payment",
+  served: "Served",
   paid: "Paid"
 };
 
@@ -424,7 +432,7 @@ function createReceiptPayload(order, paymentMethod) {
     orderId,
     tableId: order.tableId,
     cafeName: CONFIG.RESTAURANT_NAME,
-    logoStatus: "pending_upload",
+    logoSrc: CONFIG.RECEIPT_LOGO_SRC,
     items,
     total,
     paymentMethod: paymentMethod === "online" ? "Online" : "Cash",
@@ -690,7 +698,7 @@ export async function markOrderItemsServed(orderId, servedItemIds = []) {
     const order = snapshot.data();
     const items = normalizeOrderItems(order.items || []).map((item) => (
       servedSet.has(item.itemId)
-        ? { ...item, status: "served", servedAt: serverTimestamp() }
+        ? { ...item, status: "served", servedAt: new Date() }
         : item
     ));
     transaction.update(ref, {
@@ -920,7 +928,7 @@ export function receiptToThermalHtml(receipt) {
   `).join("");
   return `
     <section class="thermal-receipt">
-      <div class="receipt-logo-placeholder">Cafe Logo</div>
+      <img class="receipt-logo" src="${escapeHtml(receipt.logoSrc || CONFIG.RECEIPT_LOGO_SRC)}" alt="${escapeHtml(receipt.cafeName || CONFIG.RESTAURANT_NAME)} logo">
       <h1>${escapeHtml(receipt.cafeName || CONFIG.RESTAURANT_NAME)}</h1>
       <p>Receipt: ${escapeHtml(receipt.receiptNumber)}</p>
       <p>${escapeHtml(generated.toLocaleString())}</p>
@@ -941,7 +949,7 @@ export function receiptToThermalHtml(receipt) {
 }
 
 export function downloadReceiptHtml(receipt) {
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(receipt.receiptNumber)}</title></head><body>${receiptToThermalHtml(receipt)}</body></html>`;
+  const html = buildReceiptDocumentHtml(receipt);
   const blob = new Blob([html], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -949,6 +957,32 @@ export function downloadReceiptHtml(receipt) {
   link.download = `${receipt.receiptNumber || receipt.orderId}.html`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+export function buildReceiptDocumentHtml(receipt) {
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${escapeHtml(receipt?.receiptNumber || "Receipt")}</title>
+  <style>
+    @page { size: 58mm auto; margin: 3mm; }
+    body { margin: 0; font-family: Arial, sans-serif; color: #000; background: #fff; }
+    .thermal-receipt { width: 52mm; margin: 0 auto; font-size: 11px; line-height: 1.25; }
+    .receipt-logo { display: block; width: 28mm; max-height: 22mm; object-fit: contain; filter: grayscale(1) contrast(1.4); margin: 0 auto 4px; }
+    h1 { font-size: 15px; text-align: center; margin: 0 0 5px; }
+    p { margin: 3px 0; }
+    hr { border: 0; border-top: 1px dashed #000; margin: 6px 0; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 2px 0; text-align: left; vertical-align: top; }
+    th:nth-child(2), td:nth-child(2) { text-align: center; width: 9mm; }
+    th:nth-child(3), td:nth-child(3) { text-align: right; width: 15mm; }
+    .receipt-total { display: flex; justify-content: space-between; font-size: 13px; }
+    .receipt-thanks { text-align: center; font-weight: 700; }
+  </style>
+</head>
+<body>${receiptToThermalHtml(receipt)}</body>
+</html>`;
 }
 
 // Converts a report object to CSV text for download.

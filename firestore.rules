@@ -7,7 +7,12 @@ service cloud.firestore {
     }
 
     function validTable(tableId) {
-      return tableId.matches('^T(1[0-5]|[1-9])$');
+      return tableId in [
+        'PS 1', 'PS 2', 'PS 3', 'PS 4', 'PS 5', 'PS 6', 'PS 7', 'PS 8', 'PS 9', 'PS 10',
+        'COUNTER', 'H 1', 'H 2', 'H 3', 'H 4', 'HUT',
+        'T 1', 'T 2', 'T 3', 'T 4',
+        'D 1', 'D 2', 'D 3', 'D 4', 'D 5', 'D 6', 'D 7', 'D 8', 'D 9', 'D 10'
+      ];
     }
 
     function validOrderItems(items) {
@@ -30,19 +35,27 @@ service cloud.firestore {
         && data.customerMobileNormalized == data.customerMobile;
     }
 
-    function customerPlacesOrder() {
+    function customerPlacesOrderFor(tableId) {
       let data = request.resource.data;
       return data.tableId == tableId
+        && validTable(data.tableId)
         && data.placedBy == 'customer'
         && validOrderItems(data.items)
         && validCustomerStatus()
         && validCustomerProfile()
+        && data.paymentStatus == 'pending'
+        && data.total is number
         && data.status != 'paid';
+    }
+
+    function customerPlacesActiveOrder() {
+      return customerPlacesOrderFor(request.resource.data.tableId);
     }
 
     function customerPaymentUpdate() {
       return resource != null
         && request.resource.data.placedBy == resource.data.placedBy
+        && request.resource.data.tableId == resource.data.tableId
         && request.resource.data.paymentStatus == 'customer_claimed_paid'
         && request.resource.data.preferredPaymentMethod == 'online'
         && request.resource.data.diff(resource.data).affectedKeys()
@@ -54,15 +67,28 @@ service cloud.firestore {
           ]);
     }
 
+    match /activeOrders/{orderId} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if isStaff() || customerPlacesActiveOrder();
+      allow update: if isStaff() || customerPaymentUpdate();
+      allow delete: if isStaff();
+    }
+
     match /orders/{tableId}/current/order {
       allow read: if validTable(tableId);
-      allow create: if validTable(tableId) && (isStaff() || customerPlacesOrder());
+      allow create: if validTable(tableId) && (isStaff() || customerPlacesOrderFor(tableId));
       allow update: if validTable(tableId) && (
         isStaff() ||
-        customerPlacesOrder() ||
+        customerPlacesOrderFor(tableId) ||
         customerPaymentUpdate()
       );
       allow delete: if validTable(tableId) && isStaff();
+    }
+
+    match /receipts/{orderId} {
+      allow get: if true;
+      allow list, create, update, delete: if isStaff();
     }
 
     match /dailySummaries/{dateKey} {

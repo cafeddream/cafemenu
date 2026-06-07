@@ -348,6 +348,7 @@ function updateKitchenCardBody(card, order) {
 
   const actions = card.querySelector(".kitchen-actions");
   actions.dataset.table = order.tableId;
+  actions.dataset.order = order.orderId || order.id;
   actions.dataset.status = order.status;
   actions.innerHTML = `
     ${order.status === "new" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"preparing\">Start Preparing</button>" : ""}
@@ -409,6 +410,7 @@ function kitchenCardHtml(order) {
     <article
       class="kitchen-card ${statusClass} ${timerClass}"
       data-table="${escapeHtml(order.tableId)}"
+      data-order="${escapeHtml(order.orderId || order.id)}"
       style="--timer-color: ${timer.color}; --timer-progress: ${timer.remainingFraction}"
     >
       <div class="kitchen-table">
@@ -435,7 +437,7 @@ function kitchenCardHtml(order) {
       <div class="kitchen-items-wrap" data-item-detail role="button" tabindex="0" aria-label="View all items for ${escapeHtml(order.tableId)}">
         <ul class="kitchen-items">${items}</ul>
       </div>
-      <div class="kitchen-actions" data-table="${escapeHtml(order.tableId)}" data-status="${escapeHtml(order.status)}">
+      <div class="kitchen-actions" data-table="${escapeHtml(order.tableId)}" data-order="${escapeHtml(order.orderId || order.id)}" data-status="${escapeHtml(order.status)}">
         ${order.status === "new" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"preparing\">Start Preparing</button>" : ""}
         ${order.status === "new" || order.status === "preparing" ? "<button class=\"primary-btn\" type=\"button\" data-action=\"served\">Mark Served</button>" : ""}
       </div>
@@ -448,12 +450,16 @@ function bindKitchenCardActions(card) {
   card.querySelectorAll("[data-action]").forEach((button) => {
     button.onclick = async () => {
       const tableId = button.closest(".kitchen-actions").dataset.table;
+      const orderId = button.closest(".kitchen-actions").dataset.order;
       const action = button.dataset.action;
       button.disabled = true;
 
       try {
-        if (action === "preparing") await updateOrderStatus(tableId, "preparing");
-        if (action === "served") await updateOrderStatus(tableId, "served");
+        if (action === "preparing") await updateActiveOrderStatus(orderId, "preparing");
+        if (action === "served") {
+          openKitchenItemsModal(state.orders.get(orderId));
+          button.disabled = false;
+        }
       } catch {
         showToast("Connection error, please refresh");
         button.disabled = false;

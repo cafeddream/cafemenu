@@ -2,13 +2,16 @@ import {
   CONFIG,
   STATUS_LABELS,
   buildPaymentLinks,
+  buildReceiptDocumentHtml,
   buildUpiQrUrl,
-  claimPaymentDone,
+  claimActiveOrderPaymentDone,
+  downloadReceiptHtml,
+  fetchReceipt,
   fetchMenu,
   findActiveOrdersByMobile,
   formatCurrency,
   getFirebaseErrorMessage,
-  listenToOrder,
+  listenToActiveOrder,
   maskMobile,
   normalizeIndianMobile,
   placeOrAppendOrder,
@@ -36,6 +39,7 @@ const state = {
   orderUnsubscribe: null,
   customerProfile: null,
   trackedTableId: null,
+  trackedOrderId: null,
   trackedOrder: null,
   lastOrderItems: []
 };
@@ -84,6 +88,9 @@ const elements = {
   showQrBtn: document.querySelector("#showQrBtn"),
   paymentDoneBtn: document.querySelector("#paymentDoneBtn"),
   paymentNote: document.querySelector("#paymentNote"),
+  receiptActions: document.querySelector("#receiptActions"),
+  viewReceiptBtn: document.querySelector("#viewReceiptBtn"),
+  downloadReceiptBtn: document.querySelector("#downloadReceiptBtn"),
   addMoreItems: document.querySelector("#addMoreItems"),
   addMoreTop: document.querySelector("#addMoreTop"),
   trackTop: document.querySelector("#trackTop"),
@@ -167,6 +174,8 @@ function bindEvents() {
   });
   elements.showQrBtn.addEventListener("click", showPaymentQr);
   elements.paymentDoneBtn.addEventListener("click", markCustomerPaid);
+  elements.viewReceiptBtn.addEventListener("click", viewCurrentReceipt);
+  elements.downloadReceiptBtn.addEventListener("click", downloadCurrentReceipt);
   elements.trackTop.addEventListener("click", showCustomerTrack);
   elements.trackFromModal.addEventListener("click", showCustomerTrack);
   elements.backToStart.addEventListener("click", showCustomerStart);
@@ -281,7 +290,7 @@ async function handleCustomerSubmit(event) {
 
 async function autoResumeTracking() {
   const orders = await findActiveOrdersByMobile(state.customerProfile.mobile).catch(() => []);
-  if (orders.length === 1) startTrackingOrder(orders[0].tableId);
+  if (orders.length === 1) startTrackingOrder(orders[0].orderId || orders[0].id);
   if (orders.length > 1) {
     renderLookupResults(orders);
     showScreen("payment");
@@ -354,7 +363,7 @@ async function placeOrder() {
     state.cart.clear();
     renderMenu();
     if (snapshot?.exists()) {
-      renderPaymentFromOrder({ id: state.tableId, ...snapshot.data() });
+      renderPaymentFromOrder({ id: snapshot.id, ...snapshot.data() });
     } else {
       state.lastOrderTotal = total;
       renderPayment(total, null);
@@ -373,16 +382,18 @@ async function placeOrder() {
 
 function renderPayment(total, order = null) {
   const tableId = state.trackedTableId || state.tableId;
-  const isPaid = order?.status === "paid";
+  const orderId = order?.orderId || order?.id || state.trackedOrderId || tableId;
+  const isPaid = order?.paymentStatus === "verified_paid" || order?.status === "paid";
   const isClaimedPaid = order?.paymentStatus === "customer_claimed_paid";
   const amountDue = order ? getOrderAmountDue(order) : total;
-  const paymentLinks = buildPaymentLinks(tableId, amountDue);
+  const paymentLinks = buildPaymentLinks(tableId, amountDue, orderId);
   elements.paymentSummary.innerHTML = `
     <p><strong>Table ${escapeHtml(tableId)}</strong></p>
+    ${order ? `<p class="subtle">Order ${escapeHtml(String(orderId).slice(0, 8))}</p>` : ""}
     <p><strong>${formatCurrency(amountDue)}</strong></p>
     ${state.customerProfile ? `<p class="subtle">${escapeHtml(state.customerProfile.name)} - ${escapeHtml(maskMobile(state.customerProfile.mobile))}</p>` : ""}
   `;
-  elements.upiQr.src = buildUpiQrUrl(tableId, amountDue);
+  elements.upiQr.src = buildUpiQrUrl(tableId, amountDue, orderId);
   elements.payGpayBtn.href = paymentLinks.googlePay;
   elements.payPaytmBtn.href = paymentLinks.paytm;
   elements.payPhonePeBtn.href = paymentLinks.phonePe;
@@ -395,19 +406,21 @@ function renderPayment(total, order = null) {
   elements.showQrBtn.innerHTML = "<span>QR</span><strong>Show Payment QR</strong>";
   elements.upiIdText.hidden = true;
   if (elements.paymentChoiceGrid) elements.paymentChoiceGrid.hidden = true;
-  elements.paymentBackBtn.hidden = isPaid || tableId !== state.tableId || Number(order?.paidTotal || 0) > 0 || order?.paymentStatus === "verified_paid";
+  elements.paymentBackBtn.hidden = Boolean(order) || isPaid || tableId !== state.tableId || Number(order?.paidTotal || 0) > 0 || order?.paymentStatus === "verified_paid";
   elements.paymentNote.textContent = isPaid
     ? "Payment completed. Thank you."
     : "Tap a UPI app or show the payment QR to complete payment.";
   elements.addMoreItems.hidden = isPaid || tableId !== state.tableId;
+  elements.receiptActions.hidden = !isPaid || !order?.receiptNumber;
   updateOrderStatusBanner(order);
   renderTrackerSteps(order?.status || "new");
 }
 
 function subscribeOrderStatus() {
   unsubscribeOrderStatus();
-  const tableId = state.trackedTableId || state.tableId;
-  state.orderUnsubscribe = listenToOrder(tableId, (order) => {
+  const orderId = state.trackedOrderId;
+  if (!orderId) return;
+  state.orderUnsubscribe = listenToActiveOrder(orderId, (order) => {
     state.trackedOrder = order;
     if (order) renderPaymentFromOrder(order);
     else resetCustomerSessionAfterTableClear();
@@ -437,7 +450,9 @@ function updateOrderStatusBanner(order) {
   if (order.status === "paid") {
     elements.paymentNote.textContent = "Payment completed. Thank you.";
   } else if (order.paymentStatus === "customer_claimed_paid") {
-    elements.paymentNote.textContent = "Payment sent for verification. Staff will confirm shortly.";
+    elements.paymentDoneBtn.textContent = "Payment Submitted";
+    elements.paymentDoneBtn.disabled = true;
+    elements.paymentNote.textContent = "Waiting for verification...";
   } else if (order.paymentStatus === "verified_paid") {
     elements.paymentNote.textContent = "Payment confirmed. Kitchen will start preparing your order.";
   } else if (order.paymentStatus === "pending_addon") {
@@ -448,6 +463,7 @@ function updateOrderStatusBanner(order) {
 function resetCustomerSessionAfterTableClear() {
   clearCustomerProfile();
   state.trackedTableId = null;
+  state.trackedOrderId = null;
   state.trackedOrder = null;
   state.lastOrderTotal = 0;
   state.lastOrderItems = [];
@@ -475,6 +491,10 @@ function renderTrackerSteps(status) {
 }
 
 function renderPaymentFromOrder(order) {
+  const orderId = order.orderId || order.id;
+  state.trackedOrderId = orderId;
+  state.trackedTableId = order.tableId || state.tableId;
+  state.trackedOrder = order;
   state.lastOrderTotal = Number(order.total || 0);
   state.lastOrderItems = cloneOrderItems(order.items || []);
   state.customerProfile = state.customerProfile || {
@@ -512,18 +532,18 @@ function renderLookupResults(orders) {
   elements.lookupResults.innerHTML = `
     <strong>Select your active order</strong>
     ${orders.map((order) => `
-      <button class="ghost-btn" type="button" data-track-table="${escapeHtml(order.tableId)}">
-        Table ${escapeHtml(order.tableId)} - ${formatCurrency(order.total)} - ${escapeHtml(STATUS_LABELS[order.status] || order.status || "New")}
+      <button class="ghost-btn" type="button" data-track-order="${escapeHtml(order.orderId || order.id)}">
+        Table ${escapeHtml(order.tableId)} - Order ${escapeHtml(String(order.orderId || order.id).slice(0, 8))} - ${formatCurrency(order.total)} - ${escapeHtml(STATUS_LABELS[order.status] || order.status || "New")}
       </button>
     `).join("")}
   `;
-  elements.lookupResults.querySelectorAll("[data-track-table]").forEach((button) => {
-    button.addEventListener("click", () => startTrackingOrder(button.dataset.trackTable));
+  elements.lookupResults.querySelectorAll("[data-track-order]").forEach((button) => {
+    button.addEventListener("click", () => startTrackingOrder(button.dataset.trackOrder));
   });
 }
 
-function startTrackingOrder(tableId) {
-  state.trackedTableId = tableId;
+function startTrackingOrder(orderId) {
+  state.trackedOrderId = orderId;
   elements.lookupResults.hidden = true;
   renderPayment(0, null);
   showScreen("payment");
@@ -534,14 +554,14 @@ function chooseOnlinePayment() {
   elements.upiIdText.hidden = false;
   elements.paymentDoneBtn.disabled = false;
   elements.paymentDoneBtn.textContent = "I have paid online";
-  elements.paymentNote.textContent = "Complete UPI payment, then tap “I have paid online” so counter can verify it.";
+  elements.paymentNote.textContent = "After successful payment, please click I Have Paid Online so the counter can verify your payment and start preparing your order.";
 }
 
 function showPaymentQr() {
   elements.upiQr.hidden = false;
   elements.upiIdText.hidden = false;
   elements.showQrBtn.innerHTML = "<span>QR</span><strong>Payment QR shown</strong>";
-  elements.paymentNote.textContent = "Scan the QR, then tap I have paid online so counter can verify it.";
+  elements.paymentNote.textContent = "After successful payment, please click I Have Paid Online so the counter can verify your payment and start preparing your order.";
 }
 
 function hasActiveOrderForThisTable() {
@@ -599,8 +619,9 @@ async function handlePaymentAppClick(event) {
 
   const appName = link.dataset.paymentApp || "UPI app";
   try {
+    if (!state.trackedOrderId) return;
     setPaymentAppLinksBusy(true);
-    await claimPaymentDone(state.trackedTableId || state.tableId);
+    await claimActiveOrderPaymentDone(state.trackedOrderId);
     elements.paymentDoneBtn.disabled = true;
     elements.paymentDoneBtn.textContent = "Payment sent for verification";
     elements.paymentNote.textContent = `Opening ${appName}. Staff will verify after payment.`;
@@ -624,16 +645,37 @@ function setPaymentAppLinksBusy(isBusy) {
 
 async function markCustomerPaid() {
   try {
+    if (!state.trackedOrderId) return;
     elements.paymentDoneBtn.disabled = true;
-    await claimPaymentDone(state.trackedTableId || state.tableId);
-    elements.paymentDoneBtn.textContent = "Payment sent for verification";
-    elements.paymentNote.textContent = "Counter has been notified. Staff will verify and mark the bill paid.";
+    await claimActiveOrderPaymentDone(state.trackedOrderId);
+    elements.paymentDoneBtn.textContent = "Payment Submitted";
+    elements.paymentNote.textContent = "Waiting for verification...";
     showToast("Counter notified");
   } catch (error) {
     console.error("Payment claim failed.", error);
     elements.paymentDoneBtn.disabled = false;
     showError("Connection error", "Connection error, please refresh");
   }
+}
+
+async function getCurrentReceipt() {
+  if (!state.trackedOrderId) return null;
+  const receipt = await fetchReceipt(state.trackedOrderId);
+  if (!receipt) showToast("Receipt not available yet");
+  return receipt;
+}
+
+async function viewCurrentReceipt() {
+  const receipt = await getCurrentReceipt();
+  if (!receipt) return;
+  const win = window.open("", "_blank");
+  win.document.write(buildReceiptDocumentHtml(receipt));
+  win.document.close();
+}
+
+async function downloadCurrentReceipt() {
+  const receipt = await getCurrentReceipt();
+  if (receipt) downloadReceiptHtml(receipt);
 }
 
 init();
