@@ -49,7 +49,7 @@ const TRACKING_STEPS = ["new", "preparing", "served", "paid"];
 const TRACKING_LABELS = {
   new: "Order Received",
   preparing: "Preparing",
-  served: "Served",
+  served: "Completed",
   paid: "Paid"
 };
 
@@ -85,6 +85,7 @@ const elements = {
   payGpayBtn: document.querySelector("#payGpayBtn"),
   payPaytmBtn: document.querySelector("#payPaytmBtn"),
   payPhonePeBtn: document.querySelector("#payPhonePeBtn"),
+  payUpiBtn: document.querySelector("#payUpiBtn"),
   showQrBtn: document.querySelector("#showQrBtn"),
   paymentDoneBtn: document.querySelector("#paymentDoneBtn"),
   paymentNote: document.querySelector("#paymentNote"),
@@ -169,7 +170,7 @@ function bindEvents() {
   if (elements.chooseOnlineBtn) elements.chooseOnlineBtn.addEventListener("click", chooseOnlinePayment);
   elements.paymentBackBtn.addEventListener("click", openEditableCartFromPayment);
   elements.paymentCloseBtn.addEventListener("click", closePaymentToMenu);
-  [elements.payGpayBtn, elements.payPaytmBtn, elements.payPhonePeBtn].forEach((link) => {
+  getPaymentAppLinks().forEach((link) => {
     link.addEventListener("click", handlePaymentAppClick);
   });
   elements.showQrBtn.addEventListener("click", showPaymentQr);
@@ -201,7 +202,11 @@ function showScreen(name) {
 
 function readCustomerProfile() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(CUSTOMER_PROFILE_KEY) || "null");
+    let parsed = JSON.parse(sessionStorage.getItem(CUSTOMER_PROFILE_KEY) || "null");
+    if (!parsed) {
+      parsed = JSON.parse(localStorage.getItem(CUSTOMER_PROFILE_KEY) || "null");
+      if (parsed) sessionStorage.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(parsed));
+    }
     const mobile = normalizeIndianMobile(parsed?.mobile);
     const name = String(parsed?.name || "").trim();
     if (!name || !mobile) return null;
@@ -212,12 +217,12 @@ function readCustomerProfile() {
 }
 
 function saveCustomerProfile(profile) {
-  localStorage.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(profile));
+  sessionStorage.setItem(CUSTOMER_PROFILE_KEY, JSON.stringify(profile));
 }
 
 function clearCustomerProfile() {
   try {
-    localStorage.removeItem(CUSTOMER_PROFILE_KEY);
+    sessionStorage.removeItem(CUSTOMER_PROFILE_KEY);
   } catch {
     // Storage may be unavailable in private mode.
   }
@@ -397,6 +402,7 @@ function renderPayment(total, order = null) {
   elements.payGpayBtn.href = paymentLinks.googlePay;
   elements.payPaytmBtn.href = paymentLinks.paytm;
   elements.payPhonePeBtn.href = paymentLinks.phonePe;
+  if (elements.payUpiBtn) elements.payUpiBtn.href = paymentLinks.upi;
   elements.upiIdText.textContent = CONFIG.UPI_ID;
   elements.paymentDoneBtn.textContent = isClaimedPaid ? "Payment sent for verification" : "I have paid online";
   elements.paymentDoneBtn.disabled = isPaid || isClaimedPaid;
@@ -442,8 +448,11 @@ function updateOrderStatusBanner(order) {
     return;
   }
 
-  const label = STATUS_LABELS[order.status] || order.status;
-  elements.orderStatusLive.textContent = `Order status: ${label}`;
+  const isCompleted = order.status === "served";
+  const label = isCompleted ? "Completed" : STATUS_LABELS[order.status] || order.status;
+  elements.orderStatusLive.innerHTML = isCompleted
+    ? `<span class="status-check" aria-hidden="true">&#10003;</span> ${escapeHtml(label)}`
+    : `Order status: ${escapeHtml(label)}`;
   elements.orderStatusLive.className = `order-status-live status-${order.status || "new"}`;
   renderTrackerSteps(order.status || "new");
 
@@ -461,7 +470,7 @@ function updateOrderStatusBanner(order) {
 }
 
 function resetCustomerSessionAfterTableClear() {
-  clearCustomerProfile();
+  const profile = state.customerProfile;
   state.trackedTableId = null;
   state.trackedOrderId = null;
   state.trackedOrder = null;
@@ -473,18 +482,20 @@ function resetCustomerSessionAfterTableClear() {
   elements.onlinePaymentPanel.hidden = true;
   elements.upiIdText.hidden = true;
   if (elements.paymentChoiceGrid) elements.paymentChoiceGrid.hidden = false;
+  state.customerProfile = profile;
+  if (profile) fillCustomerForm(profile);
   renderMenu();
   updateBottomBar("menu");
   showScreen("menu");
-  showCustomerStart();
-  showToast("Table cleared. Please enter details for a new order.");
+  hideCustomerModal();
+  showToast("Table cleared. Ready for a new order.");
 }
 
 function renderTrackerSteps(status) {
   const activeIndex = Math.max(0, TRACKING_STEPS.indexOf(status || "new"));
   elements.trackerSteps.innerHTML = TRACKING_STEPS.map((step, index) => `
-    <div class="tracker-step ${index <= activeIndex ? "active" : ""}">
-      <span>${index + 1}</span>
+    <div class="tracker-step ${index <= activeIndex ? "active" : ""} ${step === "served" && index <= activeIndex ? "completed" : ""}">
+      <span>${step === "served" && index <= activeIndex ? "&#10003;" : index + 1}</span>
       <strong>${escapeHtml(TRACKING_LABELS[step])}</strong>
     </div>
   `).join("");
@@ -515,7 +526,7 @@ async function lookupOrdersByMobile(mobile) {
     }
     hideCustomerModal();
     if (orders.length === 1) {
-      startTrackingOrder(orders[0].tableId);
+      startTrackingOrder(orders[0].orderId || orders[0].id);
     } else {
       renderLookupResults(orders);
       showScreen("payment");
@@ -637,10 +648,15 @@ async function handlePaymentAppClick(event) {
 }
 
 function setPaymentAppLinksBusy(isBusy) {
-  [elements.payGpayBtn, elements.payPaytmBtn, elements.payPhonePeBtn].forEach((link) => {
+  getPaymentAppLinks().forEach((link) => {
     link.classList.toggle("is-loading", isBusy);
     link.setAttribute("aria-disabled", String(isBusy));
   });
+}
+
+function getPaymentAppLinks() {
+  return [elements.payGpayBtn, elements.payPaytmBtn, elements.payPhonePeBtn, elements.payUpiBtn]
+    .filter(Boolean);
 }
 
 async function markCustomerPaid() {

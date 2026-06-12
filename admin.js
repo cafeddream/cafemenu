@@ -17,6 +17,7 @@ import {
   registerServiceWorker,
   rejectActivePaymentClaim,
   reportToCsv,
+  showRichToast,
   showToast,
   updateActiveOrderStatus,
   verifyOrderPayment
@@ -36,6 +37,11 @@ const state = {
   knownOccupied: new Set(),
   activeSectionId: CONFIG.TABLE_SECTIONS[0]?.id || "",
   previousOrderIds: new Set(),
+  previousPendingItemKeys: new Set(),
+  hasReceivedOrdersSnapshot: false,
+  highlightedTables: new Set(),
+  highlightedSections: new Set(),
+  highlightTimers: new Map(),
   pendingPaidTable: null,
   pendingPaidOrderId: null,
   pendingPaymentItems: null,
@@ -49,6 +55,8 @@ const state = {
   menuLoaded: false,
   lastReport: null
 };
+
+let adminAudioContext = null;
 
 const elements = {
   restaurant: document.querySelector("#adminRestaurant"),
@@ -140,6 +148,8 @@ function bindUi() {
   elements.adminPlaceOrderBtn.addEventListener("click", placeAdminOrder);
   window.addEventListener("scroll", hideAdminHoverPreview, true);
   window.addEventListener("resize", hideAdminHoverPreview);
+  window.addEventListener("pointerdown", unlockAdminAudio, { once: true });
+  window.addEventListener("keydown", unlockAdminAudio, { once: true });
   elements.signOutBtn.addEventListener("click", async () => {
     await signOutStaff();
     window.location.reload();
@@ -184,17 +194,33 @@ function renderEmptyCards() {
 function subscribeToTables() {
   listenToActiveOrders((orders) => {
     const previousOrderIds = new Set(state.previousOrderIds);
+    const previousPendingItemKeys = new Set(state.previousPendingItemKeys);
+    const notifications = [];
     state.orders.clear();
     state.knownOccupied.clear();
+    state.previousPendingItemKeys.clear();
     orders.forEach((order) => {
       const orderId = order.orderId || order.id;
       state.orders.set(orderId, { ...order, orderId });
       state.knownOccupied.add(order.tableId);
+      getPendingItemKeys({ ...order, orderId }).forEach((key) => state.previousPendingItemKeys.add(key));
     });
     state.previousOrderIds = new Set(state.orders.keys());
-    const flashedOrder = [...state.orders.values()].find((order) => !previousOrderIds.has(order.orderId));
+    if (state.hasReceivedOrdersSnapshot) {
+      state.orders.forEach((order) => {
+        const isNewOrder = !previousOrderIds.has(order.orderId);
+        const hasNewItems = getPendingItemKeys(order).some((key) => !previousPendingItemKeys.has(key));
+        if (isNewOrder || hasNewItems) {
+          markAdminNotice(order.tableId);
+          notifications.push({ order, isNewOrder });
+        }
+      });
+    } else {
+      state.hasReceivedOrdersSnapshot = true;
+    }
+    const flashedOrder = notifications[0]?.order || null;
     const flashedTable = flashedOrder?.tableId || null;
-    if (flashedTable) notifyNewOrder();
+    notifications.forEach(({ order, isNewOrder }) => notifyAdminOrder(order, isNewOrder));
     renderTables(flashedTable);
   }, () => showToast("Connection error, please refresh"));
 }
@@ -220,7 +246,9 @@ function renderTables(flashTableId = null) {
       <div class="section-table-row">
         ${activeSection.tables.map((tableId) => {
     const orders = getOrdersForTable(tableId);
-    return tableCardHtml(tableId, orders, tableId === flashTableId && orders.some((order) => order.status === "new"));
+    const shouldFlash = state.highlightedTables.has(tableId)
+      || (tableId === flashTableId && orders.some((order) => order.status === "new"));
+    return tableCardHtml(tableId, orders, shouldFlash);
   }).join("")}
       </div>
     </section>
@@ -250,8 +278,9 @@ function getSectionAlertCount(section) {
 function sectionButtonHtml(section) {
   const alertCount = getSectionAlertCount(section);
   const isActive = section.id === state.activeSectionId;
+  const isFlashing = state.highlightedSections.has(section.id);
   return `
-    <button class="admin-section-btn ${isActive ? "active" : ""}" type="button" data-section="${escapeHtml(section.id)}">
+    <button class="admin-section-btn ${isActive ? "active" : ""} ${isFlashing ? "flash" : ""}" type="button" data-section="${escapeHtml(section.id)}">
       <span>${escapeHtml(section.name)}</span>
       ${alertCount ? `<strong>${alertCount} New</strong>` : ""}
     </button>
@@ -262,6 +291,7 @@ function bindSectionActions() {
   elements.tableGrid.querySelectorAll("[data-section]").forEach((button) => {
     button.addEventListener("click", () => {
       state.activeSectionId = button.dataset.section;
+      acknowledgeSectionNotice(state.activeSectionId);
       renderTables();
     });
   });
@@ -351,7 +381,10 @@ function orderBlockHtml(order) {
 
 function bindCardActions() {
   elements.tableGrid.querySelectorAll(".table-card-orderable").forEach((card) => {
-    const openOrder = () => openAdminOrderModal(card.dataset.table);
+    const openOrder = () => {
+      acknowledgeTableNotice(card.dataset.table);
+      openAdminOrderModal(card.dataset.table);
+    };
     card.addEventListener("click", openOrder);
     card.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {

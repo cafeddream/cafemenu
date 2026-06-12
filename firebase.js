@@ -1035,7 +1035,8 @@ function buildUpiQuery(tableId, total, orderId = tableId) {
     pn: CONFIG.UPI_NAME,
     am: String(Number(total || 0)),
     cu: "INR",
-    tn: `Order_${orderId}_Table_${tableId}`
+    tr: String(orderId || tableId),
+    tn: `Order ${orderId || tableId} Table ${tableId}`
   }).toString();
 }
 
@@ -1079,4 +1080,23 @@ export function showToast(message) {
     toast.classList.remove("show");
     setTimeout(() => toast.remove(), 250);
   }, 2200);
+}
+
+export function showRichToast(title, lines = []) {
+  const toast = document.createElement("div");
+  toast.className = "toast rich-toast";
+  const detailLines = lines
+    .filter((line) => line !== null && line !== undefined && String(line).trim())
+    .map((line) => `<span>${escapeHtml(line)}</span>`)
+    .join("");
+  toast.innerHTML = `
+    <strong><span aria-hidden="true">&#128276;</span> ${escapeHtml(title)}</strong>
+    ${detailLines ? `<div>${detailLines}</div>` : ""}
+  `;
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 250);
+  }, 3200);
 }
