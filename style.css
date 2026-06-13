@@ -735,6 +735,23 @@ button:disabled {
   transform: translate(-50%, 0);
 }
 
+.rich-toast {
+  display: grid;
+  gap: 5px;
+  text-align: left;
+}
+
+.rich-toast strong {
+  display: block;
+}
+
+.rich-toast div {
+  display: grid;
+  gap: 2px;
+  color: #f4f4f4;
+  font-size: 13px;
+}
+
 .admin-page {
   background: #f6f7f9;
 }
@@ -768,6 +785,7 @@ button:disabled {
 .admin-dashboard {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
+  align-items: stretch;
   gap: 14px;
   padding: 16px;
   min-height: calc(100vh - 86px);
@@ -776,9 +794,11 @@ button:disabled {
 .admin-section-sidebar {
   position: sticky;
   top: 94px;
-  align-self: start;
+  align-self: stretch;
   display: grid;
+  grid-template-rows: repeat(4, minmax(0, 1fr));
   gap: 10px;
+  height: calc(100vh - 118px);
 }
 
 .admin-section-btn {
@@ -804,6 +824,11 @@ button:disabled {
   color: var(--primary-dark);
 }
 
+.admin-section-btn.flash,
+.table-card.flash {
+  animation: flashCard 1.35s ease-in-out infinite;
+}
+
 .admin-section-btn strong {
   flex: 0 0 auto;
   padding: 4px 7px;
@@ -819,16 +844,11 @@ button:disabled {
 }
 
 .section-table-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 12px;
-  overflow-x: auto;
+  align-items: start;
   padding: 2px 2px 14px;
-  scroll-snap-type: x proximity;
-}
-
-.section-table-row .table-card {
-  flex: 0 0 min(360px, 82vw);
-  scroll-snap-align: start;
 }
 
 .table-card {
@@ -876,13 +896,16 @@ button:disabled {
   font-weight: 900;
 }
 
-.table-card.flash {
-  animation: flashCard 0.8s ease;
-}
-
 @keyframes flashCard {
-  0%, 100% { transform: scale(1); }
-  35% { transform: scale(1.02); background: #fff7dc; }
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 8px 20px rgba(20, 25, 32, 0.06);
+  }
+  50% {
+    transform: scale(1.015);
+    background: #fff7dc;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.24), 0 12px 28px rgba(20, 25, 32, 0.12);
+  }
 }
 
 .status-new { border-left-color: #f4b400; }
@@ -1914,13 +1937,14 @@ button:disabled {
 
   .admin-section-sidebar {
     position: static;
-    display: flex;
-    overflow-x: auto;
+    display: grid;
+    grid-template-rows: none;
+    height: auto;
   }
 
   .admin-section-btn {
-    flex: 0 0 auto;
-    min-width: 170px;
+    width: 100%;
+    min-height: 52px;
   }
 
   .table-card {

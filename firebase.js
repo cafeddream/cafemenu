@@ -1034,9 +1034,7 @@ function buildUpiQuery(tableId, total, orderId = tableId) {
     pa: CONFIG.UPI_ID,
     pn: CONFIG.UPI_NAME,
     am: String(Number(total || 0)),
-    cu: "INR",
-    tr: String(orderId || tableId),
-    tn: `Order ${orderId || tableId} Table ${tableId}`
+    cu: "INR"
   }).toString();
 }
 

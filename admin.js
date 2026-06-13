@@ -829,10 +829,84 @@ async function placeAdminOrder() {
   elements.adminPlaceOrderBtn.disabled = false;
 }
 
-function notifyNewOrder() {
+function getPendingItemKeys(order) {
+  const orderId = order?.orderId || order?.id || "";
+  return (order?.items || [])
+    .filter((item) => item.status !== "served")
+    .map((item, index) => `${orderId}|${item.itemId || item.name || "item"}|${item.price || 0}|${index}|${item.qty || 0}`);
+}
+
+function markAdminNotice(tableId) {
+  if (!tableId) return;
+  const section = getSectionForTable(tableId);
+  state.highlightedTables.add(tableId);
+  if (section) state.highlightedSections.add(section.id);
+  resetHighlightTimer(`table:${tableId}`, () => state.highlightedTables.delete(tableId));
+  if (section) resetHighlightTimer(`section:${section.id}`, () => state.highlightedSections.delete(section.id));
+}
+
+function resetHighlightTimer(key, onExpire) {
+  const existing = state.highlightTimers.get(key);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    onExpire();
+    state.highlightTimers.delete(key);
+    renderTables();
+  }, 9000);
+  state.highlightTimers.set(key, timer);
+}
+
+function acknowledgeSectionNotice(sectionId) {
+  if (!sectionId) return;
+  state.highlightedSections.delete(sectionId);
+  clearHighlightTimer(`section:${sectionId}`);
+}
+
+function acknowledgeTableNotice(tableId) {
+  if (!tableId) return;
+  state.highlightedTables.delete(tableId);
+  clearHighlightTimer(`table:${tableId}`);
+  const section = getSectionForTable(tableId);
+  if (section) acknowledgeSectionNotice(section.id);
+}
+
+function clearHighlightTimer(key) {
+  const timer = state.highlightTimers.get(key);
+  if (timer) clearTimeout(timer);
+  state.highlightTimers.delete(key);
+}
+
+function notifyAdminOrder(order, isNewOrder = true) {
+  try {
+    const customer = order?.customerName || "Customer";
+    showRichToast(isNewOrder ? "New Order" : "New Items Added", [
+      `Table: ${order?.tableId || "-"}`,
+      `Customer: ${customer}`,
+      isNewOrder ? "Order Received" : "Items Added"
+    ]);
+  } catch {
+    // Toast is helpful, but rendering must never depend on it.
+  }
+  playAdminBeep();
+}
+
+function unlockAdminAudio() {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
-    const context = new AudioContext();
+    if (!AudioContext) return;
+    adminAudioContext = adminAudioContext || new AudioContext();
+    if (adminAudioContext.state === "suspended") adminAudioContext.resume();
+  } catch {
+    // Audio is optional.
+  }
+}
+
+function playAdminBeep() {
+  try {
+    unlockAdminAudio();
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const context = adminAudioContext || new AudioContext();
+    adminAudioContext = context;
     const oscillator = context.createOscillator();
     const gain = context.createGain();
     oscillator.frequency.value = 660;
@@ -844,6 +918,10 @@ function notifyNewOrder() {
   } catch {
     // Browsers may block audio until a user gesture.
   }
+}
+
+function notifyNewOrder() {
+  playAdminBeep();
 }
 
 init();
