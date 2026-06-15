@@ -5,41 +5,18 @@ import { requireStaffAuth } from "./staff-auth.js";
 
 const elements = {
   restaurant: document.querySelector("#adminRestaurant"),
-  managerDate: document.querySelector("#managerDate"),
-  managerClock: document.querySelector("#managerClock"),
   signOutBtn: document.querySelector("#signOutBtn"),
+  menuBtn: document.querySelector("#managerMenuBtn"),
+  drawer: document.querySelector("#managerDrawer"),
+  drawerBackdrop: document.querySelector("#managerDrawerBackdrop"),
+  closeDrawer: document.querySelector("#closeManagerDrawer"),
+  drawerReportsBtn: document.querySelector("#drawerReportsBtn"),
   views: document.querySelectorAll("[data-ps-view]"),
   navButtons: document.querySelectorAll("[data-ps-tab]"),
   splash: document.querySelector("#psSplash")
 };
 
-let activeTab = "dashboard";
-
-function formatManagerDate(date = new Date()) {
-  return date.toLocaleDateString([], {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    weekday: "long"
-  });
-}
-
-function startSharedClock() {
-  const tick = () => {
-    const now = new Date();
-    if (elements.managerClock) {
-      elements.managerClock.textContent = now.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit"
-      });
-    }
-    if (elements.managerDate) {
-      elements.managerDate.textContent = formatManagerDate(now);
-    }
-  };
-  tick();
-  setInterval(tick, 1000);
-}
+let activeTab = "orders";
 
 function setActiveTab(tabId) {
   activeTab = tabId;
@@ -50,10 +27,27 @@ function setActiveTab(tabId) {
     view.hidden = view.dataset.psView !== tabId;
   });
   document.body.dataset.activeTab = tabId;
+  closeManagerDrawer();
 
-  if (tabId === "dashboard" || tabId === "sittings") {
+  if (tabId === "dashboard" || tabId === "sittings" || tabId === "reports") {
     refreshPrivateSittingView();
   }
+}
+
+function openManagerDrawer() {
+  if (!elements.drawer) return;
+  elements.drawer.hidden = false;
+  elements.drawerBackdrop.hidden = false;
+  elements.menuBtn?.setAttribute("aria-expanded", "true");
+  document.body.classList.add("ps-drawer-open");
+}
+
+function closeManagerDrawer() {
+  if (!elements.drawer) return;
+  elements.drawer.hidden = true;
+  elements.drawerBackdrop.hidden = true;
+  elements.menuBtn?.setAttribute("aria-expanded", "false");
+  document.body.classList.remove("ps-drawer-open");
 }
 
 function bindShellUi() {
@@ -65,6 +59,11 @@ function bindShellUi() {
     const tab = event.detail?.tab;
     if (tab) setActiveTab(tab);
   });
+
+  elements.menuBtn?.addEventListener("click", openManagerDrawer);
+  elements.closeDrawer?.addEventListener("click", closeManagerDrawer);
+  elements.drawerBackdrop?.addEventListener("click", closeManagerDrawer);
+  elements.drawerReportsBtn?.addEventListener("click", () => setActiveTab("reports"));
 
   elements.signOutBtn?.addEventListener("click", async () => {
     const { signOutStaff } = await import("./staff-auth.js");
@@ -81,11 +80,10 @@ function hideSplash() {
 
 function startManagerApp() {
   if (elements.restaurant) {
-    elements.restaurant.textContent = `${CONFIG.RESTAURANT_NAME} MANAGER`;
+    elements.restaurant.textContent = CONFIG.RESTAURANT_NAME;
   }
-  startSharedClock();
   bindShellUi();
-  setActiveTab("dashboard");
+  setActiveTab("orders");
   initPrivateSitting();
   initAdminOrders();
   hideSplash();

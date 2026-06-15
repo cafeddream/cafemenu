@@ -20,23 +20,28 @@
   </div>
 
   <header class="ps-manager-header">
-    <div>
-      <h1 class="brand-title" id="adminRestaurant">Cafe D Dream MANAGER</h1>
-      <p class="ps-greeting">Hello, Manager</p>
-      <div class="ps-manager-date" id="managerDate">--</div>
-      <div class="subtle" id="managerClock">--:--</div>
-    </div>
-    <div class="summary-bar">
-      <nav class="staff-nav" aria-label="Staff pages">
-        <a class="ghost-btn menu-btn" href="./kitchen.html">Kitchen</a>
-      </nav>
-      <button class="ghost-btn menu-btn" id="menuButton" type="button">Menu</button>
-      <button class="ghost-btn menu-btn" id="signOutBtn" type="button">Sign Out</button>
-    </div>
+    <h1 class="brand-title" id="adminRestaurant">Cafe D Dream</h1>
+    <button class="ps-menu-btn" id="managerMenuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="managerDrawer">
+      <span></span><span></span><span></span>
+    </button>
   </header>
 
+  <div class="ps-drawer-backdrop" id="managerDrawerBackdrop" hidden></div>
+  <aside class="ps-drawer" id="managerDrawer" hidden aria-label="Manager menu">
+    <div class="ps-drawer-head">
+      <strong>Cafe D Dream</strong>
+      <button class="ghost-btn" id="closeManagerDrawer" type="button">Close</button>
+    </div>
+    <nav class="ps-drawer-nav">
+      <a class="ps-drawer-link" href="./kitchen.html">Kitchen</a>
+      <button class="ps-drawer-link" id="menuButton" type="button">Sales &amp; Reports</button>
+      <button class="ps-drawer-link" id="drawerReportsBtn" type="button">Sitting Reports</button>
+      <button class="ps-drawer-link danger-link" id="signOutBtn" type="button">Sign Out</button>
+    </nav>
+  </aside>
+
   <main class="ps-manager-main">
-    <section class="ps-view" id="psDashboard" data-ps-view="dashboard">
+    <section class="ps-view" id="psDashboard" data-ps-view="dashboard" hidden>
       <div class="ps-stats-grid">
         <article class="ps-stat-card total"><span>Total Private Sitting</span><strong id="psStatTotal">10</strong></article>
         <article class="ps-stat-card occupied"><span>Occupied</span><strong id="psStatOccupied">00</strong></article>
@@ -56,12 +61,9 @@
       <div class="ps-sitting-grid" id="psSittingGrid"></div>
     </section>
 
-    <section class="ps-view" id="psOrders" data-ps-view="orders" hidden>
-      <div class="ps-section-head">
-        <h2>Food Orders</h2>
-        <span id="activeTables">Active Tables: 0</span>
-      </div>
+    <section class="ps-view" id="psOrders" data-ps-view="orders">
       <div id="psOrdersGrid" aria-live="polite"></div>
+      <span id="activeTables" hidden>0</span>
     </section>
 
     <section class="ps-view" id="psReports" data-ps-view="reports" hidden>
@@ -80,11 +82,18 @@
   </main>
 
   <nav class="ps-bottom-nav" aria-label="Manager navigation">
-    <button type="button" class="active" data-ps-tab="dashboard">Dashboard</button>
-    <button type="button" data-ps-tab="sittings">Sittings</button>
-    <button type="button" data-ps-tab="orders">Orders</button>
-    <button type="button" data-ps-tab="reports">Reports</button>
-    <button type="button" data-ps-tab="settings">Settings</button>
+    <button type="button" data-ps-tab="sittings" aria-label="Sitting">
+      <svg class="ps-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10V19H9V13H15V19H20V10L12 4L4 10Z" fill="currentColor"/></svg>
+      <span>Sitting</span>
+    </button>
+    <button type="button" class="active" data-ps-tab="orders" aria-label="Orders">
+      <svg class="ps-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4H17C18.1 4 19 4.9 19 6V20C19 21.1 18.1 22 17 22H7C5.9 22 5 21.1 5 20V6C5 4.9 5.9 4 7 4ZM7 6V20H17V6H7ZM9 8H15V10H9V8ZM9 12H15V14H9V12Z" fill="currentColor"/></svg>
+      <span>Orders</span>
+    </button>
+    <button type="button" data-ps-tab="settings" aria-label="Settings">
+      <svg class="ps-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8C9.79 8 8 9.79 8 12C8 14.21 9.79 16 12 16C14.21 16 16 14.21 16 12C16 9.79 14.21 8 12 8ZM21 12C21 12.84 20.91 13.65 20.75 14.43L22.72 16.03C22.92 16.19 22.98 16.47 22.84 16.69L20.84 19.95C20.7 20.17 20.43 20.24 20.21 20.15L17.86 19.19C17.07 19.76 16.19 20.22 15.23 20.55L14.86 23.03C14.82 23.27 14.61 23.45 14.37 23.45H9.63C9.39 23.45 9.18 23.27 9.14 23.03L8.77 20.55C7.81 20.22 6.93 19.76 6.14 19.19L3.79 20.15C3.57 20.24 3.3 20.17 3.16 19.95L1.16 16.69C1.02 16.47 1.08 16.19 1.28 16.03L3.25 14.43C3.09 13.65 3 12.84 3 12C3 11.16 3.09 10.35 3.25 9.57L1.28 7.97C1.08 7.81 1.02 7.53 1.16 7.31L3.16 4.05C3.3 3.83 3.57 3.76 3.79 3.85L6.14 4.81C6.93 4.24 7.81 3.78 8.77 3.45L9.14 0.97C9.18 0.73 9.39 0.55 9.63 0.55H14.37C14.61 0.55 14.82 0.73 14.86 0.97L15.23 3.45C16.19 3.78 17.07 4.24 17.86 4.81L20.21 3.85C20.43 3.76 20.71 3.83 20.84 4.05L22.84 7.31C22.98 7.53 22.92 7.81 22.72 7.97L20.75 9.57C20.91 10.35 21 11.16 21 12Z" fill="currentColor"/></svg>
+      <span>Settings</span>
+    </button>
   </nav>
 
   <div class="modal-backdrop" id="psCheckInModal" hidden>

@@ -181,6 +181,7 @@ async function preloadMenu() {
 }
 
 function startClock() {
+  if (!elements.clock) return;
   const tick = () => {
     elements.clock.textContent = new Date().toLocaleTimeString([], {
       hour: "2-digit",
@@ -236,20 +237,46 @@ function subscribeToSummary() {
   }, () => showToast("Connection error, please refresh"));
 }
 
+const SECTION_TAB_THEMES = {
+  "party-hall": "admin-tab-teal",
+  "tatoo-studio": "admin-tab-green",
+  "hotel": "admin-tab-gold"
+};
+
+function getSectionTabTheme(sectionId) {
+  return SECTION_TAB_THEMES[sectionId] || "admin-tab-teal";
+}
+
+function getTableFaceNumber(tableId) {
+  const parts = String(tableId || "").trim().split(/\s+/);
+  return parts[parts.length - 1] || tableId;
+}
+
+function getTableItemCount(orders = []) {
+  return orders.reduce((sum, order) => (
+    sum + (order.items || []).reduce((itemSum, item) => itemSum + Number(item.qty || 0), 0)
+  ), 0);
+}
+
+function getLatestOrderTime(orders = []) {
+  const latest = orders[orders.length - 1];
+  if (!latest?.timestamp?.toDate) return "";
+  return latest.timestamp.toDate().toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 function renderTables(flashTableId = null) {
   if (!elements.tableGrid) return;
   const activeSection = getActiveSection();
-  elements.tableGrid.className = "admin-dashboard";
+  elements.tableGrid.className = "admin-dashboard admin-dashboard-pos";
   elements.tableGrid.innerHTML = `
-    <aside class="admin-section-sidebar" aria-label="Table sections">
+    <nav class="admin-top-tabs" aria-label="Table sections">
       ${CONFIG.ORDER_SECTIONS.map(sectionButtonHtml).join("")}
-    </aside>
-    <section class="admin-section-panel" aria-live="polite">
-      <div class="section-header">
-        <h2>${escapeHtml(activeSection.name)}</h2>
-        <span>${activeSection.tables.length} tables</span>
-      </div>
-      <div class="section-table-row">
+    </nav>
+    <section class="admin-section-panel admin-section-panel-pos" aria-live="polite">
+      <div class="section-table-row section-table-row-pos">
         ${activeSection.tables.map((tableId) => {
     const orders = getOrdersForTable(tableId);
     const shouldFlash = state.highlightedTables.has(tableId)
@@ -260,7 +287,9 @@ function renderTables(flashTableId = null) {
     </section>
   `;
 
-  elements.activeTables.textContent = `Active Tables: ${state.knownOccupied.size}`;
+  if (elements.activeTables) {
+    elements.activeTables.textContent = String(state.knownOccupied.size);
+  }
   bindSectionActions();
   bindCardActions();
 }
@@ -285,10 +314,11 @@ function sectionButtonHtml(section) {
   const alertCount = getSectionAlertCount(section);
   const isActive = section.id === state.activeSectionId;
   const isFlashing = state.highlightedSections.has(section.id);
+  const theme = getSectionTabTheme(section.id);
   return `
-    <button class="admin-section-btn ${isActive ? "active" : ""} ${isFlashing ? "flash" : ""}" type="button" data-section="${escapeHtml(section.id)}">
+    <button class="admin-top-tab ${theme} ${isActive ? "active" : ""} ${isFlashing ? "flash" : ""}" type="button" data-section="${escapeHtml(section.id)}">
       <span>${escapeHtml(section.name)}</span>
-      ${alertCount ? `<strong>${alertCount} New</strong>` : ""}
+      ${alertCount ? `<strong>${alertCount}</strong>` : ""}
     </button>
   `;
 }
@@ -321,16 +351,15 @@ function getTableOrdersTotal(orders = []) {
 function tableCardHtml(tableId, orders, flash = false) {
   const isExpanded = state.expandedTableId === tableId;
   const activeClass = isExpanded ? "table-card-active" : "";
+  const faceNumber = getTableFaceNumber(tableId);
 
   if (!orders.length) {
     return `
-      <article class="table-card table-card-orderable table-card-empty table-card-compact ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}">
-        <button class="table-card-toggle" type="button" aria-label="Take order for ${escapeHtml(tableId)}">
-          <div class="table-head">
-            <span class="table-id">${escapeHtml(tableId)}</span>
-            <span class="badge table-empty-badge">Empty</span>
-          </div>
-          <p class="table-card-brief">Tap to take order</p>
+      <article class="table-card table-card-orderable table-card-pos table-card-empty table-card-compact ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}">
+        <button class="table-card-toggle table-card-face" type="button" aria-label="Take order for ${escapeHtml(tableId)}">
+          <span class="table-face-corner table-face-tl">Empty</span>
+          <span class="table-face-number">${escapeHtml(faceNumber)}</span>
+          <span class="table-face-label">${escapeHtml(tableId)}</span>
         </button>
       </article>
     `;
@@ -339,18 +368,18 @@ function tableCardHtml(tableId, orders, flash = false) {
   const clearEnabled = orders.every((order) => !hasPendingItems(order));
   const orderBlocks = orders.map(orderBlockHtml).join("");
   const tableTotal = getTableOrdersTotal(orders);
+  const itemCount = getTableItemCount(orders);
+  const latestTime = getLatestOrderTime(orders);
 
   return `
-    <article class="table-card table-card-orderable table-card-occupied table-card-compact ${activeClass} ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}">
-      <button class="table-card-toggle" type="button" aria-expanded="${isExpanded ? "true" : "false"}" aria-label="View orders for ${escapeHtml(tableId)}">
-        <div class="table-head">
-          <span class="table-id">${escapeHtml(tableId)}</span>
-          <span class="badge table-order-count">${orders.length} order${orders.length === 1 ? "" : "s"}</span>
-        </div>
-        <div class="table-card-brief">
-          <span>${formatCurrency(tableTotal)}</span>
-          <em>${isExpanded ? "Hide details" : "Tap for items"}</em>
-        </div>
+    <article class="table-card table-card-orderable table-card-pos table-card-occupied table-card-compact ${activeClass} ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}">
+      <button class="table-card-toggle table-card-face" type="button" aria-expanded="${isExpanded ? "true" : "false"}" aria-label="View orders for ${escapeHtml(tableId)}">
+        <span class="table-face-corner table-face-tl">${orders.length} ord</span>
+        <span class="table-face-number">${escapeHtml(faceNumber)}</span>
+        <span class="table-face-corner table-face-tr">${itemCount}</span>
+        <span class="table-face-corner table-face-bl">${escapeHtml(latestTime)}</span>
+        <span class="table-face-corner table-face-br">${formatCurrency(tableTotal)}</span>
+        <span class="table-face-label">${escapeHtml(tableId)}</span>
       </button>
       <div class="table-card-details" ${isExpanded ? "" : "hidden"}>
         <div class="table-order-group">${orderBlocks}</div>
@@ -605,6 +634,8 @@ function populateSalesTableSelect() {
 }
 
 function openAdminMenu() {
+  const drawerBackdrop = document.querySelector("#managerDrawerBackdrop");
+  if (drawerBackdrop && !drawerBackdrop.hidden) drawerBackdrop.click();
   elements.adminMenuModal.hidden = false;
   showSalesPanel();
   loadSalesForTable(elements.salesTableSelect.value || CONFIG.TABLES[0]);
