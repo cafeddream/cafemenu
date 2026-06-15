@@ -342,6 +342,10 @@
   background: rgba(0, 0, 0, 0.72);
 }
 
+.ps-manager-page .modal-backdrop.modal-front {
+  z-index: 90;
+}
+
 .ps-checkin-modal,
 .ps-session-modal {
   width: min(100%, 560px);

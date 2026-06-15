@@ -734,7 +734,7 @@ function closeAdminMenu() {
   elements.adminMenuModal.hidden = true;
 }
 
-async function openAdminOrderModal(tableId, options = {}) {
+export async function openAdminOrderModal(tableId, options = {}) {
   state.orderModalOptions = {
     deferPayment: Boolean(options.deferPayment),
     sessionId: options.sessionId || null
@@ -742,7 +742,13 @@ async function openAdminOrderModal(tableId, options = {}) {
   state.orderTableId = tableId;
   state.cart.clear();
   const hasOrder = getOrdersForTable(tableId).length > 0;
-  elements.adminOrderTitle.textContent = hasOrder ? `Add Items — ${tableId}` : `Take Order — ${tableId}`;
+  if (elements.adminOrderTitle) {
+    elements.adminOrderTitle.textContent = state.orderModalOptions.deferPayment
+      ? `Order Food — ${tableId}`
+      : (hasOrder ? `Add Items — ${tableId}` : `Take Order — ${tableId}`);
+  }
+  if (!elements.adminOrderModal) return;
+  elements.adminOrderModal.classList.add("modal-front");
   elements.adminOrderModal.hidden = false;
   showAdminOrderScreen("menu");
   updateAdminOrderFooter();
@@ -771,10 +777,21 @@ async function openAdminOrderModal(tableId, options = {}) {
 }
 
 function closeAdminOrderModal() {
+  const returnSessionId = state.orderModalOptions.deferPayment
+    ? state.orderModalOptions.sessionId
+    : null;
   state.orderTableId = null;
   state.cart.clear();
   state.orderModalOptions = { deferPayment: false, sessionId: null };
-  elements.adminOrderModal.hidden = true;
+  if (elements.adminOrderModal) {
+    elements.adminOrderModal.classList.remove("modal-front");
+    elements.adminOrderModal.hidden = true;
+  }
+  if (returnSessionId) {
+    window.dispatchEvent(new CustomEvent("ps-food-order-modal-closed", {
+      detail: { sessionId: returnSessionId }
+    }));
+  }
 }
 
 function showAdminOrderScreen(name) {
@@ -855,8 +872,6 @@ async function placeAdminOrder() {
     elements.adminPlaceOrderBtn.disabled = false;
   }
 }
-
-export { openAdminOrderModal };
 
 function getPendingItemKeys(order) {
   const orderId = order?.orderId || order?.id || "";

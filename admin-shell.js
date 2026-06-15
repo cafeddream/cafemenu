@@ -61,6 +61,11 @@ function bindShellUi() {
     button.addEventListener("click", () => setActiveTab(button.dataset.psTab));
   });
 
+  window.addEventListener("manager-set-tab", (event) => {
+    const tab = event.detail?.tab;
+    if (tab) setActiveTab(tab);
+  });
+
   elements.signOutBtn?.addEventListener("click", async () => {
     const { signOutStaff } = await import("./staff-auth.js");
     await signOutStaff();

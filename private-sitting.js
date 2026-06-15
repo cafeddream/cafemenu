@@ -33,6 +33,7 @@ const state = {
   selectedSessionId: null,
   checkInDraft: null,
   checkoutDraft: null,
+  foodOrderReturnSessionId: null,
   timerHandle: null
 };
 
@@ -525,12 +526,40 @@ function closeSessionModal() {
 }
 
 function openFoodOrderForSession() {
-  const session = state.activeSessions.get(state.selectedSessionId);
-  if (!session) return;
+  const sessionId = state.selectedSessionId;
+  const session = state.activeSessions.get(sessionId);
+  if (!session) {
+    showToast("Session not found");
+    return;
+  }
+
+  state.foodOrderReturnSessionId = sessionId;
+  closeSessionModal();
+  window.dispatchEvent(new CustomEvent("manager-set-tab", { detail: { tab: "orders" } }));
+
   openAdminOrderModal(session.sittingId, {
     deferPayment: true,
     sessionId: session.sessionId || session.id
+  }).catch(() => {
+    showToast("Could not open food ordering");
+    if (state.foodOrderReturnSessionId) {
+      openSessionModal(state.foodOrderReturnSessionId);
+      state.foodOrderReturnSessionId = null;
+    }
   });
+}
+
+function handleFoodOrderModalClosed(event) {
+  const sessionId = state.foodOrderReturnSessionId || event.detail?.sessionId;
+  state.foodOrderReturnSessionId = null;
+  if (!sessionId) return;
+  const mapKey = [...state.activeSessions.keys()].find((key) => {
+    const active = state.activeSessions.get(key);
+    return key === sessionId || active?.sessionId === sessionId || active?.id === sessionId;
+  });
+  if (mapKey && state.activeSessions.has(mapKey)) {
+    openSessionModal(mapKey);
+  }
 }
 
 function buildCheckoutDraft(session) {
@@ -674,6 +703,7 @@ function bindPrivateSittingUi() {
   });
   elements.checkoutCashBtn?.addEventListener("click", () => confirmCheckout("cash"));
   elements.checkoutOnlineBtn?.addEventListener("click", () => confirmCheckout("online"));
+  window.addEventListener("ps-food-order-modal-closed", handleFoodOrderModalClosed);
 }
 
 function subscribePrivateSitting() {
