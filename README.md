@@ -66,7 +66,7 @@ The counter app opens as a **Manager** dashboard for PS 1–10 (occupancy, coupl
 5. Copy the Web App URL into `CONFIG.APPS_SCRIPT_URL` in [`firebase.js`](firebase.js).
 6. Deploy updated [`firestore.rules`](firestore.rules) (adds `privateSessions`).
 
-Check-in flow per couple: **mobile**, **Customer 1 & 2** (name, ID, DOB calendar, front + back ID photo each), auto PDF, Drive folder `Private Sitting/YYYY-MM-DD/`, Sheet row append.
+Check-in flow per couple: **mobile**, **Customer 1 & 2** (name, DOB calendar, front + back ID photo each), auto PDF, Drive folder `Private Sitting/YYYY-MM-DD/`, Sheet row append.
 
 ## Features
 

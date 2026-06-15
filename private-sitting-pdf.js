@@ -60,8 +60,6 @@ export async function buildSittingEntryPdf({
     doc.setFontSize(10);
     doc.text(`Name: ${customer.name || "-"}`, 14, y);
     y += 5;
-    doc.text(`ID: ${customer.idNumber || "-"}`, 14, y);
-    y += 5;
     doc.text(`DOB: ${formatDobLabel(customer.dob)}`, 14, y);
     y += 8;
     y = addPhotoToPdf(doc, customer.photoFrontDataUrl, 14, y, "ID Front");
@@ -77,7 +75,6 @@ export function buildSittingEntryHtmlPreview(data) {
     <section class="ps-pdf-customer">
       <strong>Customer ${index + 1}</strong>
       <div>${escapeHtml(customer.name || "-")}</div>
-      <div>ID: ${escapeHtml(customer.idNumber || "-")}</div>
       <div>DOB: ${escapeHtml(formatDobLabel(customer.dob))}</div>
       <div class="ps-photo-grid">
         ${customer.photoFrontDataUrl ? `<img src="${customer.photoFrontDataUrl}" alt="Customer ${index + 1} ID front">` : ""}

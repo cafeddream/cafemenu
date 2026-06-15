@@ -10,10 +10,8 @@ const SHEET_HEADERS = [
   "Sitting",
   "Mobile",
   "C1 Name",
-  "C1 ID",
   "C1 DOB",
   "C2 Name",
-  "C2 ID",
   "C2 DOB",
   "Check-in",
   "Check-out",
@@ -70,10 +68,8 @@ function handleCheckIn(payload) {
     payload.sittingId || "",
     payload.mobile || "",
     customers[0]?.name || "",
-    customers[0]?.idNumber || "",
     customers[0]?.dob || "",
     customers[1]?.name || "",
-    customers[1]?.idNumber || "",
     customers[1]?.dob || "",
     payload.checkInLabel || "",
     "",
@@ -106,9 +102,9 @@ function handleCheckout(payload) {
     return { ok: false, error: "Missing sheet row number" };
   }
 
-  sheet.getRange(rowNumber, 11).setValue(payload.checkOutLabel || "");
-  sheet.getRange(rowNumber, 12).setValue(payload.durationMinutes || "");
-  sheet.getRange(rowNumber, 13).setValue(payload.billedAmount || "");
+  sheet.getRange(rowNumber, 9).setValue(payload.checkOutLabel || "");
+  sheet.getRange(rowNumber, 10).setValue(payload.durationMinutes || "");
+  sheet.getRange(rowNumber, 11).setValue(payload.billedAmount || "");
 
   return { ok: true };
 }

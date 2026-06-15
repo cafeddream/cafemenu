@@ -51,7 +51,6 @@ const elements = {
 function emptyCustomer() {
   return {
     name: "",
-    idNumber: "",
     dob: "",
     photoFrontDataUrl: "",
     photoBackDataUrl: ""
@@ -237,10 +236,6 @@ function customerBlockHtml(customer, index) {
         <input type="text" name="name-${index}" value="${escapeHtml(customer.name)}" maxlength="60" required>
       </label>
       <label class="ps-field">
-        <span>ID Number</span>
-        <input type="text" name="idNumber-${index}" value="${escapeHtml(customer.idNumber)}" maxlength="20" required>
-      </label>
-      <label class="ps-field">
         <span>Date of Birth</span>
         <input type="date" name="dob-${index}" value="${escapeHtml(customer.dob)}" required>
       </label>
@@ -268,7 +263,6 @@ function syncDraftFromForm() {
   draft.customers = draft.customers.map((customer, index) => ({
     ...customer,
     name: elements.checkInForm.querySelector(`[name="name-${index}"]`)?.value || "",
-    idNumber: elements.checkInForm.querySelector(`[name="idNumber-${index}"]`)?.value || "",
     dob: elements.checkInForm.querySelector(`[name="dob-${index}"]`)?.value || ""
   }));
 }
@@ -349,7 +343,7 @@ function validateCheckInDraft(draft) {
   }
   for (let i = 0; i < draft.customers.length; i += 1) {
     const customer = draft.customers[i];
-    if (!customer.name?.trim() || !customer.idNumber?.trim() || !customer.dob?.trim()) {
+    if (!customer.name?.trim() || !customer.dob?.trim()) {
       showToast(`Complete Customer ${i + 1} details`);
       return false;
     }
@@ -401,7 +395,6 @@ async function submitCheckIn() {
 
     const customers = draft.customers.map((customer) => ({
       name: customer.name.trim(),
-      idNumber: customer.idNumber.trim(),
       dob: customer.dob.trim()
     }));
 
@@ -467,7 +460,6 @@ function openSessionModal(sessionId) {
       <section class="ps-session-customer">
         <h4>Customer ${index + 1}</h4>
         <div>${escapeHtml(customer.name || "-")}</div>
-        <div>ID: ${escapeHtml(customer.idNumber || "-")}</div>
         <div>DOB: ${escapeHtml(formatDobLabel(customer.dob))}</div>
       </section>
     `).join("")}
