@@ -55,6 +55,7 @@ const state = {
   menuLoaded: false,
   lastReport: null,
   menuSearchQuery: "",
+  expandedTableId: null,
   orderModalOptions: { deferPayment: false, sessionId: null }
 };
 
@@ -296,6 +297,7 @@ function bindSectionActions() {
   elements.tableGrid.querySelectorAll("[data-section]").forEach((button) => {
     button.addEventListener("click", () => {
       state.activeSectionId = button.dataset.section;
+      state.expandedTableId = null;
       acknowledgeSectionNotice(state.activeSectionId);
       renderTables();
     });
@@ -312,34 +314,53 @@ function hasPendingItems(order) {
   return (order.items || []).some((item) => item.status !== "served");
 }
 
+function getTableOrdersTotal(orders = []) {
+  return orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+}
+
 function tableCardHtml(tableId, orders, flash = false) {
+  const isExpanded = state.expandedTableId === tableId;
+  const activeClass = isExpanded ? "table-card-active" : "";
+
   if (!orders.length) {
     return `
-      <article class="table-card table-card-orderable table-card-empty ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}" tabindex="0" aria-label="Take order for ${escapeHtml(tableId)}">
-        <div class="table-head">
-          <span class="table-id">${escapeHtml(tableId)}</span>
-          <span class="badge table-empty-badge">Empty</span>
-        </div>
-        <p class="table-empty-hint">Tap to take order</p>
+      <article class="table-card table-card-orderable table-card-empty table-card-compact ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}">
+        <button class="table-card-toggle" type="button" aria-label="Take order for ${escapeHtml(tableId)}">
+          <div class="table-head">
+            <span class="table-id">${escapeHtml(tableId)}</span>
+            <span class="badge table-empty-badge">Empty</span>
+          </div>
+          <p class="table-card-brief">Tap to take order</p>
+        </button>
       </article>
     `;
   }
 
   const clearEnabled = orders.every((order) => !hasPendingItems(order));
   const orderBlocks = orders.map(orderBlockHtml).join("");
+  const tableTotal = getTableOrdersTotal(orders);
 
   return `
-    <article class="table-card table-card-orderable table-card-occupied ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}" tabindex="0" aria-label="Add items for ${escapeHtml(tableId)}">
-      <div class="table-head">
-        <span class="table-id">${escapeHtml(tableId)}</span>
-        <span class="badge table-order-count">${orders.length} order${orders.length === 1 ? "" : "s"}</span>
-      </div>
-      <div class="table-order-group">${orderBlocks}</div>
-      <footer class="table-card-footer">
-        <div class="card-actions table-clear-actions" data-table="${escapeHtml(tableId)}">
-          <button class="table-clear-btn danger-btn" type="button" data-action="clear" ${clearEnabled ? "" : "disabled"} title="${clearEnabled ? "Clear this table" : "Serve all items before clearing"}">Clear Table</button>
+    <article class="table-card table-card-orderable table-card-occupied table-card-compact ${activeClass} ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}">
+      <button class="table-card-toggle" type="button" aria-expanded="${isExpanded ? "true" : "false"}" aria-label="View orders for ${escapeHtml(tableId)}">
+        <div class="table-head">
+          <span class="table-id">${escapeHtml(tableId)}</span>
+          <span class="badge table-order-count">${orders.length} order${orders.length === 1 ? "" : "s"}</span>
         </div>
-      </footer>
+        <div class="table-card-brief">
+          <span>${formatCurrency(tableTotal)}</span>
+          <em>${isExpanded ? "Hide details" : "Tap for items"}</em>
+        </div>
+      </button>
+      <div class="table-card-details" ${isExpanded ? "" : "hidden"}>
+        <div class="table-order-group">${orderBlocks}</div>
+        <footer class="table-card-footer">
+          <button class="secondary-btn table-add-order-btn" type="button" data-table="${escapeHtml(tableId)}">Add Items</button>
+          <div class="card-actions table-clear-actions" data-table="${escapeHtml(tableId)}">
+            <button class="table-clear-btn danger-btn" type="button" data-action="clear" ${clearEnabled ? "" : "disabled"} title="${clearEnabled ? "Clear this table" : "Serve all items before clearing"}">Clear Table</button>
+          </div>
+        </footer>
+      </div>
     </article>
   `;
 }
@@ -355,7 +376,7 @@ function orderBlockHtml(order) {
   const sourceBadge = order.placedBy === "counter"
     ? "<span class=\"badge source-badge\">Counter</span>"
     : "";
-  const lines = renderAdminItemsHtml(order.items || []);
+  const lines = renderAdminFullItemsHtml(order.items || []);
 
   const statusLabel = paymentVerified && status === "served"
     ? "Served"
@@ -372,7 +393,7 @@ function orderBlockHtml(order) {
       ${customerLine}
       ${paymentClaimed ? "<div class=\"payment-alert\">Customer says payment done - verify UPI</div>" : ""}
       ${cashRequested ? "<div class=\"payment-alert cash-alert\">Customer will pay cash at counter</div>" : ""}
-      <ul class="order-lines" data-item-detail role="button" tabindex="0" aria-label="View all items for ${escapeHtml(order.orderId || order.id)}">${lines}</ul>
+      <ul class="order-lines order-lines-full" data-item-detail role="button" tabindex="0" aria-label="View all items for ${escapeHtml(order.orderId || order.id)}">${lines}</ul>
       <div class="card-meta">
         <strong>${formatCurrency(order.total)}</strong>
         <span>${formatTime(order.timestamp)}</span>
@@ -388,17 +409,28 @@ function orderBlockHtml(order) {
 }
 
 function bindCardActions() {
-  elements.tableGrid.querySelectorAll(".table-card-orderable").forEach((card) => {
-    const openOrder = () => {
-      acknowledgeTableNotice(card.dataset.table);
-      openAdminOrderModal(card.dataset.table);
-    };
-    card.addEventListener("click", openOrder);
-    card.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        openOrder();
+  elements.tableGrid.querySelectorAll(".table-card-toggle").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest(".table-card");
+      const tableId = card?.dataset.table;
+      if (!tableId) return;
+
+      if (card.classList.contains("table-card-empty")) {
+        acknowledgeTableNotice(tableId);
+        openAdminOrderModal(tableId);
+        return;
       }
+
+      acknowledgeTableNotice(tableId);
+      state.expandedTableId = state.expandedTableId === tableId ? null : tableId;
+      renderTables();
+    });
+  });
+
+  elements.tableGrid.querySelectorAll(".table-add-order-btn").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openAdminOrderModal(button.dataset.table);
     });
   });
 
@@ -465,6 +497,16 @@ function cloneOrderItems(items = []) {
     price: Number(item.price || 0),
     qty: Number(item.qty || 0)
   })).filter((item) => item.name && item.qty > 0);
+}
+
+function renderAdminFullItemsHtml(items = []) {
+  if (!items.length) return "<li><span>No items</span></li>";
+  return items.map((item) => `
+    <li class="${item.status === "served" ? "served-item" : ""}">
+      <span>${escapeHtml(item.name)}</span>
+      <strong>x${Number(item.qty || 0)}</strong>
+    </li>
+  `).join("");
 }
 
 function renderAdminItemsHtml(items = []) {

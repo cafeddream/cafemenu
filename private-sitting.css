@@ -644,8 +644,13 @@
 
 #psOrders.ps-view .section-header h2,
 #psOrders.ps-view .table-id,
-#psOrders.ps-view .admin-order-block {
-  color: inherit;
+#psOrders.ps-view .section-table-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#psOrders.ps-view .table-card-active {
+  border-color: #1d6b49;
+  box-shadow: 0 0 0 2px rgba(29, 107, 73, 0.28);
 }
 
 .ps-manager-page .ps-manager-header .ghost-btn {
