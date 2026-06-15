@@ -219,6 +219,7 @@
   padding: 16px;
   display: grid;
   gap: 12px;
+  color: var(--ps-text);
 }
 
 .ps-checkout-row {
@@ -226,10 +227,12 @@
   justify-content: space-between;
   gap: 12px;
   font-size: 14px;
+  color: var(--ps-text);
 }
 
 .ps-checkout-row strong {
   font-size: 15px;
+  color: var(--ps-text);
 }
 
 .ps-checkout-food-list {
@@ -254,6 +257,7 @@
   gap: 12px;
   font-size: 16px;
   font-weight: 900;
+  color: var(--ps-text);
 }
 
 .ps-food-badge {
@@ -347,12 +351,108 @@
 }
 
 .ps-checkin-modal,
-.ps-session-modal {
+.ps-session-modal,
+.ps-checkout-modal {
   width: min(100%, 560px);
   max-height: 90vh;
   overflow: auto;
   background: #171b24;
   color: var(--ps-text);
+}
+
+.ps-checkout-modal .modal-head,
+.ps-session-modal .modal-head,
+.ps-checkin-modal .modal-head {
+  border-bottom-color: var(--ps-line);
+}
+
+.ps-checkout-modal .modal-head h2,
+.ps-session-modal .modal-head h2,
+.ps-checkin-modal .modal-head h2 {
+  color: var(--ps-text);
+}
+
+.ps-manager-page .history-modal.admin-order-modal {
+  background: #171b24;
+  color: var(--ps-text);
+  overflow: hidden;
+}
+
+.ps-manager-page .admin-order-modal .modal-head {
+  border-bottom-color: var(--ps-line);
+}
+
+.ps-manager-page .admin-order-modal .modal-head h2,
+.ps-manager-page .admin-order-modal .cart-header h3 {
+  color: var(--ps-text);
+}
+
+.ps-manager-page .admin-order-modal .subtle {
+  color: var(--ps-muted);
+}
+
+.ps-manager-page .admin-order-modal .item-card,
+.ps-manager-page .admin-order-modal .cart-row,
+.ps-manager-page .admin-order-modal .cart-total {
+  background: var(--ps-panel-soft);
+  border-color: var(--ps-line);
+  color: var(--ps-text);
+  box-shadow: none;
+}
+
+.ps-manager-page .admin-order-modal .item-name,
+.ps-manager-page .admin-order-modal .cart-total,
+.ps-manager-page .admin-order-modal .cart-total span,
+.ps-manager-page .admin-order-modal .qty-value {
+  color: var(--ps-text);
+}
+
+.ps-manager-page .admin-order-modal .item-price,
+.ps-manager-page .admin-order-modal .row-subtotal {
+  color: var(--ps-muted);
+}
+
+.ps-manager-page .admin-order-modal .pill {
+  background: var(--ps-panel-soft);
+  border-color: var(--ps-line);
+  color: var(--ps-text);
+}
+
+.ps-manager-page .admin-order-modal .pill-label {
+  color: var(--ps-text);
+}
+
+.ps-manager-page .admin-order-modal .pill.active {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.ps-manager-page .admin-order-modal .pill.active .pill-label {
+  color: #ffffff;
+}
+
+.ps-manager-page .admin-order-modal .admin-order-footer {
+  background: #12151c;
+  border-top-color: var(--ps-line);
+}
+
+.ps-manager-page .admin-order-modal .admin-order-summary strong {
+  color: var(--ps-text);
+}
+
+.ps-manager-page .admin-order-modal .admin-order-summary span {
+  color: var(--ps-gold);
+}
+
+.ps-manager-page .admin-order-modal .qty-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ps-gold);
+}
+
+.ps-manager-page .admin-order-modal .ghost-btn {
+  color: var(--ps-text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--ps-line);
 }
 
 .ps-checkin-form,
