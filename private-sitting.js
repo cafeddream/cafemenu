@@ -1,4 +1,3 @@
-import { parseAadhaarQrPayload, scanAadhaarQr } from "./aadhaar-qr.js";
 import {
   CONFIG,
   buildCustomerDisplayName,
@@ -25,7 +24,6 @@ const state = {
   selectedSittingId: null,
   selectedSessionId: null,
   checkInDraft: null,
-  qrStop: null,
   timerHandle: null
 };
 
@@ -51,7 +49,13 @@ const elements = {
 };
 
 function emptyCustomer() {
-  return { name: "", idNumber: "", dob: "", gender: "", photoDataUrl: "", qrScanned: false };
+  return {
+    name: "",
+    idNumber: "",
+    dob: "",
+    photoFrontDataUrl: "",
+    photoBackDataUrl: ""
+  };
 }
 
 function createCheckInDraft(sittingId) {
@@ -74,8 +78,19 @@ function formatDuration(ms) {
   return `${hours}:${minutes}:${seconds}`;
 }
 
+function formatDobLabel(value = "") {
+  if (!value) return "-";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
+}
+
 function getCheckInMs(session) {
   return session?.checkInAt?.toMillis?.() || Date.now();
+}
+
+function customerHasAllPhotos(customer) {
+  return Boolean(customer.photoFrontDataUrl && customer.photoBackDataUrl);
 }
 
 function getTodaySittingRevenue() {
@@ -205,12 +220,17 @@ function renderPrivateSitting() {
   renderSettings();
 }
 
+function photoPreviewHtml(dataUrl, label) {
+  return dataUrl
+    ? `<img class="ps-photo-preview" src="${dataUrl}" alt="${escapeHtml(label)}">`
+    : `<div class="ps-photo-preview empty">${escapeHtml(label)}</div>`;
+}
+
 function customerBlockHtml(customer, index) {
   return `
     <section class="ps-customer-block" data-customer-index="${index}">
       <div class="ps-customer-head">
         <h3>Customer ${index + 1}</h3>
-        <button class="ghost-btn ps-scan-qr-btn" type="button" data-scan-index="${index}">Scan Aadhaar QR</button>
       </div>
       <label class="ps-field">
         <span>Name</span>
@@ -222,19 +242,35 @@ function customerBlockHtml(customer, index) {
       </label>
       <label class="ps-field">
         <span>Date of Birth</span>
-        <input type="text" name="dob-${index}" value="${escapeHtml(customer.dob)}" placeholder="DD/MM/YYYY" required>
-      </label>
-      <label class="ps-field">
-        <span>Gender</span>
-        <input type="text" name="gender-${index}" value="${escapeHtml(customer.gender)}" maxlength="10">
+        <input type="date" name="dob-${index}" value="${escapeHtml(customer.dob)}" required>
       </label>
       <div class="ps-photo-row">
-        <button class="secondary-btn ps-photo-btn" type="button" data-photo-index="${index}">Capture ID Photo ${index + 1}</button>
-        <input type="file" accept="image/*" capture="environment" hidden data-photo-input="${index}">
-        ${customer.photoDataUrl ? `<img class="ps-photo-preview" src="${customer.photoDataUrl}" alt="Customer ${index + 1} ID photo">` : `<div class="ps-photo-preview empty">No photo yet</div>`}
+        <div class="ps-photo-actions">
+          <button class="secondary-btn ps-photo-btn" type="button" data-photo-side="front" data-photo-index="${index}">Capture ID Front</button>
+          <input type="file" accept="image/*" capture="environment" hidden data-photo-input="front" data-photo-index="${index}">
+          <button class="secondary-btn ps-photo-btn" type="button" data-photo-side="back" data-photo-index="${index}">Capture ID Back</button>
+          <input type="file" accept="image/*" capture="environment" hidden data-photo-input="back" data-photo-index="${index}">
+        </div>
+        <div class="ps-photo-grid">
+          ${photoPreviewHtml(customer.photoFrontDataUrl, "Front pending")}
+          ${photoPreviewHtml(customer.photoBackDataUrl, "Back pending")}
+        </div>
       </div>
     </section>
   `;
+}
+
+function syncDraftFromForm() {
+  const draft = state.checkInDraft;
+  if (!draft || !elements.checkInForm) return;
+
+  draft.mobile = elements.checkInForm.querySelector('[name="mobile"]')?.value || "";
+  draft.customers = draft.customers.map((customer, index) => ({
+    ...customer,
+    name: elements.checkInForm.querySelector(`[name="name-${index}"]`)?.value || "",
+    idNumber: elements.checkInForm.querySelector(`[name="idNumber-${index}"]`)?.value || "",
+    dob: elements.checkInForm.querySelector(`[name="dob-${index}"]`)?.value || ""
+  }));
 }
 
 function renderCheckInForm() {
@@ -248,46 +284,29 @@ function renderCheckInForm() {
     ${draft.customers.map((customer, index) => customerBlockHtml(customer, index)).join("")}
   `;
 
-  elements.checkInForm.querySelectorAll("[data-scan-index]").forEach((button) => {
-    button.onclick = async () => {
-      try {
-        if (state.qrStop) await state.qrStop();
-        state.qrStop = await scanAadhaarQr((parsed) => {
-          const idx = Number(button.dataset.scanIndex);
-          draft.customers[idx] = { ...draft.customers[idx], ...parsed, qrScanned: true };
-          renderCheckInForm();
-          updateCheckInPreview();
-        }, () => showToast("QR scanner unavailable"));
-      } catch {
-        showToast("Could not open QR scanner");
-      }
-    };
-  });
-
-  elements.checkInForm.querySelectorAll("[data-photo-index]").forEach((button) => {
-    const input = elements.checkInForm.querySelector(`[data-photo-input="${button.dataset.photoIndex}"]`);
+  elements.checkInForm.querySelectorAll("[data-photo-side]").forEach((button) => {
+    const side = button.dataset.photoSide;
+    const index = button.dataset.photoIndex;
+    const input = elements.checkInForm.querySelector(`[data-photo-input="${side}"][data-photo-index="${index}"]`);
     button.onclick = () => input?.click();
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      const idx = Number(button.dataset.photoIndex);
-      draft.customers[idx].photoDataUrl = await readFileAsDataUrl(file);
+      const idx = Number(index);
+      const dataUrl = await readFileAsDataUrl(file);
+      if (side === "front") draft.customers[idx].photoFrontDataUrl = dataUrl;
+      else draft.customers[idx].photoBackDataUrl = dataUrl;
       renderCheckInForm();
       updateCheckInPreview();
     };
   });
 
-  elements.checkInForm.oninput = () => {
-    draft.mobile = elements.checkInForm.querySelector('[name="mobile"]')?.value || "";
-    draft.customers = draft.customers.map((customer, index) => ({
-      ...customer,
-      name: elements.checkInForm.querySelector(`[name="name-${index}"]`)?.value || "",
-      idNumber: elements.checkInForm.querySelector(`[name="idNumber-${index}"]`)?.value || "",
-      dob: elements.checkInForm.querySelector(`[name="dob-${index}"]`)?.value || "",
-      gender: elements.checkInForm.querySelector(`[name="gender-${index}"]`)?.value || ""
-    }));
+  const handleFormChange = () => {
+    syncDraftFromForm();
     updateCheckInPreview();
   };
+  elements.checkInForm.oninput = handleFormChange;
+  elements.checkInForm.onchange = handleFormChange;
 }
 
 function readFileAsDataUrl(file) {
@@ -301,9 +320,9 @@ function readFileAsDataUrl(file) {
 
 async function updateCheckInPreview() {
   if (!elements.checkInPreview || !state.checkInDraft) return;
-  const ready = state.checkInDraft.customers.every((customer) => customer.photoDataUrl);
+  const ready = state.checkInDraft.customers.every(customerHasAllPhotos);
   if (!ready) {
-    elements.checkInPreview.innerHTML = `<p class="ps-empty-note">Capture both ID photos to generate entry preview.</p>`;
+    elements.checkInPreview.innerHTML = `<p class="ps-empty-note">Capture front and back ID photos for both customers.</p>`;
     return;
   }
   elements.checkInPreview.innerHTML = buildSittingEntryHtmlPreview(state.checkInDraft);
@@ -334,15 +353,36 @@ function validateCheckInDraft(draft) {
       showToast(`Complete Customer ${i + 1} details`);
       return false;
     }
-    if (!customer.photoDataUrl) {
-      showToast(`Capture Customer ${i + 1} ID photo`);
+    if (!customer.photoFrontDataUrl) {
+      showToast(`Capture Customer ${i + 1} ID front photo`);
+      return false;
+    }
+    if (!customer.photoBackDataUrl) {
+      showToast(`Capture Customer ${i + 1} ID back photo`);
       return false;
     }
   }
   return true;
 }
 
+function buildPhotoFiles(customers = []) {
+  return customers.flatMap((customer, index) => {
+    const customerNo = index + 1;
+    return [
+      {
+        name: `customer${customerNo}_id_front.jpg`,
+        base64: (customer.photoFrontDataUrl || "").split(",")[1] || ""
+      },
+      {
+        name: `customer${customerNo}_id_back.jpg`,
+        base64: (customer.photoBackDataUrl || "").split(",")[1] || ""
+      }
+    ].filter((file) => file.base64);
+  });
+}
+
 async function submitCheckIn() {
+  syncDraftFromForm();
   const draft = state.checkInDraft;
   if (!draft || !validateCheckInDraft(draft)) return;
 
@@ -362,9 +402,7 @@ async function submitCheckIn() {
     const customers = draft.customers.map((customer) => ({
       name: customer.name.trim(),
       idNumber: customer.idNumber.trim(),
-      dob: customer.dob.trim(),
-      gender: customer.gender.trim(),
-      qrScanned: Boolean(customer.qrScanned)
+      dob: customer.dob.trim()
     }));
 
     const sessionId = await createPrivateSession({
@@ -381,7 +419,7 @@ async function submitCheckIn() {
         sittingId: draft.sittingId,
         mobile: draft.mobile,
         customers,
-        photos: draft.customers.map((customer) => (customer.photoDataUrl || "").split(",")[1] || ""),
+        photoFiles: buildPhotoFiles(draft.customers),
         pdfBase64: pdfDataUrl.split(",")[1] || "",
         checkInLabel,
         dateKey: getTodayKey()
@@ -392,8 +430,7 @@ async function submitCheckIn() {
           sheetSynced: true,
           sheetRowNumber: syncResult.rowNumber,
           driveFolderUrl: syncResult.driveFolderUrl || "",
-          photo1DriveUrl: syncResult.photo1DriveUrl || "",
-          photo2DriveUrl: syncResult.photo2DriveUrl || "",
+          photoDriveUrls: syncResult.photoDriveUrls || [],
           pdfDriveUrl: syncResult.pdfDriveUrl || ""
         });
       } else if (!syncResult?.skipped) {
@@ -431,7 +468,7 @@ function openSessionModal(sessionId) {
         <h4>Customer ${index + 1}</h4>
         <div>${escapeHtml(customer.name || "-")}</div>
         <div>ID: ${escapeHtml(customer.idNumber || "-")}</div>
-        <div>DOB: ${escapeHtml(customer.dob || "-")}</div>
+        <div>DOB: ${escapeHtml(formatDobLabel(customer.dob))}</div>
       </section>
     `).join("")}
     <div class="ps-session-bill">

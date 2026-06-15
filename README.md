@@ -66,13 +66,13 @@ The counter app opens as a **Manager** dashboard for PS 1–10 (occupancy, coupl
 5. Copy the Web App URL into `CONFIG.APPS_SCRIPT_URL` in [`firebase.js`](firebase.js).
 6. Deploy updated [`firestore.rules`](firestore.rules) (adds `privateSessions`).
 
-Check-in flow per couple: **mobile**, **Customer 1 & 2** (Aadhaar QR → name/DOB/ID, ID photo each), auto PDF, Drive folder `Private Sitting/YYYY-MM-DD/`, Sheet row append.
+Check-in flow per couple: **mobile**, **Customer 1 & 2** (name, ID, DOB calendar, front + back ID photo each), auto PDF, Drive folder `Private Sitting/YYYY-MM-DD/`, Sheet row append.
 
 ## Features
 
 - Customer cart, UPI/cash payment flow, live order status on payment screen
 - Counter: clickable tables, take/add orders, mark paid, cancel order, reject payment claim, print bill
-- Private Sitting: PS dashboard, Aadhaar QR check-in, 2 ID photos, PDF, Drive/Sheet sync, hourly checkout billing
+- Private Sitting: PS dashboard, couple check-in with DOB calendar, front/back ID photos, PDF, Drive/Sheet sync, hourly checkout billing
 - Kitchen: 20-minute countdown timer (configurable), color green → red
 - Sales report with date range and CSV export
 - Menu cached in `localStorage` when the sheet is unreachable

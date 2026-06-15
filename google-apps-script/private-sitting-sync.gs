@@ -12,17 +12,17 @@ const SHEET_HEADERS = [
   "C1 Name",
   "C1 ID",
   "C1 DOB",
-  "C1 Gender",
   "C2 Name",
   "C2 ID",
   "C2 DOB",
-  "C2 Gender",
   "Check-in",
   "Check-out",
   "Duration (min)",
   "Amount",
-  "Photo1 URL",
-  "Photo2 URL",
+  "C1 Front URL",
+  "C1 Back URL",
+  "C2 Front URL",
+  "C2 Back URL",
   "PDF URL",
   "Session ID"
 ];
@@ -52,11 +52,11 @@ function handleCheckIn(payload) {
 
   const customers = payload.customers || [];
   const photoUrls = [];
-  (payload.photos || []).forEach((photoBase64, index) => {
-    if (!photoBase64) return;
-    const blob = Utilities.newBlob(Utilities.base64Decode(photoBase64), "image/jpeg", `customer${index + 1}_id.jpg`);
-    const file = folder.createFile(blob);
-    photoUrls.push(file.getUrl());
+  (payload.photoFiles || []).forEach((photoFile) => {
+    if (!photoFile?.base64) return;
+    const fileName = photoFile.name || `photo_${photoUrls.length + 1}.jpg`;
+    const blob = Utilities.newBlob(Utilities.base64Decode(photoFile.base64), "image/jpeg", fileName);
+    photoUrls.push(folder.createFile(blob).getUrl());
   });
 
   let pdfUrl = "";
@@ -72,17 +72,17 @@ function handleCheckIn(payload) {
     customers[0]?.name || "",
     customers[0]?.idNumber || "",
     customers[0]?.dob || "",
-    customers[0]?.gender || "",
     customers[1]?.name || "",
     customers[1]?.idNumber || "",
     customers[1]?.dob || "",
-    customers[1]?.gender || "",
     payload.checkInLabel || "",
     "",
     "",
     "",
     photoUrls[0] || "",
     photoUrls[1] || "",
+    photoUrls[2] || "",
+    photoUrls[3] || "",
     pdfUrl,
     payload.sessionId || ""
   ];
@@ -94,8 +94,7 @@ function handleCheckIn(payload) {
     ok: true,
     rowNumber,
     driveFolderUrl: folder.getUrl(),
-    photo1DriveUrl: photoUrls[0] || "",
-    photo2DriveUrl: photoUrls[1] || "",
+    photoDriveUrls: photoUrls,
     pdfDriveUrl: pdfUrl
   };
 }
@@ -107,9 +106,9 @@ function handleCheckout(payload) {
     return { ok: false, error: "Missing sheet row number" };
   }
 
-  sheet.getRange(rowNumber, 13).setValue(payload.checkOutLabel || "");
-  sheet.getRange(rowNumber, 14).setValue(payload.durationMinutes || "");
-  sheet.getRange(rowNumber, 15).setValue(payload.billedAmount || "");
+  sheet.getRange(rowNumber, 11).setValue(payload.checkOutLabel || "");
+  sheet.getRange(rowNumber, 12).setValue(payload.durationMinutes || "");
+  sheet.getRange(rowNumber, 13).setValue(payload.billedAmount || "");
 
   return { ok: true };
 }

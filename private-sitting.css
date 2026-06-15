@@ -340,6 +340,22 @@
   gap: 10px;
 }
 
+.ps-photo-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.ps-photo-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.ps-field input[type="date"] {
+  color-scheme: dark;
+}
+
 .ps-photo-preview {
   width: 100%;
   max-height: 160px;
@@ -466,13 +482,7 @@
 }
 
 .aadhaar-qr-scanner {
-  position: fixed;
-  inset: 0;
-  z-index: 120;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  background: rgba(0, 0, 0, 0.88);
+  display: none;
 }
 
 @media (max-width: 720px) {

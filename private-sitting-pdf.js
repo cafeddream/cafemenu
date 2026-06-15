@@ -14,6 +14,26 @@ function stripDataUrl(dataUrl = "") {
   return parts.length > 1 ? parts[1] : parts[0];
 }
 
+function formatDobLabel(value = "") {
+  if (!value) return "-";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function addPhotoToPdf(doc, dataUrl, x, y, label) {
+  if (!dataUrl) return y;
+  try {
+    doc.setFontSize(9);
+    doc.text(label, x, y);
+    doc.addImage(stripDataUrl(dataUrl), "JPEG", x, y + 2, 84, 48);
+    return y + 54;
+  } catch {
+    doc.text(`${label} unavailable`, x, y);
+    return y + 8;
+  }
+}
+
 export async function buildSittingEntryPdf({
   sittingId,
   mobile,
@@ -42,20 +62,10 @@ export async function buildSittingEntryPdf({
     y += 5;
     doc.text(`ID: ${customer.idNumber || "-"}`, 14, y);
     y += 5;
-    doc.text(`DOB: ${customer.dob || "-"}`, 14, y);
-    y += 5;
-    doc.text(`Gender: ${customer.gender || "-"}`, 14, y);
+    doc.text(`DOB: ${formatDobLabel(customer.dob)}`, 14, y);
     y += 8;
-
-    if (customer.photoDataUrl) {
-      try {
-        doc.addImage(stripDataUrl(customer.photoDataUrl), "JPEG", 14, y, 80, 50);
-        y += 56;
-      } catch {
-        doc.text("ID photo unavailable", 14, y);
-        y += 8;
-      }
-    }
+    y = addPhotoToPdf(doc, customer.photoFrontDataUrl, 14, y, "ID Front");
+    y = addPhotoToPdf(doc, customer.photoBackDataUrl, 14, y, "ID Back");
     y += 4;
   });
 
@@ -68,8 +78,11 @@ export function buildSittingEntryHtmlPreview(data) {
       <strong>Customer ${index + 1}</strong>
       <div>${escapeHtml(customer.name || "-")}</div>
       <div>ID: ${escapeHtml(customer.idNumber || "-")}</div>
-      <div>DOB: ${escapeHtml(customer.dob || "-")}</div>
-      ${customer.photoDataUrl ? `<img src="${customer.photoDataUrl}" alt="Customer ${index + 1} ID">` : ""}
+      <div>DOB: ${escapeHtml(formatDobLabel(customer.dob))}</div>
+      <div class="ps-photo-grid">
+        ${customer.photoFrontDataUrl ? `<img src="${customer.photoFrontDataUrl}" alt="Customer ${index + 1} ID front">` : ""}
+        ${customer.photoBackDataUrl ? `<img src="${customer.photoBackDataUrl}" alt="Customer ${index + 1} ID back">` : ""}
+      </div>
     </section>
   `).join("");
 
