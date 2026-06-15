@@ -1411,6 +1411,28 @@ button:disabled {
   opacity: 0.9;
 }
 
+.kitchen-table-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kitchen-order-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #f2f2f2;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
 .kitchen-page {
   --kitchen-surface: #262626;
   --kitchen-border: rgba(255, 255, 255, 0.12);
@@ -1791,6 +1813,20 @@ button:disabled {
   grid-column: 1 / -1;
 }
 
+.kitchen-detail-order-label {
+  padding: 10px 0 4px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8a6100;
+  list-style: none;
+}
+
+.kitchen-detail-order-label:first-child {
+  padding-top: 0;
+}
+
 .served-check input {
   width: 18px;
   height: 18px;
@@ -1840,6 +1876,14 @@ button:disabled {
   display: block;
   margin-bottom: 4px;
   font-size: 15px;
+}
+
+.kitchen-hover-preview .kitchen-hover-orders {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  opacity: 0.85;
 }
 
 .kitchen-hover-preview .kitchen-detail-list {
