@@ -310,11 +310,12 @@ function hasPendingItems(order) {
 function tableCardHtml(tableId, orders, flash = false) {
   if (!orders.length) {
     return `
-      <article class="table-card table-card-orderable ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}" tabindex="0" aria-label="Take order for ${escapeHtml(tableId)}">
+      <article class="table-card table-card-orderable table-card-empty ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}" tabindex="0" aria-label="Take order for ${escapeHtml(tableId)}">
         <div class="table-head">
           <span class="table-id">${escapeHtml(tableId)}</span>
-          <span class="badge">Empty</span>
+          <span class="badge table-empty-badge">Empty</span>
         </div>
+        <p class="table-empty-hint">Tap to take order</p>
       </article>
     `;
   }
@@ -323,15 +324,17 @@ function tableCardHtml(tableId, orders, flash = false) {
   const orderBlocks = orders.map(orderBlockHtml).join("");
 
   return `
-    <article class="table-card table-card-orderable ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}" tabindex="0" aria-label="Add items for ${escapeHtml(tableId)}">
+    <article class="table-card table-card-orderable table-card-occupied ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}" tabindex="0" aria-label="Add items for ${escapeHtml(tableId)}">
       <div class="table-head">
         <span class="table-id">${escapeHtml(tableId)}</span>
-        <span class="badge">${orders.length} order${orders.length === 1 ? "" : "s"}</span>
+        <span class="badge table-order-count">${orders.length} order${orders.length === 1 ? "" : "s"}</span>
       </div>
       <div class="table-order-group">${orderBlocks}</div>
-      <div class="card-actions table-clear-actions" data-table="${escapeHtml(tableId)}">
-        <button class="danger-btn" type="button" data-action="clear" ${clearEnabled ? "" : "disabled"}>Clear Table</button>
-      </div>
+      <footer class="table-card-footer">
+        <div class="card-actions table-clear-actions" data-table="${escapeHtml(tableId)}">
+          <button class="table-clear-btn danger-btn" type="button" data-action="clear" ${clearEnabled ? "" : "disabled"} title="${clearEnabled ? "Clear this table" : "Serve all items before clearing"}">Clear Table</button>
+        </div>
+      </footer>
     </article>
   `;
 }
@@ -392,6 +395,10 @@ function bindCardActions() {
         openOrder();
       }
     });
+  });
+
+  elements.tableGrid.querySelectorAll(".table-card-footer, .card-actions").forEach((actions) => {
+    actions.addEventListener("click", (event) => event.stopPropagation());
   });
 
   elements.tableGrid.querySelectorAll(".card-actions [data-action]").forEach((button) => {
