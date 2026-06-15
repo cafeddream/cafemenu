@@ -1553,6 +1553,46 @@ button:disabled {
   color: var(--danger);
 }
 
+#staffLoginModal.staff-login-backdrop {
+  z-index: 1000;
+}
+
+#staffLoginModal.staff-login-open {
+  display: grid !important;
+}
+
+.staff-login-modal {
+  width: min(100%, 520px);
+}
+
+.staff-login-input {
+  min-height: 48px;
+  font-size: 18px;
+}
+
+.staff-login-submit {
+  min-height: 52px;
+  font-size: 18px;
+}
+
+.staff-auth-boot {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #10141c;
+  color: #f5f7fb;
+  font-size: 22px;
+  font-weight: 800;
+  text-align: center;
+}
+
+body.staff-login-active .ps-splash {
+  display: none !important;
+}
+
 .report-filters,
 .report-actions {
   display: grid;
