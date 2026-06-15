@@ -455,6 +455,16 @@
   border: 1px solid var(--ps-line);
 }
 
+.ps-manager-page .admin-order-modal .admin-menu-search {
+  background: #10141c;
+  border-color: var(--ps-line);
+  color: var(--ps-text);
+}
+
+.ps-manager-page .admin-order-modal .admin-menu-search::placeholder {
+  color: var(--ps-muted);
+}
+
 .ps-checkin-form,
 .ps-session-body,
 .ps-checkin-preview {

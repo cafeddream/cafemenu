@@ -26,7 +26,9 @@ const elements = {
   itemModalTitle: document.querySelector("#kitchenItemsModalTitle"),
   itemModalMeta: document.querySelector("#kitchenItemsModalMeta"),
   itemModalList: document.querySelector("#kitchenItemsModalList"),
-  closeItemModal: document.querySelector("#closeKitchenItems")
+  closeItemModal: document.querySelector("#closeKitchenItems"),
+  servedActions: document.querySelector("#kitchenServedActions"),
+  servedConfirmBtn: document.querySelector("#kitchenServedConfirm")
 };
 
 let resizeTimer = null;
@@ -173,8 +175,49 @@ function bindKitchenItemModal() {
 }
 
 function closeKitchenItemsModal() {
-  elements.itemModal?.querySelector(".served-confirm-btn")?.remove();
+  elements.itemModal?.querySelector(".kitchen-served-toolbar")?.remove();
+  if (elements.servedActions) elements.servedActions.hidden = true;
   if (elements.itemModal) elements.itemModal.hidden = true;
+}
+
+function syncServedSelectAllState() {
+  const selectAll = elements.itemModal?.querySelector("#kitchenSelectAllServed");
+  if (!selectAll) return;
+  const checks = [...elements.itemModalList.querySelectorAll('input[type="checkbox"][data-order-id]')];
+  selectAll.checked = checks.length > 0 && checks.every((input) => input.checked);
+  selectAll.indeterminate = checks.some((input) => input.checked) && !selectAll.checked;
+}
+
+function bindServedSelectAll() {
+  const selectAll = elements.itemModal?.querySelector("#kitchenSelectAllServed");
+  if (!selectAll) return;
+
+  selectAll.onchange = () => {
+    elements.itemModalList.querySelectorAll('input[type="checkbox"][data-order-id]').forEach((input) => {
+      input.checked = selectAll.checked;
+    });
+    selectAll.indeterminate = false;
+  };
+
+  elements.itemModalList.onchange = (event) => {
+    if (event.target.matches('input[type="checkbox"][data-order-id]')) {
+      syncServedSelectAllState();
+    }
+  };
+}
+
+function renderServedToolbar() {
+  elements.itemModal?.querySelector(".kitchen-served-toolbar")?.remove();
+  const toolbar = document.createElement("div");
+  toolbar.className = "kitchen-served-toolbar";
+  toolbar.innerHTML = `
+    <label class="served-select-all">
+      <input type="checkbox" id="kitchenSelectAllServed">
+      <span>Select All</span>
+    </label>
+  `;
+  elements.itemModalList.before(toolbar);
+  bindServedSelectAll();
 }
 
 function renderServedItemCheckbox(item, orderId) {
@@ -189,63 +232,87 @@ function renderServedItemCheckbox(item, orderId) {
   `;
 }
 
-function openKitchenItemsModal(tableGroup) {
+function openKitchenItemsModal(tableGroup, options = {}) {
   if (!elements.itemModal || !tableGroup) return;
 
-  elements.itemModal?.querySelector(".served-confirm-btn")?.remove();
+  const servedMode = options.servedMode !== false;
+  elements.itemModal?.querySelector(".kitchen-served-toolbar")?.remove();
   const count = tableGroup.items.reduce((sum, item) => sum + Number(item.qty || 0), 0);
   const orderLabel = tableGroup.orderCount > 1
     ? `${tableGroup.orderCount} orders`
     : String(tableGroup.orders[0].orderId || tableGroup.orders[0].id).slice(0, 8);
 
-  elements.itemModalTitle.textContent = "Select Served Items";
+  elements.itemModalTitle.textContent = servedMode ? "Select Served Items" : "Order Items";
   elements.itemModalMeta.textContent = `${tableGroup.tableId} - ${orderLabel} - ${count} pending`;
 
-  if (tableGroup.orderCount > 1) {
-    elements.itemModalList.innerHTML = tableGroup.orders.map((order) => {
-      const orderItems = getPendingItems(order.items || []);
-      if (!orderItems.length) return "";
-      const orderId = order.orderId || order.id;
-      const orderHeader = `
-        <li class="kitchen-detail-order-label">${escapeHtml(String(orderId).slice(0, 8))}</li>
-      `;
-      const itemRows = orderItems.map((item) => renderServedItemCheckbox(item, orderId)).join("");
-      return orderHeader + itemRows;
-    }).join("");
+  if (servedMode) {
+    if (tableGroup.orderCount > 1) {
+      elements.itemModalList.innerHTML = tableGroup.orders.map((order) => {
+        const orderItems = getPendingItems(order.items || []);
+        if (!orderItems.length) return "";
+        const orderId = order.orderId || order.id;
+        const orderHeader = `
+          <li class="kitchen-detail-order-label">${escapeHtml(String(orderId).slice(0, 8))}</li>
+        `;
+        const itemRows = orderItems.map((item) => renderServedItemCheckbox(item, orderId)).join("");
+        return orderHeader + itemRows;
+      }).join("");
+    } else {
+      const orderId = tableGroup.orders[0].orderId || tableGroup.orders[0].id;
+      elements.itemModalList.innerHTML = tableGroup.items
+        .map((item) => renderServedItemCheckbox(item, orderId))
+        .join("");
+    }
+
+    renderServedToolbar();
+    syncServedSelectAllState();
+
+    if (elements.servedActions) elements.servedActions.hidden = false;
+    if (elements.servedConfirmBtn) {
+      elements.servedConfirmBtn.disabled = false;
+      elements.servedConfirmBtn.onclick = async () => {
+        const selected = [...elements.itemModalList.querySelectorAll("input:checked")];
+        if (!selected.length) {
+          showToast("Select at least one item");
+          return;
+        }
+
+        const byOrder = new Map();
+        selected.forEach((input) => {
+          const orderId = input.dataset.orderId;
+          if (!byOrder.has(orderId)) byOrder.set(orderId, []);
+          byOrder.get(orderId).push(input.value);
+        });
+
+        elements.servedConfirmBtn.disabled = true;
+        try {
+          await Promise.all(
+            [...byOrder.entries()].map(([orderId, itemIds]) => markOrderItemsServed(orderId, itemIds))
+          );
+          closeKitchenItemsModal();
+        } catch {
+          showToast("Connection error, please refresh");
+          elements.servedConfirmBtn.disabled = false;
+        }
+      };
+    }
   } else {
-    const orderId = tableGroup.orders[0].orderId || tableGroup.orders[0].id;
-    elements.itemModalList.innerHTML = tableGroup.items
-      .map((item) => renderServedItemCheckbox(item, orderId))
-      .join("");
+    if (tableGroup.orderCount > 1) {
+      elements.itemModalList.innerHTML = tableGroup.orders.map((order) => {
+        const orderItems = getPendingItems(order.items || []);
+        if (!orderItems.length) return "";
+        const orderId = order.orderId || order.id;
+        const orderHeader = `
+          <li class="kitchen-detail-order-label">${escapeHtml(String(orderId).slice(0, 8))}</li>
+        `;
+        return orderHeader + renderKitchenDetailItemsHtml(orderItems);
+      }).join("");
+    } else {
+      elements.itemModalList.innerHTML = renderKitchenDetailItemsHtml(tableGroup.items);
+    }
+    if (elements.servedActions) elements.servedActions.hidden = true;
   }
 
-  elements.itemModalList.insertAdjacentHTML("afterend", "<button class=\"primary-btn served-confirm-btn\" type=\"button\">Confirm</button>");
-  const confirmBtn = elements.itemModal.querySelector(".served-confirm-btn");
-  confirmBtn.onclick = async () => {
-    const selected = [...elements.itemModalList.querySelectorAll("input:checked")];
-    if (!selected.length) {
-      showToast("Select at least one item");
-      return;
-    }
-
-    const byOrder = new Map();
-    selected.forEach((input) => {
-      const orderId = input.dataset.orderId;
-      if (!byOrder.has(orderId)) byOrder.set(orderId, []);
-      byOrder.get(orderId).push(input.value);
-    });
-
-    confirmBtn.disabled = true;
-    try {
-      await Promise.all(
-        [...byOrder.entries()].map(([orderId, itemIds]) => markOrderItemsServed(orderId, itemIds))
-      );
-      closeKitchenItemsModal();
-    } catch {
-      showToast("Connection error, please refresh");
-      confirmBtn.disabled = false;
-    }
-  };
   elements.itemModal.hidden = false;
   hideKitchenHoverPreview();
   elements.closeItemModal.focus();
@@ -304,7 +371,7 @@ function bindKitchenItemDetails(card) {
   const itemArea = card.querySelector("[data-item-detail]");
   if (!itemArea) return;
 
-  const openModal = () => openKitchenItemsModal(buildTableGroup(card.dataset.table));
+  const openModal = () => openKitchenItemsModal(buildTableGroup(card.dataset.table), { servedMode: false });
   itemArea.onclick = openModal;
   itemArea.onkeydown = (event) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -575,7 +642,7 @@ function bindKitchenCardActions(card) {
           );
         }
         if (action === "served") {
-          openKitchenItemsModal(tableGroup);
+          openKitchenItemsModal(tableGroup, { servedMode: true });
           button.disabled = false;
         }
       } catch {

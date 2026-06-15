@@ -112,6 +112,11 @@ export function renderMenuGrid(container, items, cart, onQtyChange) {
 
 // Renders menu item cards with quantity controls.
 export function renderMenuList(container, items, cart, onQtyChange) {
+  if (!items.length) {
+    container.innerHTML = "<p class=\"subtle\">No items found.</p>";
+    return;
+  }
+
   container.innerHTML = items.map((item) => {
     const key = makeItemKey(item);
     const qty = cart.get(key)?.qty || 0;

@@ -54,6 +54,7 @@ const state = {
   cart: new Map(),
   menuLoaded: false,
   lastReport: null,
+  menuSearchQuery: "",
   orderModalOptions: { deferPayment: false, sessionId: null }
 };
 
@@ -92,6 +93,7 @@ const elements = {
   adminOrderMenuScreen: document.querySelector("#adminOrderMenuScreen"),
   adminOrderCartScreen: document.querySelector("#adminOrderCartScreen"),
   adminCategoryRow: document.querySelector("#adminCategoryRow"),
+  adminMenuSearch: document.querySelector("#adminMenuSearch"),
   adminMenuList: document.querySelector("#adminMenuList"),
   adminCartList: document.querySelector("#adminCartList"),
   adminGrandTotal: document.querySelector("#adminGrandTotal"),
@@ -143,6 +145,10 @@ function bindUi() {
     if (event.target === elements.adminOrderModal) closeAdminOrderModal();
   });
   elements.adminBackToMenu.addEventListener("click", () => showAdminOrderScreen("menu"));
+  elements.adminMenuSearch?.addEventListener("input", () => {
+    state.menuSearchQuery = elements.adminMenuSearch?.value || "";
+    renderAdminMenu();
+  });
   elements.adminViewCartBtn.addEventListener("click", () => {
     renderAdminCart();
     showAdminOrderScreen("cart");
@@ -741,6 +747,8 @@ export async function openAdminOrderModal(tableId, options = {}) {
   };
   state.orderTableId = tableId;
   state.cart.clear();
+  state.menuSearchQuery = "";
+  if (elements.adminMenuSearch) elements.adminMenuSearch.value = "";
   const hasOrder = getOrdersForTable(tableId).length > 0;
   if (elements.adminOrderTitle) {
     elements.adminOrderTitle.textContent = state.orderModalOptions.deferPayment
@@ -782,6 +790,8 @@ function closeAdminOrderModal() {
     : null;
   state.orderTableId = null;
   state.cart.clear();
+  state.menuSearchQuery = "";
+  if (elements.adminMenuSearch) elements.adminMenuSearch.value = "";
   state.orderModalOptions = { deferPayment: false, sessionId: null };
   if (elements.adminOrderModal) {
     elements.adminOrderModal.classList.remove("modal-front");
@@ -807,6 +817,16 @@ function showAdminOrderScreen(name) {
   updateAdminOrderFooter();
 }
 
+function getAllMenuItems() {
+  return Object.values(state.groupedMenu).flat();
+}
+
+function filterMenuItemsBySearch(items = [], query = "") {
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return items;
+  return items.filter((item) => String(item.name || "").toLowerCase().includes(needle));
+}
+
 function renderAdminCategories() {
   renderCategoryRow(elements.adminCategoryRow, state.categories, state.activeCategory, (category) => {
     state.activeCategory = category;
@@ -816,7 +836,16 @@ function renderAdminCategories() {
 }
 
 function renderAdminMenu() {
-  const items = state.groupedMenu[state.activeCategory] || [];
+  const query = state.menuSearchQuery || "";
+  const isSearching = Boolean(query.trim());
+  if (elements.adminCategoryRow) {
+    elements.adminCategoryRow.hidden = isSearching;
+  }
+
+  const items = isSearching
+    ? filterMenuItemsBySearch(getAllMenuItems(), query)
+    : (state.groupedMenu[state.activeCategory] || []);
+
   renderMenuList(elements.adminMenuList, items, state.cart, (item, delta) => {
     updateCartItem(state.cart, item, delta);
     renderAdminMenu();
