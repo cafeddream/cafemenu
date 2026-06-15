@@ -3,21 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#FF6B35">
-  <title>Cafe D Dream Counter</title>
+  <meta name="theme-color" content="#12151c">
+  <title>Cafe D Dream Manager</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="apple-touch-icon" href="./icon-192.png">
   <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./private-sitting.css">
 </head>
-<body class="admin-page">
-  <header class="admin-header">
+<body class="ps-manager-page">
+  <div class="ps-splash" id="psSplash" aria-hidden="true">
+    <div class="ps-splash-card">
+      <strong>Cafe D Dream</strong>
+      <span>Manager</span>
+      <div class="ps-splash-bar"></div>
+    </div>
+  </div>
+
+  <header class="ps-manager-header">
     <div>
-      <h1 class="brand-title" id="adminRestaurant">Cafe D Dream</h1>
-      <div class="subtle" id="clock">--:--</div>
+      <h1 class="brand-title" id="adminRestaurant">Cafe D Dream MANAGER</h1>
+      <p class="ps-greeting">Hello, Manager</p>
+      <div class="ps-manager-date" id="managerDate">--</div>
+      <div class="subtle" id="managerClock">--:--</div>
     </div>
     <div class="summary-bar">
-      <span id="activeTables">Active Tables: 0</span>
-      <span id="todayCollection">Today's Collection: Rs 0</span>
       <nav class="staff-nav" aria-label="Staff pages">
         <a class="ghost-btn menu-btn" href="./kitchen.html">Kitchen</a>
       </nav>
@@ -26,7 +35,87 @@
     </div>
   </header>
 
-  <main class="table-grid" id="tableGrid" aria-live="polite"></main>
+  <main class="ps-manager-main">
+    <section class="ps-view" id="psDashboard" data-ps-view="dashboard">
+      <div class="ps-stats-grid">
+        <article class="ps-stat-card total"><span>Total Private Sitting</span><strong id="psStatTotal">10</strong></article>
+        <article class="ps-stat-card occupied"><span>Occupied</span><strong id="psStatOccupied">00</strong></article>
+        <article class="ps-stat-card available"><span>Available</span><strong id="psStatAvailable">10</strong></article>
+        <article class="ps-stat-card revenue"><span>Today's Revenue</span><strong id="psStatRevenue">₹0</strong></article>
+      </div>
+      <div class="ps-section-head">
+        <h2>Active Customers</h2>
+      </div>
+      <div class="ps-active-list" id="psActiveList"></div>
+    </section>
+
+    <section class="ps-view" id="psSittings" data-ps-view="sittings" hidden>
+      <div class="ps-section-head">
+        <h2>Private Sitting Status</h2>
+      </div>
+      <div class="ps-sitting-grid" id="psSittingGrid"></div>
+    </section>
+
+    <section class="ps-view" id="psOrders" data-ps-view="orders" hidden>
+      <div class="ps-section-head">
+        <h2>Food Orders</h2>
+        <span id="activeTables">Active Tables: 0</span>
+      </div>
+      <div id="psOrdersGrid" aria-live="polite"></div>
+    </section>
+
+    <section class="ps-view" id="psReports" data-ps-view="reports" hidden>
+      <div class="ps-section-head">
+        <h2>Sitting Reports</h2>
+      </div>
+      <div class="ps-reports-list" id="psReportsList"></div>
+    </section>
+
+    <section class="ps-view" id="psSettings" data-ps-view="settings" hidden>
+      <div class="ps-section-head">
+        <h2>Settings</h2>
+      </div>
+      <div id="psSettingsPanel"></div>
+    </section>
+  </main>
+
+  <nav class="ps-bottom-nav" aria-label="Manager navigation">
+    <button type="button" class="active" data-ps-tab="dashboard">Dashboard</button>
+    <button type="button" data-ps-tab="sittings">Sittings</button>
+    <button type="button" data-ps-tab="orders">Orders</button>
+    <button type="button" data-ps-tab="reports">Reports</button>
+    <button type="button" data-ps-tab="settings">Settings</button>
+  </nav>
+
+  <div class="modal-backdrop" id="psCheckInModal" hidden>
+    <section class="history-modal ps-checkin-modal" role="dialog" aria-modal="true" aria-labelledby="psCheckInTitle">
+      <div class="modal-head">
+        <div>
+          <h2 id="psCheckInTitle">Check-in</h2>
+          <div class="subtle">Scan Aadhaar QR, capture both ID photos, then confirm.</div>
+        </div>
+        <button class="ghost-btn" id="closePsCheckIn" type="button">Close</button>
+      </div>
+      <form class="ps-checkin-form" id="psCheckInForm"></form>
+      <div class="ps-checkin-preview" id="psCheckInPreview"></div>
+      <div class="modal-foot" style="padding:16px;">
+        <button class="primary-btn" id="confirmPsCheckIn" type="button">Confirm Check-in</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="psSessionModal" hidden>
+    <section class="history-modal ps-session-modal" role="dialog" aria-modal="true" aria-labelledby="psSessionTitle">
+      <div class="modal-head">
+        <h2 id="psSessionTitle">Active Session</h2>
+        <button class="ghost-btn" id="closePsSession" type="button">Close</button>
+      </div>
+      <div class="ps-session-body" id="psSessionBody"></div>
+      <div class="modal-foot" style="padding:16px;">
+        <button class="danger-btn" id="endPsSession" type="button">End Session</button>
+      </div>
+    </section>
+  </div>
 
   <div class="modal-backdrop" id="adminMenuModal" hidden>
     <section class="history-modal" role="dialog" aria-modal="true" aria-labelledby="menuTitle">
@@ -112,6 +201,8 @@
       </div>
     </section>
   </div>
+
+  <span id="todayCollection" hidden>Today's Collection: Rs 0</span>
 
   <script type="module" src="./admin.js"></script>
 </body>

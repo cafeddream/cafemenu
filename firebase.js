@@ -41,7 +41,8 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
-  updateDoc
+  updateDoc,
+  where
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 export const MENU_CACHE_KEY = "cafe_menu_cache_v1";
@@ -53,6 +54,19 @@ export const CONFIG = {
   RESTAURANT_NAME: "Cafe D Dream",
   KITCHEN_TIMER_MINUTES: 20,
   RECEIPT_LOGO_SRC: "./assets/receipt-logo.png",
+  APPS_SCRIPT_URL: "PASTE_DEPLOYED_WEB_APP_URL",
+  PRIVATE_SITTINGS: [
+    { id: "PS 1", ratePerHour: 150, theme: "ps-green" },
+    { id: "PS 2", ratePerHour: 150, theme: "ps-green" },
+    { id: "PS 3", ratePerHour: 150, theme: "ps-green" },
+    { id: "PS 4", ratePerHour: 200, theme: "ps-gold" },
+    { id: "PS 5", ratePerHour: 200, theme: "ps-gold" },
+    { id: "PS 6", ratePerHour: 200, theme: "ps-gold" },
+    { id: "PS 7", ratePerHour: 300, theme: "ps-purple" },
+    { id: "PS 8", ratePerHour: 400, theme: "ps-pink" },
+    { id: "PS 9", ratePerHour: 400, theme: "ps-pink" },
+    { id: "PS 10", ratePerHour: 500, theme: "ps-ruby", wide: true }
+  ],
   TABLE_SECTIONS: [
     { id: "private-sitting", name: "Private Sitting", tables: ["PS 1", "PS 2", "PS 3", "PS 4", "PS 5", "PS 6", "PS 7", "PS 8", "PS 9", "PS 10"] },
     { id: "party-hall", name: "Party Hall", tables: ["COUNTER", "H 1", "H 2", "H 3", "H 4", "HUT"] },
@@ -71,6 +85,7 @@ export const CONFIG = {
 };
 
 CONFIG.TABLES = CONFIG.TABLE_SECTIONS.flatMap((section) => section.tables);
+CONFIG.ORDER_SECTIONS = CONFIG.TABLE_SECTIONS.filter((section) => section.id !== "private-sitting");
 
 const app = initializeApp(CONFIG.FIREBASE);
 export const auth = getAuth(app);
@@ -116,6 +131,86 @@ export function paymentRef(orderId, dateKey = getTodayKey()) {
 // Returns the saved history document for one completed table order.
 export function tableHistoryOrderRef(tableId, orderId) {
   return doc(db, "tableHistory", tableId, "orders", orderId);
+}
+
+export function privateSessionRef(sessionId) {
+  return doc(db, "privateSessions", sessionId);
+}
+
+function createPrivateSessionId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return `ps-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function getPrivateSittingConfig(sittingId) {
+  return CONFIG.PRIVATE_SITTINGS.find((sitting) => sitting.id === sittingId) || null;
+}
+
+export function buildCustomerDisplayName(customers = []) {
+  const names = customers.map((customer) => String(customer?.name || "").trim()).filter(Boolean);
+  if (names.length >= 2) return `${names[0]} & ${names[1]}`;
+  return names[0] || "Guests";
+}
+
+export function calculateSittingBill(checkInAt, ratePerHour, checkOutAt = new Date()) {
+  const checkInMs = checkInAt?.toMillis?.() || Number(checkInAt) || Date.now();
+  const checkOutMs = checkOutAt?.toMillis?.() || Number(checkOutAt) || Date.now();
+  const durationMinutes = Math.max(0, Math.ceil((checkOutMs - checkInMs) / 60000));
+  const billedBlocks = Math.max(1, Math.ceil(durationMinutes / 15));
+  const billedMinutes = billedBlocks * 15;
+  const billedAmount = Math.round((Number(ratePerHour || 0) / 60) * billedMinutes);
+  return { durationMinutes, billedMinutes, billedAmount };
+}
+
+export async function createPrivateSession(payload) {
+  const sessionId = createPrivateSessionId();
+  const ref = privateSessionRef(sessionId);
+  await setDoc(ref, {
+    sessionId,
+    sittingId: payload.sittingId,
+    mobile: payload.mobile,
+    customers: payload.customers,
+    displayName: payload.displayName,
+    ratePerHour: payload.ratePerHour,
+    status: "active",
+    checkInAt: serverTimestamp(),
+    sheetSynced: false,
+    createdBy: auth.currentUser?.uid || null,
+    createdAt: serverTimestamp()
+  });
+  return sessionId;
+}
+
+export async function updatePrivateSession(sessionId, data) {
+  await updateDoc(privateSessionRef(sessionId), {
+    ...data,
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function completePrivateSession(sessionId, checkoutData) {
+  await updateDoc(privateSessionRef(sessionId), {
+    ...checkoutData,
+    status: "completed",
+    checkOutAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export function listenToActivePrivateSessions(callback, onError) {
+  const sessionsQuery = query(
+    collection(db, "privateSessions"),
+    where("status", "==", "active")
+  );
+  return onSnapshot(sessionsQuery, (snapshot) => {
+    callback(snapshot.docs.map((sessionDoc) => ({ id: sessionDoc.id, ...sessionDoc.data() })));
+  }, onError);
+}
+
+export function listenToPrivateSessions(callback, onError) {
+  return onSnapshot(collection(db, "privateSessions"), (snapshot) => {
+    callback(snapshot.docs.map((sessionDoc) => ({ id: sessionDoc.id, ...sessionDoc.data() })));
+  }, onError);
 }
 
 // Generates a stable order id for paid history and daily collection records.

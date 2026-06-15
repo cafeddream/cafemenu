@@ -108,5 +108,9 @@ service cloud.firestore {
     match /auditLog/{entryId} {
       allow read, create: if isStaff();
     }
+
+    match /privateSessions/{sessionId} {
+      allow read, create, update, delete: if isStaff();
+    }
   }
 }

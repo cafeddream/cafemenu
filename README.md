@@ -53,10 +53,26 @@ So the benefit is **database rules + Firebase Auth**, not hiding the JavaScript.
 3. Enable Email/Password auth; create one staff user with a strong password (not in code)
 4. Do not link `admin.html` on customer-facing posters (counter/kitchen URL only for staff)
 
+## Private Sitting Manager (`admin.html`)
+
+The counter app opens as a **Manager** dashboard for PS 1–10 (occupancy, couple check-in, timers, billing). Food orders for Party Hall / Tattoo / Hotel are under the **Orders** tab.
+
+### Google Drive + Sheet sync (Apps Script)
+
+1. Create a Google Sheet for private sitting records.
+2. Open **Extensions → Apps Script**, paste [`google-apps-script/private-sitting-sync.gs`](google-apps-script/private-sitting-sync.gs).
+3. Run once to allow Drive access.
+4. **Deploy → New deployment → Web app** (Execute as: Me, Who has access: Anyone).
+5. Copy the Web App URL into `CONFIG.APPS_SCRIPT_URL` in [`firebase.js`](firebase.js).
+6. Deploy updated [`firestore.rules`](firestore.rules) (adds `privateSessions`).
+
+Check-in flow per couple: **mobile**, **Customer 1 & 2** (Aadhaar QR → name/DOB/ID, ID photo each), auto PDF, Drive folder `Private Sitting/YYYY-MM-DD/`, Sheet row append.
+
 ## Features
 
 - Customer cart, UPI/cash payment flow, live order status on payment screen
 - Counter: clickable tables, take/add orders, mark paid, cancel order, reject payment claim, print bill
+- Private Sitting: PS dashboard, Aadhaar QR check-in, 2 ID photos, PDF, Drive/Sheet sync, hourly checkout billing
 - Kitchen: 20-minute countdown timer (configurable), color green → red
 - Sales report with date range and CSV export
 - Menu cached in `localStorage` when the sheet is unreachable
