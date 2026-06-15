@@ -111,8 +111,23 @@
         <button class="ghost-btn" id="closePsSession" type="button">Close</button>
       </div>
       <div class="ps-session-body" id="psSessionBody"></div>
-      <div class="modal-foot" style="padding:16px;">
-        <button class="danger-btn" id="endPsSession" type="button">End Session</button>
+      <div class="modal-foot ps-session-actions" style="padding:16px;">
+        <button class="secondary-btn" id="psOrderFoodBtn" type="button">Order Food</button>
+        <button class="primary-btn" id="psCheckoutBtn" type="button">Checkout</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="psCheckoutModal" hidden>
+    <section class="history-modal ps-checkout-modal" role="dialog" aria-modal="true" aria-labelledby="psCheckoutTitle">
+      <div class="modal-head">
+        <h2 id="psCheckoutTitle">Checkout</h2>
+        <button class="ghost-btn" id="closePsCheckout" type="button">Close</button>
+      </div>
+      <div class="ps-checkout-body" id="psCheckoutBody"></div>
+      <div class="modal-foot ps-checkout-actions" style="padding:16px;">
+        <button class="primary-btn" id="psCheckoutCash" type="button">Cash</button>
+        <button class="secondary-btn" id="psCheckoutOnline" type="button">Online</button>
       </div>
     </section>
   </div>

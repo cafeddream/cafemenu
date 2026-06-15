@@ -67,17 +67,36 @@ service cloud.firestore {
           ]);
     }
 
+    function validStaffSessionHoldOrder() {
+      let data = request.resource.data;
+      return data.placedBy == 'counter'
+        && data.paymentStatus == 'session_hold'
+        && data.privateSessionId is string
+        && data.privateSessionId.size() > 0
+        && validTable(data.tableId)
+        && validOrderItems(data.items)
+        && data.status == 'new';
+    }
+
+    function staffCreatesOrder() {
+      return isStaff() && (
+        !('paymentStatus' in request.resource.data)
+        || request.resource.data.paymentStatus != 'session_hold'
+        || validStaffSessionHoldOrder()
+      );
+    }
+
     match /activeOrders/{orderId} {
       allow get: if true;
       allow list: if true;
-      allow create: if isStaff() || customerPlacesActiveOrder();
+      allow create: if staffCreatesOrder() || customerPlacesActiveOrder();
       allow update: if isStaff() || customerPaymentUpdate();
       allow delete: if isStaff();
     }
 
     match /orders/{tableId}/current/order {
       allow read: if validTable(tableId);
-      allow create: if validTable(tableId) && (isStaff() || customerPlacesOrderFor(tableId));
+      allow create: if validTable(tableId) && (staffCreatesOrder() || customerPlacesOrderFor(tableId));
       allow update: if validTable(tableId) && (
         isStaff() ||
         customerPlacesOrderFor(tableId) ||

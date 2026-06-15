@@ -328,7 +328,7 @@ function subscribeToActiveOrders() {
       const orderId = order.orderId || order.id;
       const pendingItems = getPendingItems(order.items || []);
       const isActive = ["new", "preparing"].includes(order.status)
-        && order.paymentStatus === "verified_paid"
+        && (order.paymentStatus === "verified_paid" || order.paymentStatus === "session_hold")
         && pendingItems.length > 0;
       if (isActive) {
         state.orders.set(orderId, { ...order, orderId, items: pendingItems });

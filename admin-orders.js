@@ -14,6 +14,7 @@ import {
   listenToTodaySummary,
   maskMobile,
   placeCounterOrderWithPayment,
+  placePrivateSittingFoodOrder,
   registerServiceWorker,
   rejectActivePaymentClaim,
   reportToCsv,
@@ -52,7 +53,8 @@ const state = {
   activeCategory: "",
   cart: new Map(),
   menuLoaded: false,
-  lastReport: null
+  lastReport: null,
+  orderModalOptions: { deferPayment: false, sessionId: null }
 };
 
 let adminAudioContext = null;
@@ -732,7 +734,11 @@ function closeAdminMenu() {
   elements.adminMenuModal.hidden = true;
 }
 
-async function openAdminOrderModal(tableId) {
+async function openAdminOrderModal(tableId, options = {}) {
+  state.orderModalOptions = {
+    deferPayment: Boolean(options.deferPayment),
+    sessionId: options.sessionId || null
+  };
   state.orderTableId = tableId;
   state.cart.clear();
   const hasOrder = getOrdersForTable(tableId).length > 0;
@@ -767,6 +773,7 @@ async function openAdminOrderModal(tableId) {
 function closeAdminOrderModal() {
   state.orderTableId = null;
   state.cart.clear();
+  state.orderModalOptions = { deferPayment: false, sessionId: null };
   elements.adminOrderModal.hidden = true;
 }
 
@@ -777,7 +784,9 @@ function showAdminOrderScreen(name) {
   elements.adminOrderCartScreen.classList.toggle("active", !isMenu);
   elements.adminOrderCartScreen.hidden = isMenu;
   elements.adminViewCartBtn.hidden = !isMenu;
-  elements.adminPlaceOrderBtn.textContent = isMenu ? "Place Order" : "Confirm Order";
+  elements.adminPlaceOrderBtn.textContent = isMenu
+    ? (state.orderModalOptions.deferPayment ? "Add to Order" : "Place Order")
+    : "Confirm Order";
   updateAdminOrderFooter();
 }
 
@@ -823,16 +832,31 @@ async function placeAdminOrder() {
   if (!items.length) return;
 
   const tableId = state.orderTableId;
+  const { deferPayment, sessionId } = state.orderModalOptions;
   elements.adminPlaceOrderBtn.disabled = true;
 
-  closeAdminOrderModal();
-  openPaymentMethodModal(tableId, {
-    items,
-    amount: total,
-    isCounterOrder: true
-  });
-  elements.adminPlaceOrderBtn.disabled = false;
+  try {
+    if (deferPayment && sessionId) {
+      await placePrivateSittingFoodOrder(tableId, sessionId, items);
+      closeAdminOrderModal();
+      showToast(`Food order sent to kitchen for ${tableId}`);
+      return;
+    }
+
+    closeAdminOrderModal();
+    openPaymentMethodModal(tableId, {
+      items,
+      amount: total,
+      isCounterOrder: true
+    });
+  } catch {
+    showToast("Could not place order");
+  } finally {
+    elements.adminPlaceOrderBtn.disabled = false;
+  }
 }
+
+export { openAdminOrderModal };
 
 function getPendingItemKeys(order) {
   const orderId = order?.orderId || order?.id || "";

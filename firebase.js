@@ -156,10 +156,93 @@ export function calculateSittingBill(checkInAt, ratePerHour, checkOutAt = new Da
   const checkInMs = checkInAt?.toMillis?.() || Number(checkInAt) || Date.now();
   const checkOutMs = checkOutAt?.toMillis?.() || Number(checkOutAt) || Date.now();
   const durationMinutes = Math.max(0, Math.ceil((checkOutMs - checkInMs) / 60000));
-  const billedBlocks = Math.max(1, Math.ceil(durationMinutes / 15));
-  const billedMinutes = billedBlocks * 15;
-  const billedAmount = Math.round((Number(ratePerHour || 0) / 60) * billedMinutes);
-  return { durationMinutes, billedMinutes, billedAmount };
+  const rate = Number(ratePerHour || 0);
+  const slabAmount = Math.ceil((rate / 4) / 10) * 10;
+  const extraMinutes = Math.max(0, durationMinutes - 60);
+  const extraSlabs = extraMinutes > 0 ? Math.ceil(extraMinutes / 15) : 0;
+  const billedAmount = rate + (extraSlabs * slabAmount);
+
+  return {
+    durationMinutes,
+    billedMinutes: Math.max(60, durationMinutes),
+    billedAmount,
+    extraSlabs,
+    slabAmount
+  };
+}
+
+export function filterSessionFoodOrders(orders = [], sessionId, tableId) {
+  return orders.filter((order) => (
+    order.tableId === tableId
+    && order.paymentStatus === "session_hold"
+    && order.privateSessionId === sessionId
+  ));
+}
+
+export async function placePrivateSittingFoodOrder(tableId, sessionId, cartItems) {
+  const cleanItems = cleanOrderItems(cartItems);
+
+  if (!cleanItems.length) return null;
+
+  const newOrderId = createOrderId(tableId);
+  const ref = activeOrderRef(newOrderId);
+  const legacyRef = orderRef(tableId);
+  const data = {
+    orderId: newOrderId,
+    tableId,
+    privateSessionId: sessionId,
+    items: cleanItems,
+    total: calculateTotal(cleanItems),
+    status: "new",
+    placedBy: "counter",
+    paymentStatus: "session_hold",
+    preferredPaymentMethod: null,
+    timestamp: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  };
+
+  await runTransaction(db, async (transaction) => {
+    transaction.set(ref, data);
+    transaction.set(legacyRef, data);
+  });
+
+  await logAuditEntry("ps_food_order", tableId, {
+    placedBy: "counter",
+    orderId: newOrderId,
+    sessionId,
+    total: data.total
+  });
+
+  return getDoc(ref);
+}
+
+export async function recordSittingPayment(sessionId, amount, paymentMethod = "cash") {
+  const method = paymentMethod === "online" ? "online" : "cash";
+  const paymentDocument = doc(db, "dailySummaries", getTodayKey(), "payments", `sitting-${sessionId}`);
+  const summaryDocument = dailySummaryRef();
+
+  await runTransaction(db, async (transaction) => {
+    const paymentSnapshot = await transaction.get(paymentDocument);
+    if (paymentSnapshot.exists()) return;
+
+    transaction.set(summaryDocument, {
+      date: getTodayKey(),
+      total: increment(Number(amount || 0)),
+      cash: increment(method === "cash" ? Number(amount || 0) : 0),
+      online: increment(method === "online" ? Number(amount || 0) : 0),
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    transaction.set(paymentDocument, {
+      sessionId,
+      amount: Number(amount || 0),
+      paymentMethod: method,
+      type: "private_sitting",
+      paidAt: serverTimestamp()
+    });
+  });
+
+  await logAuditEntry("sitting_paid", null, { sessionId, amount, paymentMethod: method });
 }
 
 export async function createPrivateSession(payload) {

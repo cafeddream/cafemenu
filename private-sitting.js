@@ -5,25 +5,34 @@ import {
   completePrivateSession,
   createPrivateSession,
   escapeHtml,
+  filterSessionFoodOrders,
   formatCurrency,
   formatTime,
   getPrivateSittingConfig,
   getTodayKey,
+  listenToActiveOrders,
   listenToActivePrivateSessions,
   listenToPrivateSessions,
   maskMobile,
+  recordSittingPayment,
   showToast,
-  updatePrivateSession
+  updatePrivateSession,
+  verifyOrderPayment
 } from "./firebase.js";
+import { openAdminOrderModal } from "./admin-orders.js";
 import { buildSittingEntryHtmlPreview, buildSittingEntryPdf } from "./private-sitting-pdf.js";
 import { isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout } from "./sitting-sync.js";
+
+const PS_TABLE_IDS = new Set(CONFIG.PRIVATE_SITTINGS.map((sitting) => sitting.id));
 
 const state = {
   activeSessions: new Map(),
   allSessions: [],
+  tableOrders: [],
   selectedSittingId: null,
   selectedSessionId: null,
   checkInDraft: null,
+  checkoutDraft: null,
   timerHandle: null
 };
 
@@ -45,7 +54,13 @@ const elements = {
   closeCheckIn: document.querySelector("#closePsCheckIn"),
   closeSession: document.querySelector("#closePsSession"),
   confirmCheckIn: document.querySelector("#confirmPsCheckIn"),
-  endSessionBtn: document.querySelector("#endPsSession")
+  orderFoodBtn: document.querySelector("#psOrderFoodBtn"),
+  checkoutBtn: document.querySelector("#psCheckoutBtn"),
+  checkoutModal: document.querySelector("#psCheckoutModal"),
+  checkoutBody: document.querySelector("#psCheckoutBody"),
+  closeCheckout: document.querySelector("#closePsCheckout"),
+  checkoutCashBtn: document.querySelector("#psCheckoutCash"),
+  checkoutOnlineBtn: document.querySelector("#psCheckoutOnline")
 };
 
 function emptyCustomer() {
@@ -92,6 +107,23 @@ function customerHasAllPhotos(customer) {
   return Boolean(customer.photoFrontDataUrl && customer.photoBackDataUrl);
 }
 
+function getMaxDobForAdult() {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() - 18);
+  return date.toISOString().slice(0, 10);
+}
+
+function isAdultDob(dob = "") {
+  if (!dob) return false;
+  return dob <= getMaxDobForAdult();
+}
+
+function getSessionFoodOrders(session) {
+  if (!session) return [];
+  const sessionId = session.sessionId || session.id;
+  return filterSessionFoodOrders(state.tableOrders, sessionId, session.sittingId);
+}
+
 function getTodaySittingRevenue() {
   const today = getTodayKey();
   return state.allSessions
@@ -101,7 +133,7 @@ function getTodaySittingRevenue() {
       if (!outMs) return false;
       return getTodayKey(new Date(outMs)) === today;
     })
-    .reduce((sum, session) => sum + Number(session.billedAmount || 0), 0);
+    .reduce((sum, session) => sum + Number(session.grandTotal ?? session.billedAmount ?? 0), 0);
 }
 
 function renderStats() {
@@ -144,7 +176,7 @@ function sittingCardHtml(sitting) {
   const occupied = Boolean(session);
   return `
     <button
-      class="ps-sitting-card ${sitting.theme} ${sitting.wide ? "ps-wide" : ""} ${occupied ? "occupied" : "available"}"
+      class="ps-sitting-card ${sitting.wide ? "ps-wide" : ""} ${occupied ? "occupied" : "available"}"
       type="button"
       data-sitting="${escapeHtml(sitting.id)}"
     >
@@ -187,7 +219,7 @@ function renderReports() {
         <strong>${escapeHtml(session.sittingId)} · ${escapeHtml(session.displayName || "Guests")}</strong>
         <span>${escapeHtml(formatTime(session.checkInAt))} - ${escapeHtml(formatTime(session.checkOutAt))}</span>
       </div>
-      <strong>${formatCurrency(session.billedAmount || 0)}</strong>
+      <strong>${formatCurrency(session.grandTotal ?? session.billedAmount ?? 0)}</strong>
     </article>
   `).join("");
 }
@@ -237,7 +269,7 @@ function customerBlockHtml(customer, index) {
       </label>
       <label class="ps-field">
         <span>Date of Birth</span>
-        <input type="date" name="dob-${index}" value="${escapeHtml(customer.dob)}" required>
+        <input type="date" name="dob-${index}" value="${escapeHtml(customer.dob)}" max="${getMaxDobForAdult()}" required>
       </label>
       <div class="ps-photo-row">
         <div class="ps-photo-actions">
@@ -355,6 +387,10 @@ function validateCheckInDraft(draft) {
       showToast(`Capture Customer ${i + 1} ID back photo`);
       return false;
     }
+    if (!isAdultDob(customer.dob)) {
+      showToast("Customer must be 18 or older");
+      return false;
+    }
   }
   return true;
 }
@@ -442,12 +478,13 @@ async function submitCheckIn() {
   }
 }
 
-function openSessionModal(sessionId) {
-  const session = state.activeSessions.get(sessionId);
+function renderSessionBody(session) {
   if (!session || !elements.sessionBody) return;
-  state.selectedSessionId = sessionId;
-  const billPreview = calculateSittingBill(session.checkInAt, session.ratePerHour);
   const customers = session.customers || [];
+  const foodOrders = getSessionFoodOrders(session);
+  const foodBadge = foodOrders.length
+    ? `<span class="ps-food-badge">${foodOrders.length}</span>`
+    : "";
 
   elements.sessionBody.innerHTML = `
     <div class="ps-session-head">
@@ -465,9 +502,20 @@ function openSessionModal(sessionId) {
     `).join("")}
     <div class="ps-session-bill">
       <span>Rate</span><strong>₹${session.ratePerHour}/hr</strong>
-      <span>Current bill</span><strong>${formatCurrency(billPreview.billedAmount)}</strong>
+      <span>Food orders</span><strong>${foodOrders.length}</strong>
     </div>
   `;
+
+  if (elements.orderFoodBtn) {
+    elements.orderFoodBtn.innerHTML = `Order Food${foodBadge}`;
+  }
+}
+
+function openSessionModal(sessionId) {
+  const session = state.activeSessions.get(sessionId);
+  if (!session) return;
+  state.selectedSessionId = sessionId;
+  renderSessionBody(session);
   if (elements.sessionModal) elements.sessionModal.hidden = false;
 }
 
@@ -476,40 +524,127 @@ function closeSessionModal() {
   state.selectedSessionId = null;
 }
 
-async function endSelectedSession() {
-  const sessionId = state.selectedSessionId;
-  const session = state.activeSessions.get(sessionId);
+function openFoodOrderForSession() {
+  const session = state.activeSessions.get(state.selectedSessionId);
   if (!session) return;
+  openAdminOrderModal(session.sittingId, {
+    deferPayment: true,
+    sessionId: session.sessionId || session.id
+  });
+}
 
-  elements.endSessionBtn.disabled = true;
+function buildCheckoutDraft(session) {
+  const sessionId = session.sessionId || session.id;
+  const sitting = calculateSittingBill(session.checkInAt, session.ratePerHour);
+  const foodOrders = getSessionFoodOrders(session);
+  const foodAmount = foodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const sittingAmount = sitting.billedAmount;
+  return {
+    sessionId,
+    session,
+    sitting,
+    foodOrders,
+    sittingAmount,
+    foodAmount,
+    grandTotal: sittingAmount + foodAmount
+  };
+}
+
+function renderCheckoutModal(draft) {
+  if (!elements.checkoutBody || !draft) return;
+
+  const foodRows = draft.foodOrders.length
+    ? draft.foodOrders.map((order) => `
+      <div class="ps-checkout-food-item">
+        <span>${escapeHtml(order.orderId?.slice(0, 8) || "Order")} · ${(order.items || []).length} item(s)</span>
+        <strong>${formatCurrency(order.total || 0)}</strong>
+      </div>
+    `).join("")
+    : `<p class="ps-empty-note">No food orders for this session.</p>`;
+
+  elements.checkoutBody.innerHTML = `
+    <div class="ps-checkout-row">
+      <span>Sitting charge</span>
+      <strong>${formatCurrency(draft.sittingAmount)}</strong>
+    </div>
+    <div class="ps-checkout-food-list">
+      ${foodRows}
+      <div class="ps-checkout-row">
+        <span>Food subtotal</span>
+        <strong>${formatCurrency(draft.foodAmount)}</strong>
+      </div>
+    </div>
+    <div class="ps-checkout-total">
+      <span>Grand total</span>
+      <strong>${formatCurrency(draft.grandTotal)}</strong>
+    </div>
+  `;
+}
+
+function startCheckout() {
+  const session = state.activeSessions.get(state.selectedSessionId);
+  if (!session) return;
+  state.checkoutDraft = buildCheckoutDraft(session);
+  renderCheckoutModal(state.checkoutDraft);
+  if (elements.checkoutModal) elements.checkoutModal.hidden = false;
+}
+
+function closeCheckoutModal() {
+  if (elements.checkoutModal) elements.checkoutModal.hidden = true;
+  state.checkoutDraft = null;
+}
+
+async function confirmCheckout(method) {
+  const draft = state.checkoutDraft;
+  if (!draft) return;
+
+  const buttons = [elements.checkoutCashBtn, elements.checkoutOnlineBtn];
+  buttons.forEach((button) => { if (button) button.disabled = true; });
+
   try {
-    const checkout = calculateSittingBill(session.checkInAt, session.ratePerHour);
-    await completePrivateSession(sessionId, {
-      durationMinutes: checkout.durationMinutes,
-      billedMinutes: checkout.billedMinutes,
-      billedAmount: checkout.billedAmount
+    await recordSittingPayment(draft.sessionId, draft.sittingAmount, method);
+
+    for (const order of draft.foodOrders) {
+      const orderId = order.orderId || order.id;
+      if (orderId) await verifyOrderPayment(orderId, method);
+    }
+
+    await completePrivateSession(draft.sessionId, {
+      durationMinutes: draft.sitting.durationMinutes,
+      billedMinutes: draft.sitting.billedMinutes,
+      billedAmount: draft.sittingAmount,
+      sittingAmount: draft.sittingAmount,
+      foodAmount: draft.foodAmount,
+      grandTotal: draft.grandTotal,
+      paymentMethod: method
     });
 
-    if (session.sheetRowNumber) {
+    const session = draft.session;
+    if (session?.sheetRowNumber) {
       try {
         await syncSittingCheckout({
-          sessionId,
+          sessionId: draft.sessionId,
           sheetRowNumber: session.sheetRowNumber,
           checkOutLabel: new Date().toLocaleString(),
-          durationMinutes: checkout.durationMinutes,
-          billedAmount: checkout.billedAmount
+          durationMinutes: draft.sitting.durationMinutes,
+          sittingAmount: draft.sittingAmount,
+          foodAmount: draft.foodAmount,
+          grandTotal: draft.grandTotal,
+          paymentMethod: method,
+          billedAmount: draft.sittingAmount
         });
       } catch {
-        showToast("Session ended. Sheet update failed.");
+        showToast("Checkout saved. Sheet update failed.");
       }
     }
 
+    closeCheckoutModal();
     closeSessionModal();
-    showToast(`${session.sittingId} ended — ${formatCurrency(checkout.billedAmount)}`);
+    showToast(`${session.sittingId} checked out — ${formatCurrency(draft.grandTotal)}`);
   } catch {
-    showToast("Could not end session");
+    showToast("Checkout failed. Please try again.");
   } finally {
-    elements.endSessionBtn.disabled = false;
+    buttons.forEach((button) => { if (button) button.disabled = false; });
   }
 }
 
@@ -531,7 +666,14 @@ function bindPrivateSittingUi() {
   elements.sessionModal?.addEventListener("click", (event) => {
     if (event.target === elements.sessionModal) closeSessionModal();
   });
-  elements.endSessionBtn?.addEventListener("click", endSelectedSession);
+  elements.orderFoodBtn?.addEventListener("click", openFoodOrderForSession);
+  elements.checkoutBtn?.addEventListener("click", startCheckout);
+  elements.closeCheckout?.addEventListener("click", closeCheckoutModal);
+  elements.checkoutModal?.addEventListener("click", (event) => {
+    if (event.target === elements.checkoutModal) closeCheckoutModal();
+  });
+  elements.checkoutCashBtn?.addEventListener("click", () => confirmCheckout("cash"));
+  elements.checkoutOnlineBtn?.addEventListener("click", () => confirmCheckout("online"));
 }
 
 function subscribePrivateSitting() {
@@ -540,12 +682,22 @@ function subscribePrivateSitting() {
       sessions.map((session) => [session.sessionId || session.id, session])
     );
     renderPrivateSitting();
+    if (state.selectedSessionId && state.activeSessions.has(state.selectedSessionId)) {
+      renderSessionBody(state.activeSessions.get(state.selectedSessionId));
+    }
   }, () => showToast("Private sitting connection error"));
 
   listenToPrivateSessions((sessions) => {
     state.allSessions = sessions;
     renderStats();
     renderReports();
+  }, () => {});
+
+  listenToActiveOrders((orders) => {
+    state.tableOrders = orders.filter((order) => PS_TABLE_IDS.has(order.tableId));
+    if (state.selectedSessionId && state.activeSessions.has(state.selectedSessionId)) {
+      renderSessionBody(state.activeSessions.get(state.selectedSessionId));
+    }
   }, () => {});
 }
 

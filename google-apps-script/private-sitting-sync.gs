@@ -16,7 +16,10 @@ const SHEET_HEADERS = [
   "Check-in",
   "Check-out",
   "Duration (min)",
-  "Amount",
+  "Sitting Amount",
+  "Food Amount",
+  "Grand Total",
+  "Payment Method",
   "C1 Front URL",
   "C1 Back URL",
   "C2 Front URL",
@@ -75,6 +78,9 @@ function handleCheckIn(payload) {
     "",
     "",
     "",
+    "",
+    "",
+    "",
     photoUrls[0] || "",
     photoUrls[1] || "",
     photoUrls[2] || "",
@@ -104,7 +110,10 @@ function handleCheckout(payload) {
 
   sheet.getRange(rowNumber, 9).setValue(payload.checkOutLabel || "");
   sheet.getRange(rowNumber, 10).setValue(payload.durationMinutes || "");
-  sheet.getRange(rowNumber, 11).setValue(payload.billedAmount || "");
+  sheet.getRange(rowNumber, 11).setValue(payload.sittingAmount ?? payload.billedAmount ?? "");
+  sheet.getRange(rowNumber, 12).setValue(payload.foodAmount || "");
+  sheet.getRange(rowNumber, 13).setValue(payload.grandTotal ?? payload.billedAmount ?? "");
+  sheet.getRange(rowNumber, 14).setValue(payload.paymentMethod || "");
 
   return { ok: true };
 }
