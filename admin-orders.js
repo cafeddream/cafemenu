@@ -123,6 +123,8 @@ function startAdminApp() {
   subscribeToTables();
   subscribeToSummary();
   preloadMenu();
+  window.addEventListener("hashchange", syncDetailFromHash);
+  syncDetailFromHash();
 }
 
 function bindUi() {
@@ -272,30 +274,79 @@ function formatTableDisplayName(tableId) {
   return raw.replace(/\s+/g, "");
 }
 
+function tableIdFromDisplayName(displayName) {
+  const key = String(displayName || "").trim();
+  return CONFIG.TABLES.find((id) => formatTableDisplayName(id) === key) || null;
+}
+
+function tableHashForTableId(tableId) {
+  return `#/sitting/${encodeURIComponent(formatTableDisplayName(tableId))}`;
+}
+
+function setTableDetailHash(tableId) {
+  const hash = tableHashForTableId(tableId);
+  if (location.hash !== hash) {
+    history.replaceState(null, "", hash);
+  }
+}
+
+function clearTableDetailHash() {
+  if (/^#\/sitting\//i.test(location.hash)) {
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+  }
+}
+
+function syncDetailFromHash() {
+  const match = location.hash.match(/^#\/sitting\/([^/]+)$/i);
+  if (!match) {
+    if (state.detailTableId) {
+      state.detailTableId = null;
+      renderTables();
+    }
+    return;
+  }
+  const tableId = tableIdFromDisplayName(decodeURIComponent(match[1]));
+  if (tableId && state.detailTableId === tableId) return;
+  if (tableId) {
+    openTableDetail(tableId, { skipHash: true });
+  }
+}
+
+function openTableDetail(tableId, opts = {}) {
+  const section = getSectionForTable(tableId);
+  if (section) state.activeSectionId = section.id;
+  state.detailTableId = tableId;
+  window.dispatchEvent(new CustomEvent("manager-set-tab", { detail: { tab: "orders" } }));
+  if (!opts.skipHash) setTableDetailHash(tableId);
+  renderTables();
+}
+
 function getTableItemCount(orders = []) {
   return orders.reduce((sum, order) => (
     sum + (order.items || []).reduce((itemSum, item) => itemSum + Number(item.qty || 0), 0)
   ), 0);
 }
 
+function getRunningOrderCount(orders = []) {
+  return orders.filter((order) => {
+    const status = order.status || "new";
+    return status === "new" || status === "preparing" || hasPendingItems(order);
+  }).length;
+}
+
 function renderTables(flashTableId = null) {
   if (!elements.tableGrid) return;
 
   if (state.detailTableId) {
-    const detailOrders = getOrdersForTable(state.detailTableId);
-    if (!detailOrders.length) {
-      state.detailTableId = null;
-    } else {
-      elements.tableGrid.hidden = true;
-      if (elements.tableDetail) {
-        elements.tableDetail.hidden = false;
-        renderTableDetail(state.detailTableId);
-      }
-      if (elements.activeTables) {
-        elements.activeTables.textContent = String(state.knownActive.size);
-      }
-      return;
+    elements.tableGrid.hidden = true;
+    if (elements.tableDetail) {
+      elements.tableDetail.hidden = false;
+      renderTableDetail(state.detailTableId);
     }
+    if (elements.activeTables) {
+      elements.activeTables.textContent = String(state.knownActive.size);
+    }
+    return;
   }
 
   elements.tableGrid.hidden = false;
@@ -362,6 +413,7 @@ function bindSectionActions() {
     button.addEventListener("click", () => {
       state.activeSectionId = button.dataset.section;
       state.detailTableId = null;
+      clearTableDetailHash();
       acknowledgeSectionNotice(state.activeSectionId);
       renderTables();
     });
@@ -439,7 +491,10 @@ function mobileOrderCardHtml(order) {
   return `
     <article class="ps-order-card status-${escapeHtml(status)}" data-order="${escapeHtml(order.orderId || order.id)}">
       <div class="ps-order-card-head">
-        <span class="ps-order-card-id">Order #${escapeHtml(String(order.orderId || order.id).slice(0, 4))}</span>
+        <div class="ps-order-card-meta">
+          <span class="ps-order-card-id">Order #${escapeHtml(String(order.orderId || order.id).slice(0, 4))}</span>
+          <span class="ps-order-card-time">${formatTime(order.timestamp)}</span>
+        </div>
         <span class="ps-order-status-badge ${statusClass}">${escapeHtml(statusLabel)}</span>
       </div>
       ${customerLine}
@@ -462,6 +517,7 @@ function mobileOrderCardHtml(order) {
 
 function closeTableDetail() {
   state.detailTableId = null;
+  clearTableDetailHash();
   renderTables();
 }
 
@@ -469,37 +525,55 @@ function renderTableDetail(tableId) {
   if (!elements.tableDetail) return;
   const orders = getOrdersForTable(tableId);
   const displayName = formatTableDisplayName(tableId);
-  const clearEnabled = orders.every((order) => !hasPendingItems(order));
-  const itemCount = getTableItemCount(orders);
+  const isEmpty = !orders.length;
+  const clearEnabled = orders.length > 0 && orders.every((order) => !hasPendingItems(order));
+  const runningCount = getRunningOrderCount(orders);
   const tableTotal = getTableOrdersTotal(orders);
+  const statusBadgeClass = isEmpty ? "table-status-empty" : "table-status-active";
+  const statusLabel = isEmpty ? "Empty" : "Active";
+  const heroClass = isEmpty ? "ps-table-hero ps-table-hero-empty" : "ps-table-hero";
+  const heroStatusClass = isEmpty ? "ps-hero-status-empty" : "ps-hero-status-active";
 
   elements.tableDetail.innerHTML = `
     <header class="ps-table-detail-header">
       <button class="ps-table-back-btn" type="button" aria-label="Back to tables">${BACK_ICON}</button>
       <h2 class="ps-table-detail-title">${escapeHtml(displayName)}</h2>
-      <span class="table-status-badge table-status-active">Active</span>
+      <span class="table-status-badge ${statusBadgeClass}">${statusLabel}</span>
     </header>
     <div class="ps-table-detail-body">
-      <div class="ps-table-hero">
+      <div class="${heroClass}">
         <span class="ps-table-hero-icon">${PEOPLE_ICON}</span>
         <div class="ps-table-hero-text">
           <strong>${escapeHtml(displayName)}</strong>
-          <span>Active</span>
+          <span class="${heroStatusClass}">${statusLabel}</span>
         </div>
       </div>
       <button class="ps-add-order-btn primary-btn" type="button" data-table="${escapeHtml(tableId)}">+ Add New Order</button>
       <h3 class="ps-current-orders-title">Current Orders</h3>
       <div class="ps-order-list">
-        ${orders.length ? orders.map(mobileOrderCardHtml).join("") : "<p class=\"subtle ps-order-empty\">No orders yet.</p>"}
+        ${orders.length ? orders.map(mobileOrderCardHtml).join("") : "<p class=\"subtle ps-order-empty\">No orders yet. Tap Add New Order to start.</p>"}
       </div>
       <div class="ps-order-summary">
-        <div class="ps-order-summary-row"><span>Total Orders</span><strong>${orders.length}</strong></div>
-        <div class="ps-order-summary-row"><span>Total Items</span><strong>${itemCount}</strong></div>
-        <div class="ps-order-summary-row ps-order-summary-total-row"><span>Total Amount</span><strong class="ps-summary-total">${formatCurrency(tableTotal)}</strong></div>
+        <div class="ps-order-summary-grid">
+          <article class="ps-summary-stat">
+            <span>Total Orders</span>
+            <strong>${orders.length}</strong>
+          </article>
+          <article class="ps-summary-stat">
+            <span>Running Orders</span>
+            <strong>${runningCount}</strong>
+          </article>
+          <article class="ps-summary-stat ps-summary-stat-total">
+            <span>Total Bill Amount</span>
+            <strong class="ps-summary-total">${formatCurrency(tableTotal)}</strong>
+          </article>
+        </div>
       </div>
+      ${orders.length ? `
       <footer class="ps-table-detail-footer">
         <button class="danger-btn table-clear-btn" type="button" data-table="${escapeHtml(tableId)}" data-action="clear" ${clearEnabled ? "" : "disabled"} title="${clearEnabled ? "Clear this table" : "Serve all items before clearing"}">Clear Table</button>
       </footer>
+      ` : ""}
     </div>
   `;
   bindDetailActions();
@@ -511,16 +585,8 @@ function bindGridCardActions() {
       const card = button.closest(".table-card");
       const tableId = card?.dataset.table;
       if (!tableId) return;
-
-      if (card.classList.contains("table-card-empty")) {
-        acknowledgeTableNotice(tableId);
-        openAdminOrderModal(tableId);
-        return;
-      }
-
       acknowledgeTableNotice(tableId);
-      state.detailTableId = tableId;
-      renderTables();
+      openTableDetail(tableId);
     });
   });
 }

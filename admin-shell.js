@@ -103,7 +103,8 @@ function startManagerApp() {
     elements.restaurant.textContent = CONFIG.RESTAURANT_NAME;
   }
   bindShellUi();
-  setActiveTab("orders");
+  const sittingRoute = /^#\/sitting\/[^/]+$/i.test(location.hash);
+  setActiveTab(sittingRoute ? "orders" : "orders");
   initPrivateSitting();
   initAdminOrders();
   hideSplash();

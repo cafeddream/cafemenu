@@ -1,4 +1,4 @@
-const CACHE_NAME = "cafe-d-dream-v32";
+const CACHE_NAME = "cafe-d-dream-v33";
 const APP_SHELL = [
   "./",
   "./index.html",
