@@ -95,29 +95,32 @@
 
 .ps-drawer-nav {
   display: grid;
-  gap: 8px;
-  padding: 16px;
+  gap: 0;
+  padding: 8px 0;
 }
 
-.ps-drawer-link {
-  display: flex;
-  align-items: center;
-  min-height: 48px;
-  padding: 12px 14px;
-  border: 1px solid var(--ps-line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
+.ps-drawer-item {
+  display: block;
+  width: 100%;
+  padding: 16px 20px;
+  border: 0;
+  background: transparent;
   color: var(--ps-text);
   font: inherit;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: 17px;
+  font-weight: 600;
+  text-align: left;
   text-decoration: none;
   cursor: pointer;
 }
 
-.ps-drawer-link.danger-link {
+.ps-drawer-item:hover,
+.ps-drawer-item:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ps-drawer-item-logout {
   color: #ff8f8f;
-  border-color: rgba(255, 120, 120, 0.25);
 }
 
 .ps-manager-main {
@@ -135,7 +138,7 @@ body[data-active-tab="orders"] .ps-manager-main {
   bottom: 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 4px;
   padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
   background: rgba(10, 12, 17, 0.98);

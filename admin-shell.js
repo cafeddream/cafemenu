@@ -10,7 +10,7 @@ const elements = {
   drawer: document.querySelector("#managerDrawer"),
   drawerBackdrop: document.querySelector("#managerDrawerBackdrop"),
   closeDrawer: document.querySelector("#closeManagerDrawer"),
-  drawerReportsBtn: document.querySelector("#drawerReportsBtn"),
+  drawerSettingsBtn: document.querySelector("#drawerSettingsBtn"),
   views: document.querySelectorAll("[data-ps-view]"),
   navButtons: document.querySelectorAll("[data-ps-tab]"),
   splash: document.querySelector("#psSplash")
@@ -29,7 +29,7 @@ function setActiveTab(tabId) {
   document.body.dataset.activeTab = tabId;
   closeManagerDrawer();
 
-  if (tabId === "dashboard" || tabId === "sittings" || tabId === "reports") {
+  if (tabId === "dashboard" || tabId === "sittings" || tabId === "reports" || tabId === "settings") {
     refreshPrivateSittingView();
   }
 }
@@ -63,7 +63,7 @@ function bindShellUi() {
   elements.menuBtn?.addEventListener("click", openManagerDrawer);
   elements.closeDrawer?.addEventListener("click", closeManagerDrawer);
   elements.drawerBackdrop?.addEventListener("click", closeManagerDrawer);
-  elements.drawerReportsBtn?.addEventListener("click", () => setActiveTab("reports"));
+  elements.drawerSettingsBtn?.addEventListener("click", () => setActiveTab("settings"));
 
   elements.signOutBtn?.addEventListener("click", async () => {
     const { signOutStaff } = await import("./staff-auth.js");
