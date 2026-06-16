@@ -34,7 +34,7 @@ import {
 
 const state = {
   orders: new Map(),
-  knownOccupied: new Set(),
+  knownActive: new Set(),
   activeSectionId: CONFIG.ORDER_SECTIONS[0]?.id || "",
   previousOrderIds: new Set(),
   previousPendingItemKeys: new Set(),
@@ -55,7 +55,7 @@ const state = {
   menuLoaded: false,
   lastReport: null,
   menuSearchQuery: "",
-  expandedTableId: null,
+  detailTableId: null,
   orderModalOptions: { deferPayment: false, sessionId: null }
 };
 
@@ -67,6 +67,7 @@ const elements = {
   activeTables: document.querySelector("#activeTables"),
   todayCollection: document.querySelector("#todayCollection"),
   tableGrid: document.querySelector("#psOrdersGrid"),
+  tableDetail: document.querySelector("#psTableDetail"),
   menuButton: document.querySelector("#menuButton"),
   signOutBtn: document.querySelector("#signOutBtn"),
   adminMenuModal: document.querySelector("#adminMenuModal"),
@@ -203,12 +204,12 @@ function subscribeToTables() {
     const previousPendingItemKeys = new Set(state.previousPendingItemKeys);
     const notifications = [];
     state.orders.clear();
-    state.knownOccupied.clear();
+    state.knownActive.clear();
     state.previousPendingItemKeys.clear();
     orders.forEach((order) => {
       const orderId = order.orderId || order.id;
       state.orders.set(orderId, { ...order, orderId });
-      state.knownOccupied.add(order.tableId);
+      state.knownActive.add(order.tableId);
       getPendingItemKeys({ ...order, orderId }).forEach((key) => state.previousPendingItemKeys.add(key));
     });
     state.previousOrderIds = new Set(state.orders.keys());
@@ -243,13 +244,32 @@ const SECTION_TAB_THEMES = {
   "hotel": "admin-tab-gold"
 };
 
+const SECTION_TAB_ICONS = {
+  "party-hall": "<svg class=\"admin-tab-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M5 3v18l7-3 7 3V3H5zm2 2h10v11.5l-5-2.1-5 2.1V5z\"/></svg>",
+  "tatoo-studio": "<svg class=\"admin-tab-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z\"/></svg>",
+  "hotel": "<svg class=\"admin-tab-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M4 10V19H9V13H15V19H20V10L12 4L4 10Z\"/></svg>"
+};
+
+const PEOPLE_ICON = "<svg class=\"table-people-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S7.66 5 6 5C4.34 5 3 6.34 3 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-4.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-4.5c0-2.33-4.67-3.5-7-3.5z\"/></svg>";
+
+const BACK_ICON = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z\"/></svg>";
+
 function getSectionTabTheme(sectionId) {
   return SECTION_TAB_THEMES[sectionId] || "admin-tab-teal";
 }
 
-function getTableFaceNumber(tableId) {
-  const parts = String(tableId || "").trim().split(/\s+/);
-  return parts[parts.length - 1] || tableId;
+function getSectionTabIcon(sectionId) {
+  return SECTION_TAB_ICONS[sectionId] || "";
+}
+
+function formatTableDisplayName(tableId) {
+  const raw = String(tableId || "").trim();
+  if (!raw.includes(" ")) return raw;
+  const parts = raw.split(/\s+/);
+  if (parts.length === 2 && /^\d+$/.test(parts[1])) {
+    return `${parts[0]}${parts[1]}`;
+  }
+  return raw.replace(/\s+/g, "");
 }
 
 function getTableItemCount(orders = []) {
@@ -258,17 +278,29 @@ function getTableItemCount(orders = []) {
   ), 0);
 }
 
-function getLatestOrderTime(orders = []) {
-  const latest = orders[orders.length - 1];
-  if (!latest?.timestamp?.toDate) return "";
-  return latest.timestamp.toDate().toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
 function renderTables(flashTableId = null) {
   if (!elements.tableGrid) return;
+
+  if (state.detailTableId) {
+    const detailOrders = getOrdersForTable(state.detailTableId);
+    if (!detailOrders.length) {
+      state.detailTableId = null;
+    } else {
+      elements.tableGrid.hidden = true;
+      if (elements.tableDetail) {
+        elements.tableDetail.hidden = false;
+        renderTableDetail(state.detailTableId);
+      }
+      if (elements.activeTables) {
+        elements.activeTables.textContent = String(state.knownActive.size);
+      }
+      return;
+    }
+  }
+
+  elements.tableGrid.hidden = false;
+  if (elements.tableDetail) elements.tableDetail.hidden = true;
+
   const activeSection = getActiveSection();
   elements.tableGrid.className = "admin-dashboard admin-dashboard-pos";
   elements.tableGrid.innerHTML = `
@@ -288,10 +320,10 @@ function renderTables(flashTableId = null) {
   `;
 
   if (elements.activeTables) {
-    elements.activeTables.textContent = String(state.knownOccupied.size);
+    elements.activeTables.textContent = String(state.knownActive.size);
   }
   bindSectionActions();
-  bindCardActions();
+  bindGridCardActions();
 }
 
 function getActiveSection() {
@@ -315,8 +347,10 @@ function sectionButtonHtml(section) {
   const isActive = section.id === state.activeSectionId;
   const isFlashing = state.highlightedSections.has(section.id);
   const theme = getSectionTabTheme(section.id);
+  const icon = getSectionTabIcon(section.id);
   return `
     <button class="admin-top-tab ${theme} ${isActive ? "active" : ""} ${isFlashing ? "flash" : ""}" type="button" data-section="${escapeHtml(section.id)}">
+      ${icon}
       <span>${escapeHtml(section.name)}</span>
       ${alertCount ? `<strong>${alertCount}</strong>` : ""}
     </button>
@@ -327,7 +361,7 @@ function bindSectionActions() {
   elements.tableGrid.querySelectorAll("[data-section]").forEach((button) => {
     button.addEventListener("click", () => {
       state.activeSectionId = button.dataset.section;
-      state.expandedTableId = null;
+      state.detailTableId = null;
       acknowledgeSectionNotice(state.activeSectionId);
       renderTables();
     });
@@ -349,83 +383,72 @@ function getTableOrdersTotal(orders = []) {
 }
 
 function tableCardHtml(tableId, orders, flash = false) {
-  const isExpanded = state.expandedTableId === tableId;
-  const activeClass = isExpanded ? "table-card-active" : "";
-  const faceNumber = getTableFaceNumber(tableId);
+  const displayName = formatTableDisplayName(tableId);
 
   if (!orders.length) {
     return `
-      <article class="table-card table-card-orderable table-card-pos table-card-empty table-card-compact ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}">
-        <button class="table-card-toggle table-card-face" type="button" aria-label="Take order for ${escapeHtml(tableId)}">
-          <span class="table-face-corner table-face-tl">Empty</span>
-          <span class="table-face-number">${escapeHtml(faceNumber)}</span>
-          <span class="table-face-label">${escapeHtml(tableId)}</span>
+      <article class="table-card table-card-orderable table-card-mobile table-card-empty ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}">
+        <button class="table-card-toggle table-card-face" type="button" aria-label="Take order for ${escapeHtml(displayName)}">
+          <span class="table-status-badge table-status-empty">Empty</span>
+          <span class="table-display-name">${escapeHtml(displayName)}</span>
         </button>
       </article>
     `;
   }
 
-  const clearEnabled = orders.every((order) => !hasPendingItems(order));
-  const orderBlocks = orders.map(orderBlockHtml).join("");
-  const tableTotal = getTableOrdersTotal(orders);
-  const itemCount = getTableItemCount(orders);
-  const latestTime = getLatestOrderTime(orders);
-
   return `
-    <article class="table-card table-card-orderable table-card-pos table-card-occupied table-card-compact ${activeClass} ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}">
-      <button class="table-card-toggle table-card-face" type="button" aria-expanded="${isExpanded ? "true" : "false"}" aria-label="View orders for ${escapeHtml(tableId)}">
-        <span class="table-face-corner table-face-tl">${orders.length} ord</span>
-        <span class="table-face-number">${escapeHtml(faceNumber)}</span>
-        <span class="table-face-corner table-face-tr">${itemCount}</span>
-        <span class="table-face-corner table-face-bl">${escapeHtml(latestTime)}</span>
-        <span class="table-face-corner table-face-br">${formatCurrency(tableTotal)}</span>
-        <span class="table-face-label">${escapeHtml(tableId)}</span>
+    <article class="table-card table-card-orderable table-card-mobile table-card-has-orders ${flash ? "flash" : ""}" data-table="${escapeHtml(tableId)}">
+      <button class="table-card-toggle table-card-face" type="button" aria-label="View orders for ${escapeHtml(displayName)}">
+        <span class="table-status-badge table-status-active">Active</span>
+        ${PEOPLE_ICON}
+        <span class="table-display-name">${escapeHtml(displayName)}</span>
       </button>
-      <div class="table-card-details" ${isExpanded ? "" : "hidden"}>
-        <div class="table-order-group">${orderBlocks}</div>
-        <footer class="table-card-footer">
-          <button class="secondary-btn table-add-order-btn" type="button" data-table="${escapeHtml(tableId)}">Add Items</button>
-          <div class="card-actions table-clear-actions" data-table="${escapeHtml(tableId)}">
-            <button class="table-clear-btn danger-btn" type="button" data-action="clear" ${clearEnabled ? "" : "disabled"} title="${clearEnabled ? "Clear this table" : "Serve all items before clearing"}">Clear Table</button>
-          </div>
-        </footer>
-      </div>
     </article>
   `;
 }
 
-function orderBlockHtml(order) {
+function getOrderStatusLabel(order) {
+  const status = order.status || "new";
+  const paymentVerified = order.paymentStatus === "verified_paid";
+  if (paymentVerified && status === "served") return "Served";
+  if (paymentVerified) return "Payment Verified";
+  return STATUS_LABELS[status] || status;
+}
+
+function mobileOrderCardHtml(order) {
   const status = order.status || "new";
   const paymentClaimed = order.paymentStatus === "customer_claimed_paid";
   const cashRequested = order.paymentStatus === "cash_at_counter";
   const paymentVerified = order.paymentStatus === "verified_paid";
+  const statusLabel = getOrderStatusLabel(order);
+  const statusClass = status === "served" || (paymentVerified && status === "served")
+    ? "ps-order-status-served"
+    : status === "preparing"
+      ? "ps-order-status-preparing"
+      : "ps-order-status-new";
   const customerLine = order.customerName || order.customerMobileNormalized
-    ? `<div class="customer-id-line">${escapeHtml(order.customerName || "Customer")} ${order.customerMobileNormalized ? `<span>${escapeHtml(maskMobile(order.customerMobileNormalized))}</span>` : ""}</div>`
+    ? `<div class="ps-order-customer">${escapeHtml(order.customerName || "Customer")} ${order.customerMobileNormalized ? `<span>${escapeHtml(maskMobile(order.customerMobileNormalized))}</span>` : ""}</div>`
     : "";
-  const sourceBadge = order.placedBy === "counter"
-    ? "<span class=\"badge source-badge\">Counter</span>"
-    : "";
-  const lines = renderAdminFullItemsHtml(order.items || []);
+  const itemLines = (order.items || []).map((item) => `
+    <li class="ps-order-line">
+      <span>${Number(item.qty || 0)}x ${escapeHtml(item.name)}</span>
+      <strong>${formatCurrency(Number(item.price || 0) * Number(item.qty || 0))}</strong>
+    </li>
+  `).join("");
 
-  const statusLabel = paymentVerified && status === "served"
-    ? "Served"
-    : paymentVerified
-      ? "Payment Verified"
-      : STATUS_LABELS[status] || status;
   return `
-    <section class="admin-order-block status-${escapeHtml(status)}" data-order="${escapeHtml(order.orderId || order.id)}">
-      <div class="admin-order-head">
-        <span class="admin-order-id">${escapeHtml(String(order.orderId || order.id).slice(0, 8))}</span>
-        <span class="badge">${escapeHtml(statusLabel)}</span>
-        ${sourceBadge}
+    <article class="ps-order-card status-${escapeHtml(status)}" data-order="${escapeHtml(order.orderId || order.id)}">
+      <div class="ps-order-card-head">
+        <span class="ps-order-card-id">Order #${escapeHtml(String(order.orderId || order.id).slice(0, 4))}</span>
+        <span class="ps-order-status-badge ${statusClass}">${escapeHtml(statusLabel)}</span>
       </div>
       ${customerLine}
       ${paymentClaimed ? "<div class=\"payment-alert\">Customer says payment done - verify UPI</div>" : ""}
       ${cashRequested ? "<div class=\"payment-alert cash-alert\">Customer will pay cash at counter</div>" : ""}
-      <ul class="order-lines order-lines-full" data-item-detail role="button" tabindex="0" aria-label="View all items for ${escapeHtml(order.orderId || order.id)}">${lines}</ul>
-      <div class="card-meta">
-        <strong>${formatCurrency(order.total)}</strong>
+      <ul class="ps-order-lines">${itemLines || "<li class=\"ps-order-line\"><span>No items</span></li>"}</ul>
+      <div class="ps-order-card-foot">
         <span>${formatTime(order.timestamp)}</span>
+        <strong>${formatCurrency(order.total)}</strong>
       </div>
       <div class="card-actions" data-table="${escapeHtml(order.tableId)}" data-order="${escapeHtml(order.orderId || order.id)}" data-status="${escapeHtml(status)}">
         ${paymentClaimed ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"reject-pay\">Reject Payment Claim</button>" : ""}
@@ -433,11 +456,56 @@ function orderBlockHtml(order) {
         ${status !== "paid" && !paymentVerified ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Confirm Payment</button>" : ""}
         <button class="ghost-btn" type="button" data-action="print">Print Bill</button>
       </div>
-    </section>
+    </article>
   `;
 }
 
-function bindCardActions() {
+function closeTableDetail() {
+  state.detailTableId = null;
+  renderTables();
+}
+
+function renderTableDetail(tableId) {
+  if (!elements.tableDetail) return;
+  const orders = getOrdersForTable(tableId);
+  const displayName = formatTableDisplayName(tableId);
+  const clearEnabled = orders.every((order) => !hasPendingItems(order));
+  const itemCount = getTableItemCount(orders);
+  const tableTotal = getTableOrdersTotal(orders);
+
+  elements.tableDetail.innerHTML = `
+    <header class="ps-table-detail-header">
+      <button class="ps-table-back-btn" type="button" aria-label="Back to tables">${BACK_ICON}</button>
+      <h2 class="ps-table-detail-title">${escapeHtml(displayName)}</h2>
+      <span class="table-status-badge table-status-active">Active</span>
+    </header>
+    <div class="ps-table-detail-body">
+      <div class="ps-table-hero">
+        <span class="ps-table-hero-icon">${PEOPLE_ICON}</span>
+        <div class="ps-table-hero-text">
+          <strong>${escapeHtml(displayName)}</strong>
+          <span>Active</span>
+        </div>
+      </div>
+      <button class="ps-add-order-btn primary-btn" type="button" data-table="${escapeHtml(tableId)}">+ Add New Order</button>
+      <h3 class="ps-current-orders-title">Current Orders</h3>
+      <div class="ps-order-list">
+        ${orders.length ? orders.map(mobileOrderCardHtml).join("") : "<p class=\"subtle ps-order-empty\">No orders yet.</p>"}
+      </div>
+      <div class="ps-order-summary">
+        <div class="ps-order-summary-row"><span>Total Orders</span><strong>${orders.length}</strong></div>
+        <div class="ps-order-summary-row"><span>Total Items</span><strong>${itemCount}</strong></div>
+        <div class="ps-order-summary-row ps-order-summary-total-row"><span>Total Amount</span><strong class="ps-summary-total">${formatCurrency(tableTotal)}</strong></div>
+      </div>
+      <footer class="ps-table-detail-footer">
+        <button class="danger-btn table-clear-btn" type="button" data-table="${escapeHtml(tableId)}" data-action="clear" ${clearEnabled ? "" : "disabled"} title="${clearEnabled ? "Clear this table" : "Serve all items before clearing"}">Clear Table</button>
+      </footer>
+    </div>
+  `;
+  bindDetailActions();
+}
+
+function bindGridCardActions() {
   elements.tableGrid.querySelectorAll(".table-card-toggle").forEach((button) => {
     button.addEventListener("click", () => {
       const card = button.closest(".table-card");
@@ -451,72 +519,87 @@ function bindCardActions() {
       }
 
       acknowledgeTableNotice(tableId);
-      state.expandedTableId = state.expandedTableId === tableId ? null : tableId;
+      state.detailTableId = tableId;
       renderTables();
     });
   });
+}
 
-  elements.tableGrid.querySelectorAll(".table-add-order-btn").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      openAdminOrderModal(button.dataset.table);
-    });
+function bindDetailActions() {
+  if (!elements.tableDetail) return;
+
+  elements.tableDetail.querySelector(".ps-table-back-btn")?.addEventListener("click", closeTableDetail);
+  elements.tableDetail.querySelector(".ps-add-order-btn")?.addEventListener("click", (event) => {
+    openAdminOrderModal(event.currentTarget.dataset.table);
   });
 
-  elements.tableGrid.querySelectorAll(".table-card-footer, .card-actions").forEach((actions) => {
+  elements.tableDetail.querySelector(".table-clear-btn")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const tableId = button.dataset.table;
+    button.disabled = true;
+    try {
+      await clearTable(tableId);
+    } catch {
+      showToast("Connection error, please refresh");
+      button.disabled = false;
+    }
+  });
+
+  bindOrderActionButtons(elements.tableDetail);
+}
+
+async function handleOrderAction(button) {
+  const tableId = button.closest(".card-actions").dataset.table;
+  const orderId = button.closest(".card-actions").dataset.order;
+  const action = button.dataset.action;
+  button.disabled = true;
+
+  try {
+    if (action === "preparing") await updateActiveOrderStatus(orderId, "preparing");
+    if (action === "reject-pay") await rejectActivePaymentClaim(orderId);
+    if (action === "cancel") {
+      const currentOrder = state.orders.get(orderId);
+      if (currentOrder?.status === "served" || currentOrder?.status === "paid") {
+        showToast("Served orders cannot be cancelled.");
+        button.disabled = false;
+        return;
+      }
+
+      const displayName = formatTableDisplayName(tableId);
+      if (window.confirm(`Cancel order ${String(orderId).slice(0, 8)} for ${displayName}?`)) {
+        const cancelled = await cancelActiveOrder(orderId);
+        if (!cancelled) {
+          showToast("Served orders cannot be cancelled.");
+          button.disabled = false;
+        }
+      } else {
+        button.disabled = false;
+      }
+      return;
+    }
+    if (action === "paid") {
+      openPaymentMethodModal(tableId, { orderId });
+      button.disabled = false;
+      return;
+    }
+    if (action === "clear") await clearTable(tableId);
+    if (action === "print") printTableBill(tableId, orderId);
+  } catch {
+    showToast("Connection error, please refresh");
+    button.disabled = false;
+  }
+}
+
+function bindOrderActionButtons(root) {
+  root.querySelectorAll(".card-actions").forEach((actions) => {
     actions.addEventListener("click", (event) => event.stopPropagation());
   });
 
-  elements.tableGrid.querySelectorAll(".card-actions [data-action]").forEach((button) => {
+  root.querySelectorAll(".card-actions [data-action]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       event.stopPropagation();
-      const tableId = button.closest(".card-actions").dataset.table;
-      const orderId = button.closest(".card-actions").dataset.order;
-      const action = button.dataset.action;
-      button.disabled = true;
-
-      try {
-        if (action === "preparing") await updateActiveOrderStatus(orderId, "preparing");
-        if (action === "reject-pay") await rejectActivePaymentClaim(orderId);
-        if (action === "cancel") {
-          const currentOrder = state.orders.get(orderId);
-          if (currentOrder?.status === "served" || currentOrder?.status === "paid") {
-            showToast("Served orders cannot be cancelled.");
-            button.disabled = false;
-            return;
-          }
-
-          if (window.confirm(`Cancel order ${String(orderId).slice(0, 8)} for ${tableId}?`)) {
-            const cancelled = await cancelActiveOrder(orderId);
-            if (!cancelled) {
-              showToast("Served orders cannot be cancelled.");
-              button.disabled = false;
-            }
-          } else {
-            button.disabled = false;
-          }
-          return;
-        }
-        if (action === "paid") {
-          openPaymentMethodModal(tableId, { orderId });
-          button.disabled = false;
-          return;
-        }
-        if (action === "clear") await clearTable(tableId);
-        if (action === "print") printTableBill(tableId, orderId);
-      } catch {
-        showToast("Connection error, please refresh");
-        button.disabled = false;
-      }
+      await handleOrderAction(button);
     });
-  });
-
-  elements.tableGrid.querySelectorAll(".order-lines[data-item-detail]").forEach((itemArea) => {
-    const orderBlock = itemArea.closest(".admin-order-block");
-    itemArea.addEventListener("mouseenter", () => showAdminHoverPreview(orderBlock));
-    itemArea.addEventListener("focus", () => showAdminHoverPreview(orderBlock));
-    itemArea.addEventListener("mouseleave", hideAdminHoverPreview);
-    itemArea.addEventListener("blur", hideAdminHoverPreview);
   });
 }
 
@@ -629,7 +712,7 @@ function printTableBill(tableId, orderId) {
 function populateSalesTableSelect() {
   const orderTables = CONFIG.ORDER_SECTIONS.flatMap((section) => section.tables);
   elements.salesTableSelect.innerHTML = orderTables.map((tableId) => `
-    <option value="${escapeHtml(tableId)}">${escapeHtml(tableId)}</option>
+    <option value="${escapeHtml(tableId)}">${escapeHtml(formatTableDisplayName(tableId))}</option>
   `).join("");
 }
 
@@ -656,7 +739,7 @@ function showReportPanel() {
 }
 
 async function loadSalesForTable(tableId) {
-  elements.historyTitle.textContent = `${tableId} Sales History`;
+  elements.historyTitle.textContent = `${formatTableDisplayName(tableId)} Sales History`;
   elements.historyList.innerHTML = "<p class=\"subtle\">Loading history...</p>";
 
   try {
@@ -755,7 +838,7 @@ function openPaymentMethodModal(tableId, options = {}) {
   state.pendingPaymentItems = options.items ? cloneOrderItems(options.items) : null;
   state.pendingPaymentIsCounterOrder = Boolean(options.isCounterOrder);
   elements.paymentMethodTable.innerHTML = `
-    <span>Mark ${escapeHtml(tableId)} paid by:</span>
+    <span>Mark ${escapeHtml(formatTableDisplayName(tableId))} paid by:</span>
     <strong>Amount: ${formatCurrency(amount)}</strong>
   `;
   elements.paymentMethodModal.hidden = false;
@@ -781,7 +864,7 @@ async function confirmPaidWithMethod(method) {
   try {
     if (pendingItems?.length) {
       await placeCounterOrderWithPayment(tableId, pendingItems, method);
-      showToast(`Order placed for ${tableId}`);
+      showToast(`Order placed for ${formatTableDisplayName(tableId)}`);
     } else {
       await verifyOrderPayment(orderId, method);
     }
@@ -821,11 +904,12 @@ export async function openAdminOrderModal(tableId, options = {}) {
   state.cart.clear();
   state.menuSearchQuery = "";
   if (elements.adminMenuSearch) elements.adminMenuSearch.value = "";
+  const displayName = formatTableDisplayName(tableId);
   const hasOrder = getOrdersForTable(tableId).length > 0;
   if (elements.adminOrderTitle) {
     elements.adminOrderTitle.textContent = state.orderModalOptions.deferPayment
-      ? `Order Food — ${tableId}`
-      : (hasOrder ? `Add Items — ${tableId}` : `Take Order — ${tableId}`);
+      ? `Order Food — ${displayName}`
+      : (hasOrder ? `Add Items — ${displayName}` : `Take Order — ${displayName}`);
   }
   if (!elements.adminOrderModal) return;
   elements.adminOrderModal.classList.add("modal-front");
@@ -957,7 +1041,7 @@ async function placeAdminOrder() {
     if (deferPayment && sessionId) {
       await placePrivateSittingFoodOrder(tableId, sessionId, items);
       closeAdminOrderModal();
-      showToast(`Food order sent to kitchen for ${tableId}`);
+      showToast(`Food order sent to kitchen for ${formatTableDisplayName(tableId)}`);
       return;
     }
 
@@ -1025,7 +1109,7 @@ function notifyAdminOrder(order, isNewOrder = true) {
   try {
     const customer = order?.customerName || "Customer";
     showRichToast(isNewOrder ? "New Order" : "New Items Added", [
-      `Table: ${order?.tableId || "-"}`,
+      `Table: ${formatTableDisplayName(order?.tableId) || "-"}`,
       `Customer: ${customer}`,
       isNewOrder ? "Order Received" : "Items Added"
     ]);
