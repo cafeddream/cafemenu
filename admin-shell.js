@@ -7,9 +7,8 @@ const elements = {
   restaurant: document.querySelector("#adminRestaurant"),
   signOutBtn: document.querySelector("#signOutBtn"),
   menuBtn: document.querySelector("#managerMenuBtn"),
-  drawer: document.querySelector("#managerDrawer"),
-  drawerBackdrop: document.querySelector("#managerDrawerBackdrop"),
-  closeDrawer: document.querySelector("#closeManagerDrawer"),
+  menuDropdown: document.querySelector("#managerMenuDropdown"),
+  headerMenu: document.querySelector(".ps-header-menu"),
   drawerSettingsBtn: document.querySelector("#drawerSettingsBtn"),
   views: document.querySelectorAll("[data-ps-view]"),
   navButtons: document.querySelectorAll("[data-ps-tab]"),
@@ -17,6 +16,23 @@ const elements = {
 };
 
 let activeTab = "orders";
+
+export function closeManagerMenu() {
+  if (!elements.menuDropdown) return;
+  elements.menuDropdown.hidden = true;
+  elements.menuBtn?.setAttribute("aria-expanded", "false");
+}
+
+function isManagerMenuOpen() {
+  return elements.menuDropdown && !elements.menuDropdown.hidden;
+}
+
+function toggleManagerMenu() {
+  if (!elements.menuDropdown) return;
+  const open = isManagerMenuOpen();
+  elements.menuDropdown.hidden = open;
+  elements.menuBtn?.setAttribute("aria-expanded", open ? "false" : "true");
+}
 
 function setActiveTab(tabId) {
   activeTab = tabId;
@@ -27,27 +43,11 @@ function setActiveTab(tabId) {
     view.hidden = view.dataset.psView !== tabId;
   });
   document.body.dataset.activeTab = tabId;
-  closeManagerDrawer();
+  closeManagerMenu();
 
   if (tabId === "dashboard" || tabId === "sittings" || tabId === "reports" || tabId === "settings") {
     refreshPrivateSittingView();
   }
-}
-
-function openManagerDrawer() {
-  if (!elements.drawer) return;
-  elements.drawer.hidden = false;
-  elements.drawerBackdrop.hidden = false;
-  elements.menuBtn?.setAttribute("aria-expanded", "true");
-  document.body.classList.add("ps-drawer-open");
-}
-
-function closeManagerDrawer() {
-  if (!elements.drawer) return;
-  elements.drawer.hidden = true;
-  elements.drawerBackdrop.hidden = true;
-  elements.menuBtn?.setAttribute("aria-expanded", "false");
-  document.body.classList.remove("ps-drawer-open");
 }
 
 function bindShellUi() {
@@ -60,9 +60,29 @@ function bindShellUi() {
     if (tab) setActiveTab(tab);
   });
 
-  elements.menuBtn?.addEventListener("click", openManagerDrawer);
-  elements.closeDrawer?.addEventListener("click", closeManagerDrawer);
-  elements.drawerBackdrop?.addEventListener("click", closeManagerDrawer);
+  window.addEventListener("manager-menu-close", closeManagerMenu);
+
+  elements.menuBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleManagerMenu();
+  });
+
+  elements.menuDropdown?.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!isManagerMenuOpen()) return;
+    if (elements.headerMenu?.contains(event.target)) return;
+    closeManagerMenu();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isManagerMenuOpen()) {
+      closeManagerMenu();
+    }
+  });
+
   elements.drawerSettingsBtn?.addEventListener("click", () => setActiveTab("settings"));
 
   elements.signOutBtn?.addEventListener("click", async () => {

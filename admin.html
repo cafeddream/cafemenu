@@ -21,24 +21,18 @@
 
   <header class="ps-manager-header">
     <h1 class="brand-title" id="adminRestaurant">Cafe D Dream</h1>
-    <button class="ps-menu-btn" id="managerMenuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="managerDrawer">
-      <span></span><span></span><span></span>
-    </button>
-  </header>
-
-  <div class="ps-drawer-backdrop" id="managerDrawerBackdrop" hidden></div>
-  <aside class="ps-drawer" id="managerDrawer" hidden aria-label="Manager menu">
-    <div class="ps-drawer-head">
-      <strong>Cafe D Dream</strong>
-      <button class="ps-drawer-close" id="closeManagerDrawer" type="button">Close</button>
+    <div class="ps-header-menu">
+      <button class="ps-menu-btn" id="managerMenuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="managerMenuDropdown" aria-haspopup="true">
+        <span></span><span></span><span></span>
+      </button>
+      <nav class="ps-menu-dropdown" id="managerMenuDropdown" hidden aria-label="Manager menu">
+        <a class="ps-menu-dropdown-item" href="./kitchen.html">Kitchen View</a>
+        <button class="ps-menu-dropdown-item" id="menuButton" type="button">Sales and Reports</button>
+        <button class="ps-menu-dropdown-item" id="drawerSettingsBtn" type="button">Setting</button>
+        <button class="ps-menu-dropdown-item ps-menu-dropdown-logout" id="signOutBtn" type="button">Sign Out</button>
+      </nav>
     </div>
-    <nav class="ps-drawer-nav">
-      <a class="ps-drawer-item" href="./kitchen.html">Kitchen View</a>
-      <button class="ps-drawer-item" id="menuButton" type="button">Sales and Reports</button>
-      <button class="ps-drawer-item" id="drawerSettingsBtn" type="button">Setting</button>
-      <button class="ps-drawer-item ps-drawer-item-logout" id="signOutBtn" type="button">Logout</button>
-    </nav>
-  </aside>
+  </header>
 
   <main class="ps-manager-main">
     <section class="ps-view" id="psDashboard" data-ps-view="dashboard" hidden>

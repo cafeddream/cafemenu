@@ -634,8 +634,7 @@ function populateSalesTableSelect() {
 }
 
 function openAdminMenu() {
-  const drawerBackdrop = document.querySelector("#managerDrawerBackdrop");
-  if (drawerBackdrop && !drawerBackdrop.hidden) drawerBackdrop.click();
+  window.dispatchEvent(new CustomEvent("manager-menu-close"));
   elements.adminMenuModal.hidden = false;
   showSalesPanel();
   loadSalesForTable(elements.salesTableSelect.value || CONFIG.TABLES[0]);
