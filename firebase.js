@@ -53,6 +53,7 @@ export const CONFIG = {
   UPI_NAME: "RAMAN",
   RESTAURANT_NAME: "Cafe D Dream",
   KITCHEN_TIMER_MINUTES: 20,
+  AUTO_PRINT_RECEIPTS: true,
   RECEIPT_LOGO_SRC: "./assets/receipt-logo.png",
   APPS_SCRIPT_URL: "PASTE_DEPLOYED_WEB_APP_URL",
   PRIVATE_SITTINGS: [
@@ -1094,32 +1095,77 @@ export async function fetchReceipt(orderId) {
   return snapshot.exists() ? { id: orderId, ...snapshot.data() } : null;
 }
 
+export function formatTableDisplayName(tableId) {
+  const raw = String(tableId || "").trim();
+  if (!raw.includes(" ")) return raw;
+  const parts = raw.split(/\s+/);
+  if (parts.length === 2 && /^\d+$/.test(parts[1])) {
+    return `${parts[0]}${parts[1]}`;
+  }
+  return raw.replace(/\s+/g, "");
+}
+
+export function buildReceiptFromOrder(order, paymentMethod = "cash") {
+  const items = normalizeOrderItems(order?.items || []);
+  const total = Number(order?.total ?? calculateTotal(items));
+  const orderId = order?.orderId || order?.id || "";
+  const method = paymentMethod === "online" ? "online" : "cash";
+  return {
+    receiptNumber: order?.receiptNumber || createReceiptNumber(orderId),
+    orderId,
+    tableId: order?.tableId || "",
+    cafeName: CONFIG.RESTAURANT_NAME,
+    logoSrc: CONFIG.RECEIPT_LOGO_SRC,
+    items,
+    total,
+    subtotal: total,
+    tax: 0,
+    paymentMethod: method === "online" ? "Online" : "Cash",
+    paymentStatus: order?.paymentStatus === "verified_paid" ? "Verified" : "Pending",
+    generatedAt: new Date()
+  };
+}
+
 export function receiptToThermalHtml(receipt) {
   if (!receipt) return "";
   const generated = toDate(receipt.generatedAt) || new Date();
-  const rows = (receipt.items || []).map((item) => `
+  const tableLabel = formatTableDisplayName(receipt.tableId);
+  const orderShort = String(receipt.orderId || "").slice(0, 8).toUpperCase();
+  const subtotal = Number(receipt.subtotal ?? receipt.total ?? 0);
+  const tax = Number(receipt.tax || 0);
+  const grandTotal = Number(receipt.total ?? subtotal + tax);
+  const rows = (receipt.items || []).map((item) => {
+    const qty = Number(item.qty || 0);
+    const price = Number(item.price || 0);
+    const lineTotal = price * qty;
+    return `
     <tr>
-      <td>${escapeHtml(item.name)}</td>
-      <td>${Number(item.qty || 0)}</td>
-      <td>${formatCurrency(Number(item.price || 0) * Number(item.qty || 0))}</td>
+      <td class="receipt-item-name">${escapeHtml(item.name)}</td>
+      <td class="receipt-qty">${qty}</td>
+      <td class="receipt-price">${formatCurrency(price)}</td>
+      <td class="receipt-line-total">${formatCurrency(lineTotal)}</td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
   return `
     <section class="thermal-receipt">
       <img class="receipt-logo" src="${escapeHtml(receipt.logoSrc || CONFIG.RECEIPT_LOGO_SRC)}" alt="${escapeHtml(receipt.cafeName || CONFIG.RESTAURANT_NAME)} logo">
       <h1>${escapeHtml(receipt.cafeName || CONFIG.RESTAURANT_NAME)}</h1>
-      <p>Receipt: ${escapeHtml(receipt.receiptNumber)}</p>
-      <p>${escapeHtml(generated.toLocaleString())}</p>
-      <p>Table: ${escapeHtml(receipt.tableId)} | Order: ${escapeHtml(receipt.orderId)}</p>
+      <p class="receipt-meta">Order: ${escapeHtml(orderShort)}</p>
+      <p class="receipt-meta">Receipt: ${escapeHtml(receipt.receiptNumber || "")}</p>
+      <p class="receipt-meta">${escapeHtml(generated.toLocaleString())}</p>
+      <p class="receipt-meta">Cabin: ${escapeHtml(tableLabel)}</p>
       <hr>
-      <table>
-        <thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead>
+      <table class="receipt-items">
+        <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <hr>
-      <p class="receipt-total"><span>Total</span><strong>${formatCurrency(receipt.total)}</strong></p>
-      <p>Payment Method:<br>${escapeHtml(receipt.paymentMethod || "")}</p>
-      <p>Payment Status:<br>${escapeHtml(receipt.paymentStatus || "Verified")}</p>
+      <p class="receipt-total"><span>Subtotal</span><strong>${formatCurrency(subtotal)}</strong></p>
+      ${tax > 0 ? `<p class="receipt-total"><span>Tax</span><strong>${formatCurrency(tax)}</strong></p>` : ""}
+      <p class="receipt-total receipt-grand-total"><span>Grand Total</span><strong>${formatCurrency(grandTotal)}</strong></p>
+      <p class="receipt-meta">Payment: ${escapeHtml(receipt.paymentMethod || "")}</p>
+      <p class="receipt-meta">Status: ${escapeHtml(receipt.paymentStatus || "Verified")}</p>
       <hr>
       <p class="receipt-thanks">Thank You<br>Visit Again</p>
     </section>
@@ -1144,19 +1190,25 @@ export function buildReceiptDocumentHtml(receipt) {
   <meta charset="utf-8">
   <title>${escapeHtml(receipt?.receiptNumber || "Receipt")}</title>
   <style>
-    @page { size: 58mm auto; margin: 3mm; }
-    body { margin: 0; font-family: Arial, sans-serif; color: #000; background: #fff; }
-    .thermal-receipt { width: 52mm; margin: 0 auto; font-size: 11px; line-height: 1.25; }
+    @page { size: 58mm auto; margin: 0; }
+    html, body { margin: 0; padding: 0; width: 58mm; color: #000; background: #fff; }
+    body { font-family: "Courier New", Courier, monospace; font-size: 11px; line-height: 1.25; }
+    .thermal-receipt { width: 52mm; margin: 0 auto; padding: 2mm 0; }
     .receipt-logo { display: block; width: 28mm; max-height: 22mm; object-fit: contain; filter: grayscale(1) contrast(1.4); margin: 0 auto 4px; }
-    h1 { font-size: 15px; text-align: center; margin: 0 0 5px; }
-    p { margin: 3px 0; }
-    hr { border: 0; border-top: 1px dashed #000; margin: 6px 0; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 2px 0; text-align: left; vertical-align: top; }
-    th:nth-child(2), td:nth-child(2) { text-align: center; width: 9mm; }
-    th:nth-child(3), td:nth-child(3) { text-align: right; width: 15mm; }
-    .receipt-total { display: flex; justify-content: space-between; font-size: 13px; }
-    .receipt-thanks { text-align: center; font-weight: 700; }
+    h1 { font-size: 14px; text-align: center; margin: 0 0 4px; font-weight: 700; }
+    .receipt-meta { margin: 2px 0; font-size: 10px; }
+    hr { border: 0; border-top: 1px dashed #000; margin: 5px 0; }
+    .receipt-items { width: 100%; border-collapse: collapse; font-size: 10px; }
+    .receipt-items th, .receipt-items td { padding: 2px 0; vertical-align: top; }
+    .receipt-item-name { text-align: left; max-width: 24mm; word-break: break-word; }
+    .receipt-qty { text-align: center; width: 7mm; }
+    .receipt-price, .receipt-line-total { text-align: right; width: 12mm; }
+    .receipt-total { display: flex; justify-content: space-between; gap: 4px; font-size: 11px; margin: 2px 0; }
+    .receipt-grand-total { font-size: 12px; font-weight: 700; }
+    .receipt-thanks { text-align: center; font-weight: 700; margin-top: 4px; }
+    @media print {
+      html, body { margin: 0 !important; padding: 0 !important; }
+    }
   </style>
 </head>
 <body>${receiptToThermalHtml(receipt)}</body>

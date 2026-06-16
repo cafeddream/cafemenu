@@ -24,6 +24,11 @@ import {
   verifyOrderPayment
 } from "./firebase.js";
 import {
+  autoPrintAfterPayment,
+  printReceiptForOrderId,
+  printReceiptFromOrder
+} from "./thermal-print.js";
+import {
   buildMenuState,
   getCartTotals,
   renderCartList,
@@ -770,22 +775,18 @@ function hideAdminHoverPreview() {
 function printTableBill(tableId, orderId) {
   const order = state.orders.get(orderId);
   if (!order) return;
-  const lines = (order.items || []).map((item) => `
-    <tr><td>${escapeHtml(item.name)}</td><td>${item.qty}</td><td>${formatCurrency(item.price * item.qty)}</td></tr>
-  `).join("");
-  const html = `
-    <html><head><title>Bill ${tableId}</title></head><body>
-    <h2>${escapeHtml(CONFIG.RESTAURANT_NAME)} — ${escapeHtml(tableId)}</h2>
-    <p>Order: ${escapeHtml(order.orderId || orderId)}</p>
-    ${order.customerName || order.customerMobileNormalized ? `<p>Customer: ${escapeHtml(order.customerName || "Customer")} ${escapeHtml(maskMobile(order.customerMobileNormalized || order.customerMobile))}</p>` : ""}
-    <table border="1" cellpadding="8"><tr><th>Item</th><th>Qty</th><th>Amount</th></tr>${lines}</table>
-    <p><strong>Total: ${formatCurrency(order.total)}</strong></p>
-    </body></html>
-  `;
-  const win = window.open("", "_blank");
-  win.document.write(html);
-  win.document.close();
-  win.print();
+
+  try {
+    if (order.paymentStatus === "verified_paid" || order.receiptNumber) {
+      printReceiptForOrderId(order.orderId || orderId);
+      return;
+    }
+    const method = order.paymentMethod || order.preferredPaymentMethod || "cash";
+    printReceiptFromOrder(order, method);
+  } catch (error) {
+    console.warn("Print bill failed:", error);
+    showToast("Could not print receipt");
+  }
 }
 
 function populateSalesTableSelect() {
@@ -942,10 +943,12 @@ async function confirmPaidWithMethod(method) {
 
   try {
     if (pendingItems?.length) {
-      await placeCounterOrderWithPayment(tableId, pendingItems, method);
+      const orderSnap = await placeCounterOrderWithPayment(tableId, pendingItems, method);
       showToast(`Order placed for ${formatTableDisplayName(tableId)}`);
+      await autoPrintAfterPayment(orderSnap?.data()?.orderId || orderId, orderSnap, method);
     } else {
       await verifyOrderPayment(orderId, method);
+      await autoPrintAfterPayment(orderId, null, method);
     }
     closePaymentMethodModal();
   } catch {
