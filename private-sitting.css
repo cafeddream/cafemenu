@@ -747,10 +747,13 @@ body[data-active-tab="orders"] .ps-manager-main {
 
 .admin-top-tabs {
   display: flex;
-  gap: 0;
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 8px 10px;
   overflow-x: auto;
   scrollbar-width: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #0a0a0a;
 }
 
 .admin-top-tabs::-webkit-scrollbar {
@@ -758,18 +761,23 @@ body[data-active-tab="orders"] .ps-manager-main {
 }
 
 .admin-top-tab {
-  flex: 1 0 auto;
-  min-width: 108px;
-  min-height: 46px;
-  padding: 10px 14px;
-  border: 0;
-  border-right: 1px solid rgba(0, 0, 0, 0.12);
+  flex: 0 0 auto;
+  width: 112px;
+  min-width: 112px;
+  max-width: 112px;
+  min-height: 44px;
+  padding: 8px 6px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.1) inset;
   color: #fff;
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 900;
+  line-height: 1.15;
   text-align: center;
   cursor: pointer;
+  white-space: normal;
 }
 
 .admin-top-tab span {
@@ -790,7 +798,8 @@ body[data-active-tab="orders"] .ps-manager-main {
 }
 
 .admin-top-tab.active {
-  box-shadow: inset 0 -4px 0 rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow: inset 0 -3px 0 rgba(255, 255, 255, 0.9);
 }
 
 .admin-tab-teal { background: #0d9488; }
