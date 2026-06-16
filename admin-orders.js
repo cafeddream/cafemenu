@@ -68,6 +68,8 @@ const elements = {
   todayCollection: document.querySelector("#todayCollection"),
   tableGrid: document.querySelector("#psOrdersGrid"),
   tableDetail: document.querySelector("#psTableDetail"),
+  categoryTabs: document.querySelector("#adminCategoryTabs"),
+  ordersView: document.querySelector("#psOrders"),
   menuButton: document.querySelector("#menuButton"),
   signOutBtn: document.querySelector("#signOutBtn"),
   adminMenuModal: document.querySelector("#adminMenuModal"),
@@ -327,6 +329,22 @@ function getTableItemCount(orders = []) {
   ), 0);
 }
 
+function setOrdersViewMode(mode) {
+  const isDetail = mode === "detail";
+  if (elements.ordersView) {
+    elements.ordersView.classList.toggle("ps-orders-detail-mode", isDetail);
+  }
+  if (elements.categoryTabs) elements.categoryTabs.hidden = isDetail;
+  if (elements.tableGrid) elements.tableGrid.hidden = isDetail;
+  if (elements.tableDetail) elements.tableDetail.hidden = !isDetail;
+}
+
+function renderCategoryTabs() {
+  if (!elements.categoryTabs) return;
+  elements.categoryTabs.innerHTML = CONFIG.ORDER_SECTIONS.map(sectionButtonHtml).join("");
+  bindSectionActions();
+}
+
 function getRunningOrderCount(orders = []) {
   return orders.filter((order) => {
     const status = order.status || "new";
@@ -338,26 +356,20 @@ function renderTables(flashTableId = null) {
   if (!elements.tableGrid) return;
 
   if (state.detailTableId) {
-    elements.tableGrid.hidden = true;
-    if (elements.tableDetail) {
-      elements.tableDetail.hidden = false;
-      renderTableDetail(state.detailTableId);
-    }
+    setOrdersViewMode("detail");
+    renderTableDetail(state.detailTableId);
     if (elements.activeTables) {
       elements.activeTables.textContent = String(state.knownActive.size);
     }
     return;
   }
 
-  elements.tableGrid.hidden = false;
-  if (elements.tableDetail) elements.tableDetail.hidden = true;
+  setOrdersViewMode("grid");
+  renderCategoryTabs();
 
   const activeSection = getActiveSection();
   elements.tableGrid.className = "admin-dashboard admin-dashboard-pos";
   elements.tableGrid.innerHTML = `
-    <nav class="admin-top-tabs" aria-label="Table sections">
-      ${CONFIG.ORDER_SECTIONS.map(sectionButtonHtml).join("")}
-    </nav>
     <section class="admin-section-panel admin-section-panel-pos" aria-live="polite">
       <div class="section-table-row section-table-row-pos">
         ${activeSection.tables.map((tableId) => {
@@ -373,7 +385,6 @@ function renderTables(flashTableId = null) {
   if (elements.activeTables) {
     elements.activeTables.textContent = String(state.knownActive.size);
   }
-  bindSectionActions();
   bindGridCardActions();
 }
 
@@ -409,7 +420,9 @@ function sectionButtonHtml(section) {
 }
 
 function bindSectionActions() {
-  elements.tableGrid.querySelectorAll("[data-section]").forEach((button) => {
+  const root = elements.categoryTabs || elements.tableGrid;
+  if (!root) return;
+  root.querySelectorAll("[data-section]").forEach((button) => {
     button.addEventListener("click", () => {
       state.activeSectionId = button.dataset.section;
       state.detailTableId = null;

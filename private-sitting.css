@@ -714,6 +714,38 @@ body[data-active-tab="orders"] .ps-manager-main {
   color: var(--ps-text);
 }
 
+#psOrders.ps-orders-detail-mode #psOrdersGrid,
+#psOrders.ps-orders-detail-mode #adminCategoryTabs {
+  display: none !important;
+}
+
+#psOrders:not(.ps-orders-detail-mode) #psTableDetail {
+  display: none !important;
+}
+
+.ps-manager-page .admin-dashboard,
+.ps-manager-page .admin-dashboard-pos {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  align-items: unset;
+  gap: 0;
+}
+
+.ps-manager-page #adminCategoryTabs {
+  flex-shrink: 0;
+  height: 68px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.ps-manager-page #adminCategoryTabs .admin-top-tab {
+  height: 52px;
+  min-height: 52px;
+  max-height: 52px;
+  align-self: center;
+}
+
 #psSittings.ps-view,
 #psSettings.ps-view,
 #psReports.ps-view,
@@ -743,6 +775,8 @@ body[data-active-tab="orders"] .ps-manager-main {
   flex: 1 1 0;
   min-width: 0;
   height: 52px;
+  min-height: 52px;
+  max-height: 52px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -758,7 +792,8 @@ body[data-active-tab="orders"] .ps-manager-main {
   line-height: 1.1;
   text-align: center;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+  transition: background 0.2s ease, border-color 0.2s ease, filter 0.2s ease, transform 0.15s ease;
+  box-sizing: border-box;
 }
 
 .admin-top-tab:active {
@@ -813,6 +848,8 @@ body[data-active-tab="orders"] .ps-manager-main {
   border-radius: 0;
   background: #0a0a0a;
   box-shadow: none;
+  align-self: start;
+  min-height: 0;
 }
 
 .section-table-row-pos {
@@ -894,10 +931,15 @@ body[data-active-tab="orders"] .ps-manager-main {
 }
 
 .ps-table-detail {
-  min-height: calc(100dvh - 120px);
+  min-height: 0;
   padding-bottom: 78px;
   background: #0a0a0a;
   color: var(--ps-text);
+}
+
+#psOrders.ps-orders-detail-mode .ps-table-detail {
+  display: block !important;
+  min-height: calc(100dvh - 120px);
 }
 
 .ps-table-detail-header {
