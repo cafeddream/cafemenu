@@ -1,6 +1,6 @@
 import {
   CONFIG,
-  formatTableDisplayName,
+  formatReceiptTableLine,
   toDate
 } from "./firebase.js";
 
@@ -78,7 +78,7 @@ export function buildReceiptEscPos(receipt) {
   if (!receipt) return init();
 
   const generated = toDate(receipt.generatedAt) || new Date();
-  const tableLabel = formatTableDisplayName(receipt.tableId);
+  const tableLine = formatReceiptTableLine(receipt.tableId);
   const orderShort = String(receipt.orderId || "").slice(0, 8).toUpperCase();
   const discountAmount = Number(receipt.discountAmount || 0);
   const subtotal = Number(receipt.subtotal ?? receipt.grossTotal ?? receipt.total ?? 0);
@@ -96,7 +96,7 @@ export function buildReceiptEscPos(receipt) {
     line(`Order: ${orderShort}`),
     line(`Receipt: ${receipt.receiptNumber || ""}`),
     line(generated.toLocaleString()),
-    line(`Cabin: ${tableLabel}`),
+    line(tableLine),
     line("--------------------------------")
   ];
 

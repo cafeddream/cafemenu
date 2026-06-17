@@ -53,7 +53,8 @@ export const CONFIG = {
   UPI_NAME: "RAMAN",
   RESTAURANT_NAME: "Cafe D Dream",
   KITCHEN_TIMER_MINUTES: 20,
-  AUTO_PRINT_RECEIPTS: true,
+  AUTO_PRINT_RECEIPTS: false,
+  AUTO_SHARE_RECEIPTS: true,
   PRINTER_CONFIG: {
     name: "MPT-II",
     baudRate: 115200,
@@ -1397,6 +1398,68 @@ export function formatTableDisplayName(tableId) {
   return raw.replace(/\s+/g, "");
 }
 
+export function formatReceiptTableLine(tableId) {
+  return `Table: ${formatTableDisplayName(tableId)}`;
+}
+
+export function toWhatsAppPhone(mobile) {
+  const normalized = normalizeIndianMobile(mobile);
+  if (normalized) return `91${normalized}`;
+  const digits = String(mobile || "").replace(/\D/g, "");
+  if (digits.length === 12 && digits.startsWith("91")) return digits;
+  if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
+  return null;
+}
+
+export function buildWhatsAppDirectUrl(mobile, text = "") {
+  const phone = toWhatsAppPhone(mobile);
+  if (!phone) return null;
+  const base = `https://wa.me/${phone}`;
+  return text ? `${base}?text=${encodeURIComponent(text)}` : base;
+}
+
+export function buildPrivateSittingCheckoutReceipt(draft, method, discountInfo = null) {
+  const session = draft?.session || {};
+  const sitting = draft?.sitting || {};
+  const durationMinutes = Number(sitting.durationMinutes || 0);
+  const sittingLine = {
+    name: `Private Sitting (${durationMinutes} min)`,
+    qty: 1,
+    price: Number(draft?.sittingAmount || 0)
+  };
+  const foodItems = [];
+  (draft?.foodOrders || []).forEach((order) => {
+    (order.items || []).forEach((item) => {
+      foodItems.push({
+        name: item.name,
+        qty: Number(item.qty || 0),
+        price: Number(item.price || 0)
+      });
+    });
+  });
+  const items = [sittingLine, ...foodItems];
+  const grossTotal = Number(discountInfo?.grossTotal ?? draft?.grandTotal ?? 0);
+  const discountAmount = Number(discountInfo?.discountAmount || 0);
+  const finalTotal = Number(discountInfo?.finalTotal ?? draft?.grandTotal ?? grossTotal);
+  const sessionId = draft?.sessionId || session.sessionId || session.id || "";
+  return {
+    receiptNumber: `PS-${String(sessionId).slice(0, 8).toUpperCase()}`,
+    orderId: sessionId,
+    tableId: session.sittingId || "",
+    cafeName: CONFIG.RESTAURANT_NAME,
+    logoSrc: CONFIG.RECEIPT_LOGO_SRC,
+    items,
+    total: finalTotal,
+    subtotal: grossTotal,
+    grossTotal,
+    discountAmount,
+    tax: 0,
+    paymentMethod: method === "online" ? "Online" : "Cash",
+    paymentStatus: "Verified",
+    generatedAt: new Date()
+  };
+}
+
 export function buildReceiptFromOrder(order, paymentMethod = "cash") {
   const items = normalizeOrderItems(order?.items || []);
   const total = Number(order?.total ?? calculateTotal(items));
@@ -1425,7 +1488,7 @@ export function buildReceiptFromOrder(order, paymentMethod = "cash") {
 export function receiptToThermalHtml(receipt) {
   if (!receipt) return "";
   const generated = toDate(receipt.generatedAt) || new Date();
-  const tableLabel = formatTableDisplayName(receipt.tableId);
+  const tableLine = formatReceiptTableLine(receipt.tableId);
   const orderShort = String(receipt.orderId || "").slice(0, 8).toUpperCase();
   const discountAmount = Number(receipt.discountAmount || 0);
   const subtotal = Number(receipt.subtotal ?? receipt.grossTotal ?? receipt.total ?? 0);
@@ -1451,7 +1514,7 @@ export function receiptToThermalHtml(receipt) {
       <p class="receipt-meta">Order: ${escapeHtml(orderShort)}</p>
       <p class="receipt-meta">Receipt: ${escapeHtml(receipt.receiptNumber || "")}</p>
       <p class="receipt-meta">${escapeHtml(generated.toLocaleString())}</p>
-      <p class="receipt-meta">Cabin: ${escapeHtml(tableLabel)}</p>
+      <p class="receipt-meta">${escapeHtml(tableLine)}</p>
       <hr>
       <table class="receipt-items">
         <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>

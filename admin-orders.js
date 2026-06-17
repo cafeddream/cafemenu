@@ -25,10 +25,10 @@ import {
 import { downloadSalesReportPdf } from "./report-pdf.js";
 import { preloadJsPdf } from "./private-sitting-pdf.js";
 import {
-  autoPrintAfterPayment,
-  printReceiptForOrderId,
-  printReceiptFromOrder
-} from "./thermal-print.js";
+  shareReceiptAfterPayment,
+  shareReceiptForOrder,
+  shareReceiptForOrderId
+} from "./receipt-share.js";
 import {
   buildMenuState,
   getCartTotals,
@@ -522,7 +522,7 @@ function mobileOrderCardHtml(order) {
         ${paymentClaimed ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"reject-pay\">Reject Payment Claim</button>" : ""}
         ${status === "new" || status === "preparing" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"cancel\">Cancel Order</button>" : ""}
         ${status !== "paid" && !paymentVerified ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Confirm Payment</button>" : ""}
-        <button class="ghost-btn" type="button" data-action="print">Print Bill</button>
+        <button class="ghost-btn" type="button" data-action="share">Share Receipt</button>
       </div>
     </article>
   `;
@@ -662,7 +662,7 @@ async function handleOrderAction(button) {
       return;
     }
     if (action === "clear") await clearTable(tableId);
-    if (action === "print") printTableBill(tableId, orderId);
+    if (action === "share") shareTableBill(tableId, orderId);
   } catch {
     showToast("Connection error, please refresh");
     button.disabled = false;
@@ -767,20 +767,20 @@ function hideAdminHoverPreview() {
   if (state.hoverPreview) state.hoverPreview.hidden = true;
 }
 
-function printTableBill(tableId, orderId) {
+function shareTableBill(tableId, orderId) {
   const order = state.orders.get(orderId);
   if (!order) return;
 
   try {
     if (order.paymentStatus === "verified_paid" || order.receiptNumber) {
-      printReceiptForOrderId(order.orderId || orderId);
+      shareReceiptForOrderId(order.orderId || orderId, order.customerMobile || "");
       return;
     }
     const method = order.paymentMethod || order.preferredPaymentMethod || "cash";
-    printReceiptFromOrder(order, method);
+    shareReceiptForOrder(order, method);
   } catch (error) {
-    console.warn("Print bill failed:", error);
-    showToast("Could not print receipt");
+    console.warn("Share receipt failed:", error);
+    showToast("Could not share receipt");
   }
 }
 
@@ -882,11 +882,11 @@ async function confirmPaidWithMethod(method) {
       const orderSnap = await placeCounterOrderWithPayment(tableId, pendingItems, method, discount);
       closePaymentMethodModal();
       showToast(`Order placed for ${formatTableDisplayName(tableId)}`);
-      autoPrintAfterPayment(orderSnap?.data()?.orderId || orderId, orderSnap, method);
+      shareReceiptAfterPayment(orderSnap?.data()?.orderId || orderId, orderSnap, method);
     } else {
       await verifyOrderPayment(orderId, method, discount);
       closePaymentMethodModal();
-      autoPrintAfterPayment(orderId, null, method);
+      shareReceiptAfterPayment(orderId, null, method);
     }
   } catch {
     showToast(isCounterOrder ? "Order failed. Check connection and refresh." : "Connection error, please refresh");

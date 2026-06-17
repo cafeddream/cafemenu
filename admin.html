@@ -234,6 +234,27 @@
     </section>
   </div>
 
+  <div class="modal-backdrop" id="shareReceiptModal" hidden>
+    <section class="history-modal share-receipt-modal" role="dialog" aria-modal="true" aria-labelledby="shareReceiptTitle">
+      <div class="modal-head">
+        <h2 id="shareReceiptTitle">Share Receipt</h2>
+        <button class="ghost-btn" id="shareReceiptClose" type="button">Close</button>
+      </div>
+      <div class="share-receipt-body">
+        <img class="share-receipt-preview" id="shareReceiptPreview" alt="Receipt preview" hidden>
+        <label class="share-receipt-phone-field">
+          <span>Customer WhatsApp Number</span>
+          <div class="share-receipt-phone-row">
+            <span class="share-receipt-country">+91</span>
+            <input id="shareReceiptMobile" type="tel" inputmode="numeric" maxlength="10" placeholder="10-digit mobile" autocomplete="tel">
+          </div>
+        </label>
+        <p class="share-receipt-help">Receipt JPEG will open WhatsApp chat on +91 number. Attach or paste the image and send.</p>
+        <button class="primary-btn" id="shareReceiptConfirm" type="button">Share on WhatsApp</button>
+      </div>
+    </section>
+  </div>
+
   <span id="todayCollection" hidden>Today's Collection: Rs 0</span>
 
   <script type="module" src="./admin.js"></script>

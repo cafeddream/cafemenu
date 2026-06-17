@@ -1,4 +1,4 @@
-const CACHE_NAME = "cafe-d-dream-v45";
+const CACHE_NAME = "cafe-d-dream-v46";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -16,6 +16,8 @@ const APP_SHELL = [
   "./sitting-sync.js",
   "./kitchen.js",
   "./firebase.js",
+  "./receipt-image.js",
+  "./receipt-share.js",
   "./thermal-print.js",
   "./escpos.js",
   "./printer-serial.js",
@@ -45,7 +47,8 @@ const APP_SHELL = [
   "./assets/categories/maggi.jpg",
   "./assets/categories/ice-cream.jpg",
   "./assets/categories/pizza.jpg",
-  "./assets/categories/default.jpg"
+  "./assets/categories/default.jpg",
+  "./assets/receipt-logo.png"
 ];
 
 const NETWORK_FIRST = ["/firebase", ".js", ".html"];
