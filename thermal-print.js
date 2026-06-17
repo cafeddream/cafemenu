@@ -1,6 +1,6 @@
 // 58mm thermal receipt printing for manager/counter.
-// Silent printing (no dialog) requires Chrome --kiosk-printing and a default thermal printer.
-// Future: route PRINTERS.kitchen via QZ Tray / WebUSB ESC/POS bridge.
+// ESC/POS via Web Serial when a Bluetooth/USB printer is connected.
+// HTML iframe print fallback when no serial printer is connected.
 
 import {
   CONFIG,
@@ -9,6 +9,11 @@ import {
   fetchReceipt,
   toDate
 } from "./firebase.js";
+import { buildReceiptEscPos, buildTestPrintEscPos } from "./escpos.js";
+import {
+  isPrinterConnected,
+  writeEscPos
+} from "./printer-serial.js";
 
 export const PRINTERS = {
   customer: { id: "customer", label: "Customer Receipt", enabled: true },
@@ -30,12 +35,7 @@ function normalizeReceiptForPrint(receipt) {
   };
 }
 
-export function printThermalReceipt(receipt, options = {}) {
-  if (!CONFIG.AUTO_PRINT_RECEIPTS) return false;
-  const printerKey = options.printer || "customer";
-  const printer = PRINTERS[printerKey];
-  if (!printer?.enabled) return false;
-
+function printThermalReceiptHtml(receipt) {
   const normalized = normalizeReceiptForPrint(receipt);
   if (!normalized) return false;
 
@@ -68,6 +68,31 @@ export function printThermalReceipt(receipt, options = {}) {
   return true;
 }
 
+async function printEscPosReceipt(receipt) {
+  const normalized = normalizeReceiptForPrint(receipt);
+  if (!normalized) return false;
+  const bytes = buildReceiptEscPos(normalized);
+  await writeEscPos(bytes);
+  return true;
+}
+
+export async function printThermalReceipt(receipt, options = {}) {
+  if (!CONFIG.AUTO_PRINT_RECEIPTS) return false;
+  const printerKey = options.printer || "customer";
+  const printer = PRINTERS[printerKey];
+  if (!printer?.enabled) return false;
+
+  if (isPrinterConnected()) {
+    try {
+      return await printEscPosReceipt(receipt);
+    } catch (error) {
+      console.warn("ESC/POS print failed, falling back to HTML:", error);
+    }
+  }
+
+  return printThermalReceiptHtml(receipt);
+}
+
 export async function printReceiptForOrderId(orderId) {
   if (!orderId || !CONFIG.AUTO_PRINT_RECEIPTS) return false;
 
@@ -81,7 +106,7 @@ export async function printReceiptForOrderId(orderId) {
   return printThermalReceipt(receipt);
 }
 
-export function printReceiptFromOrder(order, paymentMethod = "cash") {
+export async function printReceiptFromOrder(order, paymentMethod = "cash") {
   const receipt = buildReceiptFromOrder(order, paymentMethod);
   return printThermalReceipt(receipt);
 }
@@ -92,15 +117,25 @@ export async function autoPrintAfterPayment(orderId, orderSnapshot, paymentMetho
   try {
     if (orderSnapshot?.exists?.()) {
       const order = { ...orderSnapshot.data(), orderId: orderSnapshot.data()?.orderId || orderId };
-      printReceiptFromOrder(order, paymentMethod);
+      await printReceiptFromOrder(order, paymentMethod);
       return;
     }
     if (orderSnapshot && typeof orderSnapshot === "object") {
-      printReceiptFromOrder(orderSnapshot, paymentMethod);
+      await printReceiptFromOrder(orderSnapshot, paymentMethod);
       return;
     }
     await printReceiptForOrderId(orderId);
   } catch (error) {
     console.warn("Receipt print failed:", error);
   }
+}
+
+export async function printTestReceipt() {
+  const bytes = buildTestPrintEscPos({
+    title: CONFIG.RESTAURANT_NAME,
+    message: "Printer Connected Successfully",
+    timestamp: new Date()
+  });
+  await writeEscPos(bytes);
+  return true;
 }

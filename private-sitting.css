@@ -414,6 +414,60 @@ body[data-active-tab="orders"] .ps-manager-main {
   border-bottom: 1px solid var(--ps-line);
 }
 
+.ps-printer-card {
+  display: grid;
+  gap: 10px;
+}
+
+.ps-printer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ps-printer-head h3 {
+  margin: 0;
+}
+
+.ps-printer-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.ps-printer-badge.connected {
+  background: rgba(72, 199, 142, 0.2);
+  color: #8ce8b8;
+}
+
+.ps-printer-badge.disconnected {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ps-muted);
+}
+
+.ps-printer-help,
+.ps-printer-status {
+  margin: 0;
+  color: var(--ps-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ps-printer-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.ps-printer-actions .primary-btn,
+.ps-printer-actions .secondary-btn {
+  width: 100%;
+}
+
 .ps-manager-page .modal-backdrop {
   background: rgba(0, 0, 0, 0.72);
 }

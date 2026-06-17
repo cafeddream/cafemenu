@@ -22,6 +22,13 @@ import {
 import { openAdminOrderModal } from "./admin-orders.js";
 import { buildSittingEntryHtmlPreview, buildSittingEntryPdf } from "./private-sitting-pdf.js";
 import { isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout } from "./sitting-sync.js";
+import {
+  connectPrinter,
+  disconnectPrinter,
+  getPrinterStatus,
+  isSerialSupported
+} from "./printer-serial.js";
+import { printTestReceipt } from "./thermal-print.js";
 
 const PS_TABLE_IDS = new Set(CONFIG.PRIVATE_SITTINGS.map((sitting) => sitting.id));
 
@@ -225,10 +232,58 @@ function renderReports() {
   `).join("");
 }
 
+function getPrinterStatusLabel(status) {
+  if (!status.supported) return "Web Serial not supported";
+  if (status.connected) return `Connected — ${status.deviceName}`;
+  if (status.lastError) return `Disconnected — ${status.lastError}`;
+  return "Disconnected";
+}
+
+function refreshPrinterStatusUi() {
+  const statusNode = document.querySelector("#psPrinterStatus");
+  const badgeNode = document.querySelector("#psPrinterStatusBadge");
+  const connectBtn = document.querySelector("#psPrinterConnect");
+  const disconnectBtn = document.querySelector("#psPrinterDisconnect");
+  const testBtn = document.querySelector("#psPrinterTest");
+  const status = getPrinterStatus();
+
+  if (statusNode) {
+    statusNode.textContent = getPrinterStatusLabel(status);
+  }
+  if (badgeNode) {
+    badgeNode.classList.toggle("connected", status.connected);
+    badgeNode.classList.toggle("disconnected", !status.connected);
+    badgeNode.textContent = status.connected ? "Connected" : "Disconnected";
+  }
+  if (connectBtn) {
+    connectBtn.disabled = !status.supported || status.connected;
+  }
+  if (disconnectBtn) {
+    disconnectBtn.disabled = !status.connected;
+  }
+  if (testBtn) {
+    testBtn.disabled = !status.connected;
+  }
+}
+
 function renderSettings() {
   if (!elements.settingsPanel) return;
   const syncReady = isSittingSyncConfigured();
+  const serialReady = isSerialSupported();
   elements.settingsPanel.innerHTML = `
+    <section class="ps-settings-card ps-printer-card">
+      <div class="ps-printer-head">
+        <h3>Printer (MPT-II)</h3>
+        <span class="ps-printer-badge disconnected" id="psPrinterStatusBadge">Disconnected</span>
+      </div>
+      <p class="ps-printer-help">Pair MPT-II in Android Bluetooth first (PIN 0000). Use Chrome browser, not WebView.</p>
+      <p class="ps-printer-status" id="psPrinterStatus">${serialReady ? "Disconnected" : "Web Serial not supported"}</p>
+      <div class="ps-printer-actions">
+        <button class="primary-btn" id="psPrinterConnect" type="button" ${serialReady ? "" : "disabled"}>Connect Printer</button>
+        <button class="secondary-btn" id="psPrinterDisconnect" type="button" disabled>Disconnect</button>
+        <button class="secondary-btn" id="psPrinterTest" type="button" disabled>Test Print</button>
+      </div>
+    </section>
     <section class="ps-settings-card">
       <h3>Google Sync</h3>
       <p>${syncReady ? "Apps Script URL configured." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
@@ -242,6 +297,7 @@ function renderSettings() {
       </ul>
     </section>
   `;
+  refreshPrinterStatusUi();
 }
 
 function renderPrivateSitting() {
@@ -704,6 +760,59 @@ function bindPrivateSittingUi() {
   elements.checkoutCashBtn?.addEventListener("click", () => confirmCheckout("cash"));
   elements.checkoutOnlineBtn?.addEventListener("click", () => confirmCheckout("online"));
   window.addEventListener("ps-food-order-modal-closed", handleFoodOrderModalClosed);
+  bindPrinterSettingsUi();
+}
+
+function bindPrinterSettingsUi() {
+  if (!elements.settingsPanel) return;
+
+  elements.settingsPanel.addEventListener("click", async (event) => {
+    const connectBtn = event.target.closest("#psPrinterConnect");
+    const disconnectBtn = event.target.closest("#psPrinterDisconnect");
+    const testBtn = event.target.closest("#psPrinterTest");
+
+    if (connectBtn) {
+      connectBtn.disabled = true;
+      try {
+        await connectPrinter();
+        showToast("Printer connected.");
+      } catch (error) {
+        if (error?.name !== "NotFoundError") {
+          showToast(error?.message || "Could not connect printer.");
+        }
+      } finally {
+        refreshPrinterStatusUi();
+      }
+      return;
+    }
+
+    if (disconnectBtn) {
+      disconnectBtn.disabled = true;
+      try {
+        await disconnectPrinter();
+        showToast("Printer disconnected.");
+      } catch (error) {
+        showToast(error?.message || "Could not disconnect printer.");
+      } finally {
+        refreshPrinterStatusUi();
+      }
+      return;
+    }
+
+    if (testBtn) {
+      testBtn.disabled = true;
+      try {
+        await printTestReceipt();
+        showToast("Test print sent.");
+      } catch (error) {
+        showToast(error?.message || "Test print failed.");
+      } finally {
+        refreshPrinterStatusUi();
+      }
+    }
+  });
+
+  window.addEventListener("printer-status-change", refreshPrinterStatusUi);
 }
 
 function subscribePrivateSitting() {

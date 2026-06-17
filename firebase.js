@@ -54,6 +54,11 @@ export const CONFIG = {
   RESTAURANT_NAME: "Cafe D Dream",
   KITCHEN_TIMER_MINUTES: 20,
   AUTO_PRINT_RECEIPTS: true,
+  PRINTER_CONFIG: {
+    name: "MPT-II",
+    baudRate: 9600,
+    allowedBluetoothServiceClassIds: []
+  },
   RECEIPT_LOGO_SRC: "./assets/receipt-logo.png",
   APPS_SCRIPT_URL: "PASTE_DEPLOYED_WEB_APP_URL",
   PRIVATE_SITTINGS: [
