@@ -892,6 +892,86 @@ export async function cancelActiveOrder(orderId) {
   return true;
 }
 
+function normalizeVoidRemarks(remarks) {
+  const clean = String(remarks || "").trim();
+  if (clean.length < 3) {
+    throw new Error("Enter a reason (at least 3 characters)");
+  }
+  return clean.slice(0, 200);
+}
+
+function buildItemsSummary(items = [], maxLen = 120) {
+  const text = items
+    .map((item) => `${item.name || "Item"} x${Number(item.qty || 0)}`)
+    .join(", ");
+  return text.length > maxLen ? `${text.slice(0, maxLen - 3)}...` : text;
+}
+
+export async function voidActiveOrder(orderId, remarks) {
+  const voidRemarks = normalizeVoidRemarks(remarks);
+  const snapshot = await getDoc(activeOrderRef(orderId));
+  if (!snapshot.exists()) return false;
+
+  const order = snapshot.data();
+  if (order.paymentStatus === "verified_paid") {
+    throw new Error("Paid orders cannot be voided");
+  }
+  if (order.paymentStatus === "session_hold" || order.privateSessionId) {
+    throw new Error("Private sitting orders cannot be voided");
+  }
+
+  const tableId = order.tableId;
+  const currentOrderId = order.orderId || orderId;
+  const items = normalizeOrderItems(order.items || []);
+  const grossTotal = calculateTotal(items);
+
+  await setDoc(tableHistoryOrderRef(tableId, currentOrderId), {
+    orderId: currentOrderId,
+    tableId,
+    items,
+    total: 0,
+    grossTotal,
+    voidAmount: grossTotal,
+    status: "voided",
+    paymentStatus: "voided",
+    voidRemarks,
+    voidedAt: serverTimestamp(),
+    placedBy: order.placedBy || "customer",
+    customerName: order.customerName || null,
+    customerMobile: order.customerMobile || null,
+    customerMobileNormalized: order.customerMobileNormalized || null,
+    orderedAt: order.timestamp || null,
+    savedAt: serverTimestamp()
+  });
+
+  await deleteDoc(activeOrderRef(orderId));
+  await deleteDoc(orderRef(tableId)).catch(() => {});
+
+  await logAuditEntry("order_voided", tableId, {
+    orderId: currentOrderId,
+    grossTotal,
+    voidRemarks,
+    placedBy: order.placedBy || "customer"
+  });
+
+  return true;
+}
+
+export async function voidPendingCounterOrder(tableId, items = [], grossTotal = 0, remarks) {
+  const voidRemarks = normalizeVoidRemarks(remarks);
+  const cleanItems = normalizeOrderItems(items);
+  const amount = Number(grossTotal || calculateTotal(cleanItems));
+
+  await logAuditEntry("counter_order_voided", tableId, {
+    grossTotal: amount,
+    voidRemarks,
+    itemCount: cleanItems.length,
+    itemsSummary: buildItemsSummary(cleanItems)
+  });
+
+  return true;
+}
+
 // Resets a customer payment claim so staff can re-verify.
 export async function rejectPaymentClaim(tableId) {
   await updateDoc(orderRef(tableId), {
@@ -1291,6 +1371,49 @@ export async function fetchCancellationsForDateRange(startKey, endKey) {
   return summary;
 }
 
+// Reads voided order audit entries within a date range.
+export async function fetchVoidedOrdersForDateRange(startKey, endKey) {
+  const summary = {
+    voidOrderCount: 0,
+    voidOrderAmount: 0,
+    details: []
+  };
+
+  try {
+    const voidQuery = query(
+      collection(db, "auditLog"),
+      where("action", "in", ["order_voided", "counter_order_voided"])
+    );
+    const snapshot = await getDocs(voidQuery);
+    snapshot.docs.forEach((entry) => {
+      const data = entry.data();
+      const createdAt = toDate(data.createdAt);
+      if (!createdAt) return;
+      const key = getTodayKey(createdAt);
+      if (key < startKey || key > endKey) return;
+      const details = data.details || {};
+      const amount = Number(details.grossTotal || details.total || 0);
+      const isCounter = data.action === "counter_order_voided";
+      summary.details.push({
+        date: key,
+        time: createdAt.toLocaleString(),
+        tableId: data.tableId || "",
+        orderId: details.orderId || (isCounter ? "counter" : ""),
+        amount,
+        voidRemarks: details.voidRemarks || "",
+        type: isCounter ? "counter_pending" : "order"
+      });
+      summary.voidOrderCount += 1;
+      summary.voidOrderAmount += amount;
+    });
+  } catch {
+    // Audit log may be unavailable; report still renders without voids.
+  }
+
+  summary.details.sort((a, b) => String(b.time).localeCompare(String(a.time)));
+  return summary;
+}
+
 // Reads aggregated daily summary docs across a date range.
 export async function fetchDailySummaries(startKey, endKey) {
   const keys = listDateKeys(startKey, endKey);
@@ -1322,10 +1445,11 @@ export async function fetchDailySummaries(startKey, endKey) {
 
 // Builds a complete day-wise business report (no table selection required).
 export async function fetchDayWiseReport(startKey, endKey) {
-  const [foodOrders, sittings, cancellations] = await Promise.all([
+  const [foodOrders, sittings, cancellations, voids] = await Promise.all([
     fetchPaidFoodOrdersForDateRange(startKey, endKey),
     fetchCompletedSittingsForDateRange(startKey, endKey),
-    fetchCancellationsForDateRange(startKey, endKey)
+    fetchCancellationsForDateRange(startKey, endKey),
+    fetchVoidedOrdersForDateRange(startKey, endKey)
   ]);
 
   const itemsReport = buildReportFromOrders(foodOrders, startKey, endKey);
@@ -1370,10 +1494,13 @@ export async function fetchDayWiseReport(startKey, endKey) {
     cancelledWithPaymentAmount: cancellations.cancelledWithPaymentAmount,
     cancelledWithoutPaymentCount: cancellations.cancelledWithoutPaymentCount,
     cancelledWithoutPaymentAmount: cancellations.cancelledWithoutPaymentAmount,
+    voidOrderCount: voids.voidOrderCount,
+    voidOrderAmount: voids.voidOrderAmount,
     items: itemsReport.items,
     foodOrderDetails: foodOrders,
     sittingDetails: sittings,
-    cancellationDetails: cancellations.details
+    cancellationDetails: cancellations.details,
+    voidOrderDetails: voids.details
   };
 }
 
@@ -1592,6 +1719,8 @@ export function reportToCsv(report) {
     `Cancelled With Payment Amount,${report.cancelledWithPaymentAmount ?? 0}`,
     `Cancelled Without Payment Count,${report.cancelledWithoutPaymentCount ?? 0}`,
     `Cancelled Without Payment Amount,${report.cancelledWithoutPaymentAmount ?? 0}`,
+    `Void Orders Count,${report.voidOrderCount ?? 0}`,
+    `Void Orders Amount,${report.voidOrderAmount ?? 0}`,
     "",
     "Item,Price,Qty,Line Total"
   ];

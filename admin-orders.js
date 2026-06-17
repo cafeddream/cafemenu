@@ -20,7 +20,9 @@ import {
   showRichToast,
   showToast,
   updateActiveOrderStatus,
-  verifyOrderPayment
+  verifyOrderPayment,
+  voidActiveOrder,
+  voidPendingCounterOrder
 } from "./firebase.js";
 import { downloadSalesReportPdf } from "./report-pdf.js";
 import { preloadJsPdf } from "./private-sitting-pdf.js";
@@ -52,6 +54,8 @@ const state = {
   pendingPaymentItems: null,
   pendingPaymentIsCounterOrder: false,
   pendingPaymentGross: 0,
+  canVoidOrder: true,
+  paymentVoidMode: false,
   hoverPreview: null,
   orderTableId: null,
   groupedMenu: {},
@@ -91,8 +95,16 @@ const elements = {
   paymentDiscountType: document.querySelector("#paymentDiscountType"),
   paymentDiscountValue: document.querySelector("#paymentDiscountValue"),
   paymentFinalPayable: document.querySelector("#paymentFinalPayable"),
+  paymentDiscountControl: document.querySelector("#paymentDiscountControl"),
+  paymentMethodActions: document.querySelector("#paymentMethodActions"),
   paidCashBtn: document.querySelector("#paidCashBtn"),
   paidOnlineBtn: document.querySelector("#paidOnlineBtn"),
+  voidOrderBtn: document.querySelector("#voidOrderBtn"),
+  voidOrderPanel: document.querySelector("#voidOrderPanel"),
+  voidOrderRemarks: document.querySelector("#voidOrderRemarks"),
+  voidOrderBackBtn: document.querySelector("#voidOrderBackBtn"),
+  voidOrderConfirmBtn: document.querySelector("#voidOrderConfirmBtn"),
+  paymentMethodActions: document.querySelector("#paymentMethodActions"),
   adminOrderModal: document.querySelector("#adminOrderModal"),
   closeAdminOrder: document.querySelector("#closeAdminOrder"),
   adminOrderTitle: document.querySelector("#adminOrderTitle"),
@@ -143,6 +155,9 @@ function bindUi() {
   });
   elements.paidCashBtn.addEventListener("click", () => confirmPaidWithMethod("cash"));
   elements.paidOnlineBtn.addEventListener("click", () => confirmPaidWithMethod("online"));
+  elements.voidOrderBtn?.addEventListener("click", showVoidOrderPanel);
+  elements.voidOrderBackBtn?.addEventListener("click", hideVoidOrderPanel);
+  elements.voidOrderConfirmBtn?.addEventListener("click", confirmVoidOrder);
   elements.paymentDiscountType?.addEventListener("change", updatePaymentDiscountDisplay);
   elements.paymentDiscountValue?.addEventListener("input", updatePaymentDiscountDisplay);
   elements.closeAdminOrder.addEventListener("click", closeAdminOrderModal);
@@ -484,6 +499,7 @@ function mobileOrderCardHtml(order) {
   const paymentClaimed = order.paymentStatus === "customer_claimed_paid";
   const cashRequested = order.paymentStatus === "cash_at_counter";
   const paymentVerified = order.paymentStatus === "verified_paid";
+  const isSessionHold = order.paymentStatus === "session_hold" || Boolean(order.privateSessionId);
   const statusLabel = getOrderStatusLabel(order);
   const statusClass = status === "served" || (paymentVerified && status === "served")
     ? "ps-order-status-served"
@@ -520,7 +536,7 @@ function mobileOrderCardHtml(order) {
       <div class="card-actions" data-table="${escapeHtml(order.tableId)}" data-order="${escapeHtml(order.orderId || order.id)}" data-status="${escapeHtml(status)}">
         ${paymentClaimed ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"reject-pay\">Reject Payment Claim</button>" : ""}
         ${status === "new" || status === "preparing" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"cancel\">Cancel Order</button>" : ""}
-        ${status !== "paid" && !paymentVerified ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Confirm Payment</button>" : ""}
+        ${status !== "paid" && !paymentVerified && !isSessionHold ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Confirm Payment</button>" : ""}
         <button class="ghost-btn" type="button" data-action="share">Share Receipt</button>
       </div>
     </article>
@@ -824,20 +840,43 @@ async function generateReportPdf() {
   }
 }
 
+function setPaymentModalVoidMode(enabled) {
+  state.paymentVoidMode = enabled;
+  if (elements.paymentDiscountControl) elements.paymentDiscountControl.hidden = enabled;
+  if (elements.paymentMethodActions) elements.paymentMethodActions.hidden = enabled;
+  if (elements.voidOrderPanel) elements.voidOrderPanel.hidden = !enabled;
+  if (!enabled && elements.voidOrderRemarks) elements.voidOrderRemarks.value = "";
+}
+
+function showVoidOrderPanel() {
+  setPaymentModalVoidMode(true);
+  elements.voidOrderRemarks?.focus();
+}
+
+function hideVoidOrderPanel() {
+  setPaymentModalVoidMode(false);
+}
+
 function openPaymentMethodModal(tableId, options = {}) {
   const order = options.orderId ? state.orders.get(options.orderId) : null;
   const amount = Number(options.amount ?? order?.total ?? 0);
+  const isPrivateSittingOrder = Boolean(
+    order?.paymentStatus === "session_hold" || order?.privateSessionId
+  );
   state.pendingPaidTable = tableId;
   state.pendingPaidOrderId = options.orderId || null;
   state.pendingPaymentItems = options.items ? cloneOrderItems(options.items) : null;
   state.pendingPaymentIsCounterOrder = Boolean(options.isCounterOrder);
   state.pendingPaymentGross = amount;
+  state.canVoidOrder = !isPrivateSittingOrder;
+  hideVoidOrderPanel();
   elements.paymentMethodTable.innerHTML = `
     <span>Mark ${escapeHtml(formatTableDisplayName(tableId))} paid by:</span>
     <strong>Bill Total: ${formatCurrency(amount)}</strong>
   `;
   if (elements.paymentDiscountType) elements.paymentDiscountType.value = "amount";
   if (elements.paymentDiscountValue) elements.paymentDiscountValue.value = "";
+  if (elements.voidOrderBtn) elements.voidOrderBtn.hidden = !state.canVoidOrder;
   updatePaymentDiscountDisplay();
   elements.paymentMethodModal.hidden = false;
 }
@@ -862,8 +901,53 @@ function closePaymentMethodModal() {
   state.pendingPaymentItems = null;
   state.pendingPaymentIsCounterOrder = false;
   state.pendingPaymentGross = 0;
+  state.canVoidOrder = true;
+  hideVoidOrderPanel();
   if (elements.paymentDiscountValue) elements.paymentDiscountValue.value = "";
   elements.paymentMethodModal.hidden = true;
+}
+
+async function confirmVoidOrder() {
+  if (!state.canVoidOrder) {
+    showToast("Private sitting orders cannot be voided");
+    return;
+  }
+
+  const tableId = state.pendingPaidTable;
+  if (!tableId) return;
+
+  const remarks = elements.voidOrderRemarks?.value || "";
+  const orderId = state.pendingPaidOrderId;
+  const pendingItems = state.pendingPaymentItems ? cloneOrderItems(state.pendingPaymentItems) : null;
+  const grossTotal = state.pendingPaymentGross;
+
+  if (elements.voidOrderConfirmBtn) elements.voidOrderConfirmBtn.disabled = true;
+
+  try {
+    if (pendingItems?.length) {
+      await voidPendingCounterOrder(tableId, pendingItems, grossTotal, remarks);
+      closePaymentMethodModal();
+      showToast(`Order voided for ${formatTableDisplayName(tableId)}`);
+      return;
+    }
+
+    if (!orderId) {
+      showToast("No order to void");
+      return;
+    }
+
+    const voided = await voidActiveOrder(orderId, remarks);
+    if (!voided) {
+      showToast("Order not found");
+      return;
+    }
+    closePaymentMethodModal();
+    showToast(`Order voided for ${formatTableDisplayName(tableId)}`);
+  } catch (error) {
+    showToast(error?.message || "Could not void order");
+  } finally {
+    if (elements.voidOrderConfirmBtn) elements.voidOrderConfirmBtn.disabled = false;
+  }
 }
 
 async function confirmPaidWithMethod(method) {

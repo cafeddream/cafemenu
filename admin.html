@@ -153,7 +153,7 @@
       <div class="admin-menu-body">
         <section class="sales-panel report-only-panel" id="reportPanel">
           <h3>Sales Report</h3>
-          <p class="subtle report-hint">Select date range for all tables — food orders, private sitting, discounts, and cancellations.</p>
+          <p class="subtle report-hint">Select date range for all tables — food orders, private sitting, discounts, cancellations, and void orders.</p>
           <div class="report-filters">
             <label class="select-label" for="reportStartDate">From</label>
             <input class="table-select" id="reportStartDate" type="date">
@@ -217,7 +217,7 @@
       </div>
       <div class="payment-method-body">
         <p id="paymentMethodTable">Select payment method.</p>
-        <div class="discount-control">
+        <div class="discount-control" id="paymentDiscountControl">
           <label class="select-label" for="paymentDiscountValue">Discount (optional)</label>
           <div class="discount-input-row">
             <select id="paymentDiscountType" class="table-select discount-type-select">
@@ -228,8 +228,19 @@
           </div>
           <p class="discount-final" id="paymentFinalPayable">Final Payable: ₹0</p>
         </div>
-        <button class="primary-btn" id="paidCashBtn" type="button">Cash</button>
-        <button class="secondary-btn" id="paidOnlineBtn" type="button">Online</button>
+        <div id="paymentMethodActions">
+          <button class="primary-btn" id="paidCashBtn" type="button">Cash</button>
+          <button class="secondary-btn" id="paidOnlineBtn" type="button">Online</button>
+          <button class="ghost-btn danger-btn" id="voidOrderBtn" type="button">Void Order</button>
+        </div>
+        <div class="void-order-panel" id="voidOrderPanel" hidden>
+          <label class="select-label" for="voidOrderRemarks">Reason / Remarks (required)</label>
+          <textarea id="voidOrderRemarks" class="void-order-remarks" maxlength="200" rows="3" placeholder="e.g. Malik treat, staff meal"></textarea>
+          <div class="void-order-actions">
+            <button class="ghost-btn" id="voidOrderBackBtn" type="button">Back</button>
+            <button class="primary-btn danger-btn" id="voidOrderConfirmBtn" type="button">Confirm Void</button>
+          </div>
+        </div>
       </div>
     </section>
   </div>

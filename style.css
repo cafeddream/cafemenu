@@ -2482,3 +2482,44 @@ body.staff-login-active .ps-splash {
   color: #666;
   line-height: 1.4;
 }
+
+.danger-btn {
+  color: #b83232;
+  border-color: #e8b4b4;
+}
+
+.danger-btn.primary-btn {
+  background: #b83232;
+  border-color: #b83232;
+  color: #fff;
+}
+
+.void-order-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px dashed #ddd;
+}
+
+.void-order-remarks {
+  width: 100%;
+  min-height: 72px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.void-order-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.payment-method-body .danger-btn#voidOrderBtn {
+  width: 100%;
+  margin-top: 4px;
+}

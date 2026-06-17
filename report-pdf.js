@@ -195,6 +195,14 @@ const CANCEL_COLS = [
   { label: "Amount", w: 28, align: "right" }
 ];
 
+const VOID_COLS = [
+  { label: "Date / Time", w: 30 },
+  { label: "Table", w: 14 },
+  { label: "Order", w: 20 },
+  { label: "Amount", w: 24, align: "right" },
+  { label: "Reason", w: 54 }
+];
+
 const MENU_COLS = [
   { label: "Item", w: 108 },
   { label: "Qty", w: 28, align: "right" },
@@ -226,7 +234,8 @@ export async function buildSalesReportPdf(report) {
     ["Cash Collection", fmtMoney(report.cash || 0)],
     ["Online Collection", fmtMoney(report.online || 0)],
     ["Cancelled Without Payment", `${report.cancelledWithoutPaymentCount || 0} orders  ·  ${fmtMoney(report.cancelledWithoutPaymentAmount || 0)}`],
-    ["Cancelled After Payment", `${report.cancelledWithPaymentCount || 0} orders  ·  ${fmtMoney(report.cancelledWithPaymentAmount || 0)}`]
+    ["Cancelled After Payment", `${report.cancelledWithPaymentCount || 0} orders  ·  ${fmtMoney(report.cancelledWithPaymentAmount || 0)}`],
+    ["Void Orders (not collected)", `${report.voidOrderCount || 0} orders  ·  ${fmtMoney(report.voidOrderAmount || 0)}`]
   ], y);
 
   y = drawSectionTitle(doc, "Food Orders (All Tables)", y);
@@ -289,6 +298,24 @@ export async function buildSalesReportPdf(report) {
         String(row.orderId || "").slice(0, 8) || "-",
         row.wasPaid ? "After payment" : "Without payment",
         fmtMoney(row.amount || 0)
+      ], y, index);
+    });
+  }
+  y += 4;
+
+  y = drawSectionTitle(doc, "Void Orders", y);
+  y = drawTableHeader(doc, VOID_COLS, y);
+  const voidOrders = report.voidOrderDetails || [];
+  if (!voidOrders.length) {
+    y = drawEmptyRow(doc, VOID_COLS, "No void orders in this period.", y);
+  } else {
+    voidOrders.forEach((row, index) => {
+      y = drawTableRow(doc, VOID_COLS, [
+        row.time || row.date || "-",
+        formatTableDisplayName(row.tableId),
+        row.type === "counter_pending" ? "Counter" : String(row.orderId || "").slice(0, 8) || "-",
+        fmtMoney(row.amount || 0),
+        row.voidRemarks || "-"
       ], y, index);
     });
   }
