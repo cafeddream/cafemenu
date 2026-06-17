@@ -21,7 +21,7 @@ import {
   verifyOrderPayment
 } from "./firebase.js";
 import { openAdminOrderModal } from "./admin-orders.js";
-import { buildSittingEntryHtmlPreview, buildCompressedCustomerPhotos, buildSittingPdfFileName, buildSittingRecordPdf, mergeCustomersWithPhotos, preloadJsPdf } from "./private-sitting-pdf.js";
+import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingRecordPdf, compressPhotoDataUrl, mergeCustomersWithPhotos, preloadJsPdf, withTimeout } from "./private-sitting-pdf.js";
 import { isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout } from "./sitting-sync.js";
 import {
   connectPrinter,
@@ -43,6 +43,7 @@ const state = {
   selectedSittingId: null,
   selectedSessionId: null,
   checkInDraft: null,
+  checkInSubmitting: false,
   checkoutDraft: null,
   foodOrderReturnSessionId: null,
   timerHandle: null
@@ -61,6 +62,7 @@ const elements = {
   checkInTitle: document.querySelector("#psCheckInTitle"),
   checkInForm: document.querySelector("#psCheckInForm"),
   checkInPreview: document.querySelector("#psCheckInPreview"),
+  checkInError: document.querySelector("#psCheckInError"),
   sessionModal: document.querySelector("#psSessionModal"),
   sessionBody: document.querySelector("#psSessionBody"),
   closeCheckIn: document.querySelector("#closePsCheckIn"),
@@ -77,6 +79,116 @@ const elements = {
   checkoutDiscountValue: document.querySelector("#psCheckoutDiscountValue"),
   checkoutFinalPayable: document.querySelector("#psCheckoutFinalPayable")
 };
+
+const CHECK_IN_BTN_LABEL = "Confirm Check-in";
+
+function setCheckInBusy(busy) {
+  if (!elements.confirmCheckIn) return;
+  if (busy) {
+    if (!elements.confirmCheckIn.dataset.originalLabel) {
+      elements.confirmCheckIn.dataset.originalLabel = elements.confirmCheckIn.textContent || CHECK_IN_BTN_LABEL;
+    }
+    elements.confirmCheckIn.disabled = true;
+    elements.confirmCheckIn.textContent = "Checking in...";
+    return;
+  }
+  elements.confirmCheckIn.disabled = false;
+  elements.confirmCheckIn.textContent = elements.confirmCheckIn.dataset.originalLabel || CHECK_IN_BTN_LABEL;
+}
+
+function showCheckInError(message) {
+  if (!elements.checkInError) return;
+  elements.checkInError.textContent = message;
+  elements.checkInError.hidden = false;
+}
+
+function clearCheckInError() {
+  if (!elements.checkInError) return;
+  elements.checkInError.textContent = "";
+  elements.checkInError.hidden = true;
+}
+
+function buildRawCustomerPhotos(customers = []) {
+  return customers.map((customer) => ({
+    photoFrontDataUrl: customer.photoFrontDataUrl || "",
+    photoBackDataUrl: customer.photoBackDataUrl || ""
+  }));
+}
+
+function withRejectTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))
+  ]);
+}
+
+function formatCheckInError(error) {
+  const code = error?.code || "";
+  const message = String(error?.message || "");
+  if (message.includes("Could not save session") || message.includes("Timed out") || code === "unavailable") {
+    return "Could not save session. Check internet and try again.";
+  }
+  if (code === "permission-denied") {
+    return "Permission denied. Sign in again as staff.";
+  }
+  return message || "Check-in failed. Please try again.";
+}
+
+async function runCheckInBackground(sessionId, draft, customers, checkInLabel) {
+  const pdfFileName = buildSittingPdfFileName(draft.sittingId, sessionId);
+  let pdfBase64 = "";
+
+  try {
+    const storedPhotos = loadSessionPhotosLocal(sessionId);
+    const customersForPdf = mergeCustomersWithPhotos(customers, storedPhotos);
+    const pdfDataUrl = await withTimeout(
+      buildSittingRecordPdf({
+        phase: "checkin",
+        sittingId: draft.sittingId,
+        mobile: draft.mobile,
+        sessionId,
+        customers: customersForPdf,
+        checkInLabel
+      }),
+      20000,
+      null
+    );
+    pdfBase64 = pdfDataUrl ? (pdfDataUrl.split(",")[1] || "") : "";
+  } catch (error) {
+    console.warn("Check-in PDF skipped:", error);
+  }
+
+  const syncPayload = {
+    sessionId,
+    sittingId: draft.sittingId,
+    mobile: draft.mobile,
+    customers: customers.map(({ name, dob }) => ({ name, dob })),
+    pdfBase64,
+    pdfFileName,
+    checkInLabel,
+    dateKey: getTodayKey()
+  };
+
+  try {
+    const syncResult = await syncSittingCheckIn(syncPayload);
+    if (syncResult?.ok) {
+      await updatePrivateSession(sessionId, {
+        sheetSynced: true,
+        sheetRowNumber: syncResult.rowNumber,
+        pdfDriveUrl: syncResult.pdfDriveUrl || "",
+        pdfFileId: syncResult.pdfFileId || "",
+        pdfFileName
+      });
+      return;
+    }
+    if (!syncResult?.skipped) {
+      showToast("Check-in saved. Google sync pending.");
+    }
+  } catch (error) {
+    console.warn("Check-in sync failed:", error);
+    showToast("Check-in saved. Google sync failed.");
+  }
+}
 
 function emptyCustomer() {
   return {
@@ -410,11 +522,29 @@ function renderCheckInForm() {
       const file = input.files?.[0];
       if (!file) return;
       const idx = Number(index);
-      const dataUrl = await readFileAsDataUrl(file);
-      if (side === "front") draft.customers[idx].photoFrontDataUrl = dataUrl;
-      else draft.customers[idx].photoBackDataUrl = dataUrl;
-      renderCheckInForm();
-      updateCheckInPreview();
+      const photoButton = elements.checkInForm.querySelector(
+        `[data-photo-side="${side}"][data-photo-index="${index}"]`
+      );
+      if (photoButton) {
+        photoButton.disabled = true;
+        photoButton.textContent = "Compressing...";
+      }
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        const compressed = await compressPhotoDataUrl(dataUrl);
+        if (!compressed) {
+          showToast("Could not process photo. Try again.");
+          return;
+        }
+        if (side === "front") draft.customers[idx].photoFrontDataUrl = compressed;
+        else draft.customers[idx].photoBackDataUrl = compressed;
+        renderCheckInForm();
+        updateCheckInPreview();
+      } catch (error) {
+        console.warn("Photo capture failed:", error);
+        showToast("Could not process photo. Try again.");
+        renderCheckInForm();
+      }
     };
   });
 
@@ -447,11 +577,14 @@ async function updateCheckInPreview() {
 
 function openCheckInModal(sittingId) {
   state.checkInDraft = createCheckInDraft(sittingId);
+  state.checkInSubmitting = false;
   state.selectedSittingId = sittingId;
+  clearCheckInError();
   if (elements.checkInTitle) elements.checkInTitle.textContent = `Check-in — ${sittingId}`;
   renderCheckInForm();
   updateCheckInPreview();
   preloadJsPdf();
+  setCheckInBusy(false);
   if (elements.checkInModal) elements.checkInModal.hidden = false;
 }
 
@@ -515,6 +648,7 @@ function clearSessionPhotosLocal(sessionId) {
 }
 
 async function submitCheckIn() {
+  if (state.checkInSubmitting) return;
   syncDraftFromForm();
   const draft = state.checkInDraft;
   if (!draft || !validateCheckInDraft(draft)) return;
@@ -522,71 +656,46 @@ async function submitCheckIn() {
   const sitting = getPrivateSittingConfig(draft.sittingId);
   if (!sitting) return;
 
-  elements.confirmCheckIn.disabled = true;
+  state.checkInSubmitting = true;
+  clearCheckInError();
+  setCheckInBusy(true);
+
+  const checkInLabel = new Date().toLocaleString();
+  const customers = draft.customers.map((customer) => ({
+    name: customer.name.trim(),
+    dob: customer.dob.trim()
+  }));
+  const backgroundDraft = {
+    sittingId: draft.sittingId,
+    mobile: draft.mobile
+  };
+
   try {
-    const checkInLabel = new Date().toLocaleString();
-    const customers = draft.customers.map((customer) => ({
-      name: customer.name.trim(),
-      dob: customer.dob.trim()
-    }));
-    const compressedPhotos = await buildCompressedCustomerPhotos(draft.customers);
-    const customersForPdf = mergeCustomersWithPhotos(customers, compressedPhotos);
+    const sessionId = await withRejectTimeout(
+      createPrivateSession({
+        sittingId: draft.sittingId,
+        mobile: draft.mobile,
+        customers,
+        displayName: buildCustomerDisplayName(customers),
+        ratePerHour: sitting.ratePerHour
+      }),
+      20000,
+      "Could not save session. Check internet and try again."
+    );
 
-    const sessionId = await createPrivateSession({
-      sittingId: draft.sittingId,
-      mobile: draft.mobile,
-      customers,
-      displayName: buildCustomerDisplayName(customers),
-      ratePerHour: sitting.ratePerHour
-    });
-
-    saveSessionPhotosLocal(sessionId, compressedPhotos);
-
-    const pdfDataUrl = await buildSittingRecordPdf({
-      phase: "checkin",
-      sittingId: draft.sittingId,
-      mobile: draft.mobile,
-      sessionId,
-      customers: customersForPdf,
-      checkInLabel
-    });
-    const pdfFileName = buildSittingPdfFileName(draft.sittingId, sessionId);
-
-    const syncPayload = {
-      sessionId,
-      sittingId: draft.sittingId,
-      mobile: draft.mobile,
-      customers: customers.map(({ name, dob }) => ({ name, dob })),
-      pdfBase64: pdfDataUrl.split(",")[1] || "",
-      pdfFileName,
-      checkInLabel,
-      dateKey: getTodayKey()
-    };
+    saveSessionPhotosLocal(sessionId, buildRawCustomerPhotos(draft.customers));
 
     closeCheckInModal();
     showToast(`${draft.sittingId} checked in`);
-
-    syncSittingCheckIn(syncPayload).then((syncResult) => {
-      if (syncResult?.ok) {
-        return updatePrivateSession(sessionId, {
-          sheetSynced: true,
-          sheetRowNumber: syncResult.rowNumber,
-          pdfDriveUrl: syncResult.pdfDriveUrl || "",
-          pdfFileId: syncResult.pdfFileId || "",
-          pdfFileName
-        });
-      }
-      if (!syncResult?.skipped) {
-        showToast("Saved locally. Google sync pending.");
-      }
-    }).catch(() => {
-      showToast("Check-in saved. Google sync failed — retry from settings later.");
-    });
+    runCheckInBackground(sessionId, backgroundDraft, customers, checkInLabel);
   } catch (error) {
     console.error("Check-in failed:", error);
-    showToast(error?.message || "Check-in failed. Please try again.");
+    const message = formatCheckInError(error);
+    showCheckInError(message);
+    showToast(message);
   } finally {
-    elements.confirmCheckIn.disabled = false;
+    state.checkInSubmitting = false;
+    setCheckInBusy(false);
   }
 }
 

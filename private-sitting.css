@@ -626,6 +626,16 @@ body[data-active-tab="orders"] .ps-manager-main {
   padding: 16px;
 }
 
+.ps-checkin-error {
+  margin: 0 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fdecea;
+  color: #b42318;
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
 .ps-customer-block {
   display: grid;
   gap: 10px;

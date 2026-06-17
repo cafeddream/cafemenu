@@ -16,9 +16,27 @@ const C = {
   rowAlt: [255, 250, 247]
 };
 
+export function withTimeout(promise, ms, fallback) {
+  return Promise.race([
+    promise,
+    new Promise((resolve, reject) => {
+      setTimeout(() => {
+        if (fallback !== undefined) resolve(fallback);
+        else reject(new Error("Timed out"));
+      }, ms);
+    })
+  ]);
+}
+
 export async function getJsPdf() {
   if (!jsPdfModule) {
-    jsPdfModule = await import("https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm");
+    const load = import("https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm").then((mod) => {
+      jsPdfModule = mod;
+      return mod.jsPDF;
+    });
+    return withTimeout(load, 15000).catch(() => {
+      throw new Error("PDF library unavailable");
+    });
   }
   return jsPdfModule.jsPDF;
 }
@@ -31,7 +49,7 @@ export function preloadJsPdf() {
 async function preloadPdfLogo() {
   if (logoDataUrl) return logoDataUrl;
   if (logoLoadPromise) return logoLoadPromise;
-  logoLoadPromise = fetch(CONFIG.RECEIPT_LOGO_SRC)
+  const work = fetch(CONFIG.RECEIPT_LOGO_SRC)
     .then((response) => {
       if (!response.ok) throw new Error("Logo fetch failed");
       return response.blob();
@@ -46,6 +64,7 @@ async function preloadPdfLogo() {
       reader.readAsDataURL(blob);
     }))
     .catch(() => null);
+  logoLoadPromise = withTimeout(work, 5000, null);
   return logoLoadPromise;
 }
 
@@ -282,7 +301,7 @@ export async function buildSittingEntryPdf(data) {
 }
 
 export function compressPhotoDataUrl(dataUrl, maxWidth = 520, quality = 0.62) {
-  return new Promise((resolve) => {
+  const work = new Promise((resolve) => {
     if (!dataUrl) {
       resolve("");
       return;
@@ -307,9 +326,10 @@ export function compressPhotoDataUrl(dataUrl, maxWidth = 520, quality = 0.62) {
         resolve(dataUrl);
       }
     };
-    img.onerror = () => resolve(dataUrl);
+    img.onerror = () => resolve("");
     img.src = dataUrl;
   });
+  return withTimeout(work, 8000, "");
 }
 
 export async function buildCompressedCustomerPhotos(customers = []) {
