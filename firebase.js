@@ -29,6 +29,7 @@ import {
   addDoc,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -277,6 +278,7 @@ export async function createPrivateSession(payload) {
     sittingId: payload.sittingId,
     mobile: payload.mobile,
     customers: payload.customers,
+    customerPhotos: payload.customerPhotos || [],
     displayName: payload.displayName,
     ratePerHour: payload.ratePerHour,
     status: "active",
@@ -298,6 +300,7 @@ export async function updatePrivateSession(sessionId, data) {
 export async function completePrivateSession(sessionId, checkoutData) {
   await updateDoc(privateSessionRef(sessionId), {
     ...checkoutData,
+    customerPhotos: deleteField(),
     status: "completed",
     checkOutAt: serverTimestamp(),
     updatedAt: serverTimestamp()

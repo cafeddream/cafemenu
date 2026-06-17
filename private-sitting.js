@@ -21,7 +21,7 @@ import {
   verifyOrderPayment
 } from "./firebase.js";
 import { openAdminOrderModal } from "./admin-orders.js";
-import { buildSittingEntryHtmlPreview, buildSittingEntryPdf, preloadJsPdf } from "./private-sitting-pdf.js";
+import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingRecordPdf, mergeCustomersWithPhotos, preloadJsPdf } from "./private-sitting-pdf.js";
 import { isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout } from "./sitting-sync.js";
 import {
   connectPrinter,
@@ -320,7 +320,7 @@ function renderSettings() {
     </section>
     <section class="ps-settings-card">
       <h3>Google Sync</h3>
-      <p>${syncReady ? "Apps Script URL configured." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
+      <p>${syncReady ? "One PDF per session in Drive (by date). Sheet: 11 columns. Redeploy Apps Script after update; rename old sheet tab to \"Private Sitting (old)\" if needed." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
     </section>
     <section class="ps-settings-card">
       <h3>Sitting Rates</h3>
@@ -487,20 +487,11 @@ function validateCheckInDraft(draft) {
   return true;
 }
 
-function buildPhotoFiles(customers = []) {
-  return customers.flatMap((customer, index) => {
-    const customerNo = index + 1;
-    return [
-      {
-        name: `customer${customerNo}_id_front.jpg`,
-        base64: (customer.photoFrontDataUrl || "").split(",")[1] || ""
-      },
-      {
-        name: `customer${customerNo}_id_back.jpg`,
-        base64: (customer.photoBackDataUrl || "").split(",")[1] || ""
-      }
-    ].filter((file) => file.base64);
-  });
+function buildCustomerPhotosPayload(customers = []) {
+  return customers.map((customer) => ({
+    photoFrontDataUrl: customer.photoFrontDataUrl || "",
+    photoBackDataUrl: customer.photoBackDataUrl || ""
+  }));
 }
 
 async function submitCheckIn() {
@@ -514,33 +505,40 @@ async function submitCheckIn() {
   elements.confirmCheckIn.disabled = true;
   try {
     const checkInLabel = new Date().toLocaleString();
-    const pdfDataUrl = await buildSittingEntryPdf({
-      sittingId: draft.sittingId,
-      mobile: draft.mobile,
-      customers: draft.customers,
-      checkInLabel
-    });
-
     const customers = draft.customers.map((customer) => ({
       name: customer.name.trim(),
-      dob: customer.dob.trim()
+      dob: customer.dob.trim(),
+      photoFrontDataUrl: customer.photoFrontDataUrl,
+      photoBackDataUrl: customer.photoBackDataUrl
     }));
+    const customerPhotos = buildCustomerPhotosPayload(draft.customers);
 
     const sessionId = await createPrivateSession({
       sittingId: draft.sittingId,
       mobile: draft.mobile,
-      customers,
+      customers: customers.map(({ name, dob }) => ({ name, dob })),
+      customerPhotos,
       displayName: buildCustomerDisplayName(customers),
       ratePerHour: sitting.ratePerHour
     });
+
+    const pdfDataUrl = await buildSittingRecordPdf({
+      phase: "checkin",
+      sittingId: draft.sittingId,
+      mobile: draft.mobile,
+      sessionId,
+      customers,
+      checkInLabel
+    });
+    const pdfFileName = buildSittingPdfFileName(draft.sittingId, sessionId);
 
     const syncPayload = {
       sessionId,
       sittingId: draft.sittingId,
       mobile: draft.mobile,
-      customers,
-      photoFiles: buildPhotoFiles(draft.customers),
+      customers: customers.map(({ name, dob }) => ({ name, dob })),
       pdfBase64: pdfDataUrl.split(",")[1] || "",
+      pdfFileName,
       checkInLabel,
       dateKey: getTodayKey()
     };
@@ -548,15 +546,14 @@ async function submitCheckIn() {
     closeCheckInModal();
     showToast(`${draft.sittingId} checked in`);
 
-    // Sync photos/PDF to Google Drive in the background so the UI is not blocked.
     syncSittingCheckIn(syncPayload).then((syncResult) => {
       if (syncResult?.ok) {
         return updatePrivateSession(sessionId, {
           sheetSynced: true,
           sheetRowNumber: syncResult.rowNumber,
-          driveFolderUrl: syncResult.driveFolderUrl || "",
-          photoDriveUrls: syncResult.photoDriveUrls || [],
-          pdfDriveUrl: syncResult.pdfDriveUrl || ""
+          pdfDriveUrl: syncResult.pdfDriveUrl || "",
+          pdfFileId: syncResult.pdfFileId || "",
+          pdfFileName
         });
       }
       if (!syncResult?.skipped) {
@@ -783,27 +780,52 @@ async function confirmCheckout(method) {
     });
 
     const session = draft.session;
+    const checkOutLabel = new Date().toLocaleString();
+    const customersWithPhotos = mergeCustomersWithPhotos(
+      session.customers || [],
+      session.customerPhotos || []
+    );
+
+    let checkoutPdfBase64 = "";
+    let checkoutPdfFileName = session.pdfFileName || buildSittingPdfFileName(session.sittingId, draft.sessionId);
+    try {
+      const pdfDataUrl = await buildSittingRecordPdf({
+        phase: "full",
+        sittingId: session.sittingId,
+        mobile: session.mobile,
+        sessionId: draft.sessionId,
+        customers: customersWithPhotos,
+        checkInAt: session.checkInAt,
+        checkout: {
+          checkOutLabel,
+          durationMinutes: draft.sitting.durationMinutes,
+          sittingAmount: draft.sittingAmount,
+          foodAmount: draft.foodAmount,
+          grossTotal: discountInfo.grossTotal,
+          discountAmount: discountInfo.discountAmount,
+          grandTotal: discountInfo.finalTotal,
+          paymentMethod: method
+        }
+      });
+      checkoutPdfBase64 = pdfDataUrl.split(",")[1] || "";
+    } catch {
+      console.warn("Checkout PDF generation failed");
+    }
 
     closeCheckoutModal();
     closeSessionModal();
     showToast(`${session.sittingId} checked out — ${formatCurrency(discountInfo.finalTotal)}`);
 
-    // Update the Google Sheet row in the background so checkout finishes instantly.
     if (session?.sheetRowNumber) {
       syncSittingCheckout({
         sessionId: draft.sessionId,
         sheetRowNumber: session.sheetRowNumber,
-        checkOutLabel: new Date().toLocaleString(),
+        checkOutLabel,
         durationMinutes: draft.sitting.durationMinutes,
-        sittingAmount: draft.sittingAmount,
-        foodAmount: draft.foodAmount,
-        grossTotal: discountInfo.grossTotal,
-        discountType: discountInfo.discountType,
-        discountValue: discountInfo.discountValue,
-        discountAmount: discountInfo.discountAmount,
-        grandTotal: discountInfo.finalTotal,
-        paymentMethod: method,
-        billedAmount: draft.sittingAmount
+        pdfBase64: checkoutPdfBase64,
+        pdfFileName: checkoutPdfFileName,
+        pdfFileId: session.pdfFileId || "",
+        dateKey: getTodayKey()
       }).catch(() => {
         showToast("Checkout saved. Sheet update failed.");
       });

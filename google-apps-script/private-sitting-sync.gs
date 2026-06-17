@@ -1,9 +1,13 @@
 /**
  * Deploy as Web App (Execute as: Me, Access: Anyone).
  * Paste deployed URL into CONFIG.APPS_SCRIPT_URL in firebase.js.
+ *
+ * Sheet migration: rename old "Private Sitting" tab to "Private Sitting (old)".
+ * Script creates a fresh "Private Sitting" tab with 11 columns if missing.
  */
 const ROOT_FOLDER_NAME = "Cafe D Dream";
 const SITTING_FOLDER_NAME = "Private Sitting";
+const SHEET_NAME = "Private Sitting";
 
 const SHEET_HEADERS = [
   "Date",
@@ -16,21 +20,7 @@ const SHEET_HEADERS = [
   "Check-in",
   "Check-out",
   "Duration (min)",
-  "Sitting Amount",
-  "Food Amount",
-  "Grand Total",
-  "Payment Method",
-  "C1 Front URL",
-  "C1 Back URL",
-  "C2 Front URL",
-  "C2 Back URL",
-  "PDF URL",
-  "Session ID",
-  "Gross Total",
-  "Discount Type",
-  "Discount Value",
-  "Discount Amount",
-  "Final Total"
+  "PDF URL"
 ];
 
 function doPost(e) {
@@ -54,23 +44,23 @@ function doPost(e) {
 function handleCheckIn(payload) {
   const sheet = ensureSheet_();
   const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
-  const folder = ensureDayFolder_(dateKey, payload.sittingId, payload.sessionId);
-
-  const customers = payload.customers || [];
-  const photoUrls = [];
-  (payload.photoFiles || []).forEach((photoFile) => {
-    if (!photoFile?.base64) return;
-    const fileName = photoFile.name || `photo_${photoUrls.length + 1}.jpg`;
-    const blob = Utilities.newBlob(Utilities.base64Decode(photoFile.base64), "image/jpeg", fileName);
-    photoUrls.push(folder.createFile(blob).getUrl());
-  });
+  const dayFolder = ensureDayFolder_(dateKey);
 
   let pdfUrl = "";
+  let pdfFileId = "";
   if (payload.pdfBase64) {
-    const pdfBlob = Utilities.newBlob(Utilities.base64Decode(payload.pdfBase64), "application/pdf", "entry.pdf");
-    pdfUrl = folder.createFile(pdfBlob).getUrl();
+    const fileName = payload.pdfFileName || `session_${payload.sessionId || Utilities.getUuid()}.pdf`;
+    const pdfBlob = Utilities.newBlob(
+      Utilities.base64Decode(payload.pdfBase64),
+      "application/pdf",
+      fileName
+    );
+    const pdfFile = dayFolder.createFile(pdfBlob);
+    pdfUrl = pdfFile.getUrl();
+    pdfFileId = pdfFile.getId();
   }
 
+  const customers = payload.customers || [];
   const row = [
     dateKey,
     payload.sittingId || "",
@@ -82,21 +72,7 @@ function handleCheckIn(payload) {
     payload.checkInLabel || "",
     "",
     "",
-    "",
-    "",
-    "",
-    "",
-    photoUrls[0] || "",
-    photoUrls[1] || "",
-    photoUrls[2] || "",
-    photoUrls[3] || "",
-    pdfUrl,
-    payload.sessionId || "",
-    "",
-    "",
-    "",
-    "",
-    ""
+    pdfUrl
   ];
 
   sheet.appendRow(row);
@@ -104,15 +80,14 @@ function handleCheckIn(payload) {
 
   return {
     ok: true,
-    rowNumber,
-    driveFolderUrl: folder.getUrl(),
-    photoDriveUrls: photoUrls,
-    pdfDriveUrl: pdfUrl
+    rowNumber: rowNumber,
+    pdfDriveUrl: pdfUrl,
+    pdfFileId: pdfFileId
   };
 }
 
 function handleCheckout(payload) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const sheet = ensureSheet_();
   const rowNumber = Number(payload.sheetRowNumber || 0);
   if (!rowNumber || rowNumber < 2) {
     return { ok: false, error: "Missing sheet row number" };
@@ -120,38 +95,66 @@ function handleCheckout(payload) {
 
   sheet.getRange(rowNumber, 9).setValue(payload.checkOutLabel || "");
   sheet.getRange(rowNumber, 10).setValue(payload.durationMinutes || "");
-  sheet.getRange(rowNumber, 11).setValue(payload.sittingAmount ?? payload.billedAmount ?? "");
-  sheet.getRange(rowNumber, 12).setValue(payload.foodAmount || "");
-  sheet.getRange(rowNumber, 13).setValue(payload.grandTotal ?? payload.billedAmount ?? "");
-  sheet.getRange(rowNumber, 14).setValue(payload.paymentMethod || "");
-  sheet.getRange(rowNumber, 21).setValue(payload.grossTotal ?? "");
-  sheet.getRange(rowNumber, 22).setValue(payload.discountType || "");
-  sheet.getRange(rowNumber, 23).setValue(payload.discountValue ?? "");
-  sheet.getRange(rowNumber, 24).setValue(payload.discountAmount ?? "");
-  sheet.getRange(rowNumber, 25).setValue(payload.grandTotal ?? "");
 
-  return { ok: true };
+  let pdfUrl = "";
+  if (payload.pdfBase64) {
+    const pdfBlob = Utilities.newBlob(
+      Utilities.base64Decode(payload.pdfBase64),
+      "application/pdf",
+      payload.pdfFileName || "session_checkout.pdf"
+    );
+
+    if (payload.pdfFileId) {
+      const existing = DriveApp.getFileById(payload.pdfFileId);
+      existing.setContent(pdfBlob);
+      pdfUrl = existing.getUrl();
+    } else {
+      const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+      const dayFolder = ensureDayFolder_(dateKey);
+      const pdfFile = dayFolder.createFile(pdfBlob);
+      pdfUrl = pdfFile.getUrl();
+      sheet.getRange(rowNumber, 11).setValue(pdfUrl);
+    }
+  }
+
+  return {
+    ok: true,
+    pdfDriveUrl: pdfUrl
+  };
 }
 
 function ensureSheet_() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = spreadsheet.getSheetByName("Private Sitting");
+  let sheet = spreadsheet.getSheetByName(SHEET_NAME);
   if (!sheet) {
-    sheet = spreadsheet.insertSheet("Private Sitting");
+    sheet = spreadsheet.insertSheet(SHEET_NAME);
     sheet.appendRow(SHEET_HEADERS);
-  } else if (sheet.getLastRow() === 0) {
+    return sheet;
+  }
+
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(SHEET_HEADERS);
+    return sheet;
+  }
+
+  const header = sheet.getRange(1, 1, 1, SHEET_HEADERS.length).getValues()[0];
+  const matches = header.every(function(value, index) {
+    return String(value || "") === SHEET_HEADERS[index];
+  });
+
+  if (!matches) {
+    const altName = SHEET_NAME + " " + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+    sheet = spreadsheet.insertSheet(altName);
     sheet.appendRow(SHEET_HEADERS);
   }
+
   return sheet;
 }
 
-function ensureDayFolder_(dateKey, sittingId, sessionId) {
+function ensureDayFolder_(dateKey) {
   const root = getOrCreateFolder_(DriveApp.getRootFolder(), ROOT_FOLDER_NAME);
   const sittingRoot = getOrCreateFolder_(root, SITTING_FOLDER_NAME);
-  const dayFolder = getOrCreateFolder_(sittingRoot, dateKey);
-  const folderName = `${sittingId || "PS"}_${sessionId || Utilities.getUuid()}`;
-  const matches = dayFolder.getFoldersByName(folderName);
-  return matches.hasNext() ? matches.next() : dayFolder.createFolder(folderName);
+  return getOrCreateFolder_(sittingRoot, dateKey);
 }
 
 function getOrCreateFolder_(parent, name) {
