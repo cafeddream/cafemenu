@@ -1,7 +1,6 @@
 import { CONFIG } from "./firebase.js";
 import { initAdminOrders } from "./admin-orders.js";
 import { initPrivateSitting, refreshPrivateSittingView } from "./private-sitting.js";
-import { ensurePrinterConnected } from "./printer-serial.js";
 import { requireStaffAuth } from "./staff-auth.js";
 
 const elements = {
@@ -108,9 +107,6 @@ function startManagerApp() {
   setActiveTab(sittingRoute ? "orders" : "orders");
   initPrivateSitting();
   initAdminOrders();
-  ensurePrinterConnected().then((ready) => {
-    if (ready) window.dispatchEvent(new CustomEvent("printer-status-change"));
-  }).catch(() => {});
   hideSplash();
 }
 

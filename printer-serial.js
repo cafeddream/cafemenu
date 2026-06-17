@@ -5,6 +5,13 @@ const OPEN_WAKE_MS = 300;
 const WRITE_CHUNK_SIZE = 128;
 const WRITE_CHUNK_DELAY_MS = 20;
 const WRITE_FINISH_DELAY_MS = 100;
+const SPP_UUID = "00001101-0000-1000-8000-00805f9b34fb";
+const SIG_BASE_SUFFIX = "-0000-1000-8000-00805f9b34fb";
+
+const DEFAULT_CUSTOM_BLUETOOTH_IDS = [
+  "e7810a71-73ae-499d-8c15-faa9aaf9843d",
+  "49535343-fe7d-4ae5-8fa9-9fdfcf3e0c83"
+];
 
 let activePort = null;
 let connected = false;
@@ -19,16 +26,38 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isBlockedSigBaseUuid(uuid = "") {
+  const normalized = String(uuid).toLowerCase();
+  if (normalized === SPP_UUID) return false;
+  return normalized.endsWith(SIG_BASE_SUFFIX);
+}
+
+function isValidCustomBluetoothUuid(value) {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value !== 0x1101;
+  }
+  const uuid = String(value).trim().toLowerCase();
+  if (!uuid) return false;
+  if (uuid === "1101" || uuid === "0x1101") return false;
+  const fullUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  if (!fullUuidPattern.test(uuid)) return false;
+  return !isBlockedSigBaseUuid(uuid);
+}
+
+export function normalizeAllowedBluetoothServiceClassIds(ids = []) {
+  const source = ids.length ? ids : DEFAULT_CUSTOM_BLUETOOTH_IDS;
+  const normalized = [];
+  for (const id of source) {
+    if (!isValidCustomBluetoothUuid(id)) continue;
+    const value = typeof id === "number" ? id : String(id).trim().toLowerCase();
+    if (!normalized.includes(value)) normalized.push(value);
+  }
+  return normalized;
+}
+
 function getAllowedBluetoothServiceClassIds() {
-  const ids = CONFIG.PRINTER_CONFIG?.allowedBluetoothServiceClassIds;
-  if (ids?.length) return ids;
-  return [
-    "00001101-0000-1000-8000-00805f9b34fb",
-    "1101",
-    "00001100-0000-1000-8000-00805f9b34fb",
-    "e7810a71-73ae-499d-8c15-faa9aaf9843d",
-    "49535343-fe7d-4ae5-8fa9-9fdfcf3e0c83"
-  ];
+  const configured = CONFIG.PRINTER_CONFIG?.allowedBluetoothServiceClassIds || [];
+  return normalizeAllowedBluetoothServiceClassIds(configured);
 }
 
 export function getBaudRate() {
@@ -69,16 +98,32 @@ function formatPortInfo(info = {}) {
   return parts.join(" · ");
 }
 
+async function safeClosePort(port) {
+  if (!port) return;
+  try {
+    if (port.readable) {
+      await port.readable.cancel().catch(() => {});
+    }
+    await port.close();
+  } catch {
+    // Port may already be closed.
+  }
+}
+
 async function openPort(port) {
-  await port.open({
-    baudRate: getBaudRate(),
-    dataBits: 8,
-    stopBits: 1,
-    parity: "none",
-    flowControl: "none",
-    bufferSize: 4096
-  });
-  await delay(OPEN_WAKE_MS);
+  try {
+    await port.open({
+      baudRate: getBaudRate(),
+      dataBits: 8,
+      stopBits: 1,
+      parity: "none",
+      flowControl: "none"
+    });
+    await delay(OPEN_WAKE_MS);
+  } catch (error) {
+    await safeClosePort(port);
+    throw error;
+  }
 }
 
 function attachPort(port) {
@@ -117,10 +162,20 @@ export function getPrinterStatus() {
 }
 
 async function pickPortFromPicker() {
-  const requestOptions = {
-    allowedBluetoothServiceClassIds: getAllowedBluetoothServiceClassIds()
-  };
-  return navigator.serial.requestPort(requestOptions);
+  try {
+    return await navigator.serial.requestPort();
+  } catch (error) {
+    if (error?.name !== "NotFoundError") throw error;
+  }
+
+  const customIds = getAllowedBluetoothServiceClassIds();
+  if (!customIds.length) {
+    throw new DOMException("No compatible serial device found.", "NotFoundError");
+  }
+
+  return navigator.serial.requestPort({
+    allowedBluetoothServiceClassIds: customIds
+  });
 }
 
 export async function connectPrinter(options = {}) {
@@ -132,13 +187,20 @@ export async function connectPrinter(options = {}) {
     return reconnectSavedPrinter();
   }
 
-  const grantedPorts = await navigator.serial.getPorts();
   let port = null;
-
-  if (grantedPorts.length === 1) {
-    port = grantedPorts[0];
-  } else {
+  if (options.prompt) {
     port = await pickPortFromPicker();
+  } else {
+    const grantedPorts = await navigator.serial.getPorts();
+    if (grantedPorts.length === 1) {
+      port = grantedPorts[0];
+    } else {
+      port = await pickPortFromPicker();
+    }
+  }
+
+  if (isPrinterConnected()) {
+    await disconnectPrinter();
   }
 
   await openPort(port);
@@ -204,10 +266,7 @@ export async function disconnectPrinter() {
   }
 
   try {
-    if (activePort.readable) {
-      await activePort.readable.cancel().catch(() => {});
-    }
-    await activePort.close();
+    await safeClosePort(activePort);
   } catch (error) {
     lastError = error?.message || String(error);
   }

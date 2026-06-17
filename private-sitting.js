@@ -812,7 +812,7 @@ function bindPrinterSettingsUi() {
     if (connectBtn) {
       connectBtn.disabled = true;
       try {
-        await connectPrinter();
+        await connectPrinter({ prompt: true });
         showToast("Printer connected.");
       } catch (error) {
         if (error?.name === "NotFoundError") {
