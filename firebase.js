@@ -63,7 +63,7 @@ export const CONFIG = {
     ]
   },
   RECEIPT_LOGO_SRC: "./assets/receipt-logo.png",
-  APPS_SCRIPT_URL: "PASTE_DEPLOYED_WEB_APP_URL",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbx_EHQUIRW084LWmn5D9jdY-QcM0cHc0tSOqonH_i2QZvgcTRbNdW0v8peQfwMdHF9t/exec",
   PRIVATE_SITTINGS: [
     { id: "PS 1", ratePerHour: 150, theme: "ps-green" },
     { id: "PS 2", ratePerHour: 150, theme: "ps-green" },
