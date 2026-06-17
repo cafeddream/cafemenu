@@ -32,7 +32,10 @@ async function preloadPdfLogo() {
   if (logoDataUrl) return logoDataUrl;
   if (logoLoadPromise) return logoLoadPromise;
   logoLoadPromise = fetch(CONFIG.RECEIPT_LOGO_SRC)
-    .then((response) => response.blob())
+    .then((response) => {
+      if (!response.ok) throw new Error("Logo fetch failed");
+      return response.blob();
+    })
     .then((blob) => new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
@@ -41,7 +44,8 @@ async function preloadPdfLogo() {
       };
       reader.onerror = reject;
       reader.readAsDataURL(blob);
-    }));
+    }))
+    .catch(() => null);
   return logoLoadPromise;
 }
 
@@ -275,6 +279,46 @@ export async function buildSittingRecordPdf({
 
 export async function buildSittingEntryPdf(data) {
   return buildSittingRecordPdf({ ...data, phase: "checkin" });
+}
+
+export function compressPhotoDataUrl(dataUrl, maxWidth = 520, quality = 0.62) {
+  return new Promise((resolve) => {
+    if (!dataUrl) {
+      resolve("");
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxWidth / Math.max(img.width, 1));
+      const width = Math.max(1, Math.round(img.width * scale));
+      const height = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      try {
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      } catch {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+export async function buildCompressedCustomerPhotos(customers = []) {
+  return Promise.all(
+    customers.map(async (customer) => ({
+      photoFrontDataUrl: await compressPhotoDataUrl(customer.photoFrontDataUrl),
+      photoBackDataUrl: await compressPhotoDataUrl(customer.photoBackDataUrl)
+    }))
+  );
 }
 
 export function mergeCustomersWithPhotos(customers = [], customerPhotos = []) {

@@ -21,7 +21,7 @@ import {
   verifyOrderPayment
 } from "./firebase.js";
 import { openAdminOrderModal } from "./admin-orders.js";
-import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingRecordPdf, mergeCustomersWithPhotos, preloadJsPdf } from "./private-sitting-pdf.js";
+import { buildSittingEntryHtmlPreview, buildCompressedCustomerPhotos, buildSittingPdfFileName, buildSittingRecordPdf, mergeCustomersWithPhotos, preloadJsPdf } from "./private-sitting-pdf.js";
 import { isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout } from "./sitting-sync.js";
 import {
   connectPrinter,
@@ -487,11 +487,31 @@ function validateCheckInDraft(draft) {
   return true;
 }
 
-function buildCustomerPhotosPayload(customers = []) {
-  return customers.map((customer) => ({
-    photoFrontDataUrl: customer.photoFrontDataUrl || "",
-    photoBackDataUrl: customer.photoBackDataUrl || ""
-  }));
+const PS_PHOTOS_STORAGE_PREFIX = "cafe_ps_photos_";
+
+function saveSessionPhotosLocal(sessionId, photos) {
+  try {
+    sessionStorage.setItem(`${PS_PHOTOS_STORAGE_PREFIX}${sessionId}`, JSON.stringify(photos));
+  } catch (error) {
+    console.warn("Could not cache session photos locally:", error);
+  }
+}
+
+function loadSessionPhotosLocal(sessionId) {
+  try {
+    const raw = sessionStorage.getItem(`${PS_PHOTOS_STORAGE_PREFIX}${sessionId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function clearSessionPhotosLocal(sessionId) {
+  try {
+    sessionStorage.removeItem(`${PS_PHOTOS_STORAGE_PREFIX}${sessionId}`);
+  } catch {
+    // Ignore storage cleanup errors.
+  }
 }
 
 async function submitCheckIn() {
@@ -507,27 +527,27 @@ async function submitCheckIn() {
     const checkInLabel = new Date().toLocaleString();
     const customers = draft.customers.map((customer) => ({
       name: customer.name.trim(),
-      dob: customer.dob.trim(),
-      photoFrontDataUrl: customer.photoFrontDataUrl,
-      photoBackDataUrl: customer.photoBackDataUrl
+      dob: customer.dob.trim()
     }));
-    const customerPhotos = buildCustomerPhotosPayload(draft.customers);
+    const compressedPhotos = await buildCompressedCustomerPhotos(draft.customers);
+    const customersForPdf = mergeCustomersWithPhotos(customers, compressedPhotos);
 
     const sessionId = await createPrivateSession({
       sittingId: draft.sittingId,
       mobile: draft.mobile,
-      customers: customers.map(({ name, dob }) => ({ name, dob })),
-      customerPhotos,
+      customers,
       displayName: buildCustomerDisplayName(customers),
       ratePerHour: sitting.ratePerHour
     });
+
+    saveSessionPhotosLocal(sessionId, compressedPhotos);
 
     const pdfDataUrl = await buildSittingRecordPdf({
       phase: "checkin",
       sittingId: draft.sittingId,
       mobile: draft.mobile,
       sessionId,
-      customers,
+      customers: customersForPdf,
       checkInLabel
     });
     const pdfFileName = buildSittingPdfFileName(draft.sittingId, sessionId);
@@ -562,8 +582,9 @@ async function submitCheckIn() {
     }).catch(() => {
       showToast("Check-in saved. Google sync failed — retry from settings later.");
     });
-  } catch {
-    showToast("Check-in failed. Please try again.");
+  } catch (error) {
+    console.error("Check-in failed:", error);
+    showToast(error?.message || "Check-in failed. Please try again.");
   } finally {
     elements.confirmCheckIn.disabled = false;
   }
@@ -781,9 +802,10 @@ async function confirmCheckout(method) {
 
     const session = draft.session;
     const checkOutLabel = new Date().toLocaleString();
+    const storedPhotos = loadSessionPhotosLocal(draft.sessionId);
     const customersWithPhotos = mergeCustomersWithPhotos(
       session.customers || [],
-      session.customerPhotos || []
+      session.customerPhotos?.length ? session.customerPhotos : storedPhotos
     );
 
     let checkoutPdfBase64 = "";
@@ -826,6 +848,8 @@ async function confirmCheckout(method) {
         pdfFileName: checkoutPdfFileName,
         pdfFileId: session.pdfFileId || "",
         dateKey: getTodayKey()
+      }).then(() => {
+        clearSessionPhotosLocal(draft.sessionId);
       }).catch(() => {
         showToast("Checkout saved. Sheet update failed.");
       });
