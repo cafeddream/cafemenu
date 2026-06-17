@@ -9,6 +9,13 @@ async function getJsPdf() {
   return jsPdfModule.jsPDF;
 }
 
+// Warms the jsPDF CDN module so check-in submit doesn't wait on the download.
+export function preloadJsPdf() {
+  getJsPdf().catch(() => {
+    // Preload is best-effort; submit will retry the import if needed.
+  });
+}
+
 function stripDataUrl(dataUrl = "") {
   const parts = String(dataUrl).split(",");
   return parts.length > 1 ? parts[1] : parts[0];

@@ -20,7 +20,7 @@ import {
   verifyOrderPayment
 } from "./firebase.js";
 import { openAdminOrderModal } from "./admin-orders.js";
-import { buildSittingEntryHtmlPreview, buildSittingEntryPdf } from "./private-sitting-pdf.js";
+import { buildSittingEntryHtmlPreview, buildSittingEntryPdf, preloadJsPdf } from "./private-sitting-pdf.js";
 import { isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout } from "./sitting-sync.js";
 import {
   connectPrinter,
@@ -447,6 +447,7 @@ function openCheckInModal(sittingId) {
   if (elements.checkInTitle) elements.checkInTitle.textContent = `Check-in — ${sittingId}`;
   renderCheckInForm();
   updateCheckInPreview();
+  preloadJsPdf();
   if (elements.checkInModal) elements.checkInModal.hidden = false;
 }
 
@@ -529,35 +530,37 @@ async function submitCheckIn() {
       ratePerHour: sitting.ratePerHour
     });
 
-    try {
-      const syncResult = await syncSittingCheckIn({
-        sessionId,
-        sittingId: draft.sittingId,
-        mobile: draft.mobile,
-        customers,
-        photoFiles: buildPhotoFiles(draft.customers),
-        pdfBase64: pdfDataUrl.split(",")[1] || "",
-        checkInLabel,
-        dateKey: getTodayKey()
-      });
+    const syncPayload = {
+      sessionId,
+      sittingId: draft.sittingId,
+      mobile: draft.mobile,
+      customers,
+      photoFiles: buildPhotoFiles(draft.customers),
+      pdfBase64: pdfDataUrl.split(",")[1] || "",
+      checkInLabel,
+      dateKey: getTodayKey()
+    };
 
+    closeCheckInModal();
+    showToast(`${draft.sittingId} checked in`);
+
+    // Sync photos/PDF to Google Drive in the background so the UI is not blocked.
+    syncSittingCheckIn(syncPayload).then((syncResult) => {
       if (syncResult?.ok) {
-        await updatePrivateSession(sessionId, {
+        return updatePrivateSession(sessionId, {
           sheetSynced: true,
           sheetRowNumber: syncResult.rowNumber,
           driveFolderUrl: syncResult.driveFolderUrl || "",
           photoDriveUrls: syncResult.photoDriveUrls || [],
           pdfDriveUrl: syncResult.pdfDriveUrl || ""
         });
-      } else if (!syncResult?.skipped) {
+      }
+      if (!syncResult?.skipped) {
         showToast("Saved locally. Google sync pending.");
       }
-    } catch {
+    }).catch(() => {
       showToast("Check-in saved. Google sync failed — retry from settings later.");
-    }
-
-    closeCheckInModal();
-    showToast(`${draft.sittingId} checked in`);
+    });
   } catch {
     showToast("Check-in failed. Please try again.");
   } finally {
@@ -719,10 +722,12 @@ async function confirmCheckout(method) {
   try {
     await recordSittingPayment(draft.sessionId, draft.sittingAmount, method);
 
-    for (const order of draft.foodOrders) {
-      const orderId = order.orderId || order.id;
-      if (orderId) await verifyOrderPayment(orderId, method);
-    }
+    await Promise.all(
+      draft.foodOrders
+        .map((order) => order.orderId || order.id)
+        .filter(Boolean)
+        .map((orderId) => verifyOrderPayment(orderId, method))
+    );
 
     await completePrivateSession(draft.sessionId, {
       durationMinutes: draft.sitting.durationMinutes,
@@ -735,27 +740,27 @@ async function confirmCheckout(method) {
     });
 
     const session = draft.session;
-    if (session?.sheetRowNumber) {
-      try {
-        await syncSittingCheckout({
-          sessionId: draft.sessionId,
-          sheetRowNumber: session.sheetRowNumber,
-          checkOutLabel: new Date().toLocaleString(),
-          durationMinutes: draft.sitting.durationMinutes,
-          sittingAmount: draft.sittingAmount,
-          foodAmount: draft.foodAmount,
-          grandTotal: draft.grandTotal,
-          paymentMethod: method,
-          billedAmount: draft.sittingAmount
-        });
-      } catch {
-        showToast("Checkout saved. Sheet update failed.");
-      }
-    }
 
     closeCheckoutModal();
     closeSessionModal();
     showToast(`${session.sittingId} checked out — ${formatCurrency(draft.grandTotal)}`);
+
+    // Update the Google Sheet row in the background so checkout finishes instantly.
+    if (session?.sheetRowNumber) {
+      syncSittingCheckout({
+        sessionId: draft.sessionId,
+        sheetRowNumber: session.sheetRowNumber,
+        checkOutLabel: new Date().toLocaleString(),
+        durationMinutes: draft.sitting.durationMinutes,
+        sittingAmount: draft.sittingAmount,
+        foodAmount: draft.foodAmount,
+        grandTotal: draft.grandTotal,
+        paymentMethod: method,
+        billedAmount: draft.sittingAmount
+      }).catch(() => {
+        showToast("Checkout saved. Sheet update failed.");
+      });
+    }
   } catch {
     showToast("Checkout failed. Please try again.");
   } finally {
