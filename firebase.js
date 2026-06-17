@@ -1215,13 +1215,42 @@ function listDateKeys(startKey, endKey) {
   return keys;
 }
 
+// Loads paid food orders across all tables for a date range.
+export async function fetchPaidFoodOrdersForDateRange(startKey, endKey, maxRows = 500) {
+  const histories = await Promise.all(CONFIG.TABLES.map((tableId) => fetchTableHistory(tableId, maxRows)));
+  return histories.flat()
+    .filter((order) => {
+      const paidAt = toDate(order.paidAt);
+      if (!paidAt) return false;
+      const key = getTodayKey(paidAt);
+      return key >= startKey && key <= endKey;
+    })
+    .sort((a, b) => (toDate(b.paidAt)?.getTime() || 0) - (toDate(a.paidAt)?.getTime() || 0));
+}
+
+// Loads completed private sitting sessions checked out in a date range.
+export async function fetchCompletedSittingsForDateRange(startKey, endKey) {
+  const snapshot = await getDocs(collection(db, "privateSessions"));
+  return snapshot.docs
+    .map((sessionDoc) => ({ id: sessionDoc.id, ...sessionDoc.data() }))
+    .filter((session) => {
+      if (session.status !== "completed") return false;
+      const checkOutAt = toDate(session.checkOutAt);
+      if (!checkOutAt) return false;
+      const key = getTodayKey(checkOutAt);
+      return key >= startKey && key <= endKey;
+    })
+    .sort((a, b) => (toDate(b.checkOutAt)?.getTime() || 0) - (toDate(a.checkOutAt)?.getTime() || 0));
+}
+
 // Reads cancellation audit entries within a date range.
 export async function fetchCancellationsForDateRange(startKey, endKey) {
   const summary = {
     cancelledWithPaymentCount: 0,
     cancelledWithPaymentAmount: 0,
     cancelledWithoutPaymentCount: 0,
-    cancelledWithoutPaymentAmount: 0
+    cancelledWithoutPaymentAmount: 0,
+    details: []
   };
 
   try {
@@ -1235,7 +1264,17 @@ export async function fetchCancellationsForDateRange(startKey, endKey) {
       if (key < startKey || key > endKey) return;
       const details = data.details || {};
       const amount = Number(details.total || 0);
-      if (details.wasPaid) {
+      const wasPaid = Boolean(details.wasPaid);
+      const row = {
+        date: key,
+        time: createdAt.toLocaleString(),
+        tableId: data.tableId || "",
+        orderId: details.orderId || "",
+        amount,
+        wasPaid
+      };
+      summary.details.push(row);
+      if (wasPaid) {
         summary.cancelledWithPaymentCount += 1;
         summary.cancelledWithPaymentAmount += amount;
       } else {
@@ -1247,6 +1286,7 @@ export async function fetchCancellationsForDateRange(startKey, endKey) {
     // Audit log may be unavailable; report still renders without cancellations.
   }
 
+  summary.details.sort((a, b) => String(b.time).localeCompare(String(a.time)));
   return summary;
 }
 
@@ -1281,28 +1321,58 @@ export async function fetchDailySummaries(startKey, endKey) {
 
 // Builds a complete day-wise business report (no table selection required).
 export async function fetchDayWiseReport(startKey, endKey) {
-  const [itemsReport, summary, cancellations] = await Promise.all([
-    fetchReportForDateRange(startKey, endKey),
-    fetchDailySummaries(startKey, endKey),
+  const [foodOrders, sittings, cancellations] = await Promise.all([
+    fetchPaidFoodOrdersForDateRange(startKey, endKey),
+    fetchCompletedSittingsForDateRange(startKey, endKey),
     fetchCancellationsForDateRange(startKey, endKey)
   ]);
+
+  const itemsReport = buildReportFromOrders(foodOrders, startKey, endKey);
+  const foodSaleTotal = foodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const foodGrossTotal = foodOrders.reduce((sum, order) => sum + Number(order.grossTotal ?? order.total ?? 0), 0);
+  const foodDiscountTotal = foodOrders.reduce((sum, order) => sum + Number(order.discountAmount || 0), 0);
+  const sittingSaleTotal = sittings.reduce((sum, session) => sum + Number(session.grandTotal ?? session.billedAmount ?? 0), 0);
+  const sittingGrossTotal = sittings.reduce((sum, session) => sum + Number(session.grossTotal ?? session.grandTotal ?? session.billedAmount ?? 0), 0);
+  const sittingDiscountTotal = sittings.reduce((sum, session) => sum + Number(session.discountAmount || 0), 0);
+
+  const foodCash = foodOrders
+    .filter((order) => order.paymentMethod !== "online")
+    .reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const foodOnline = foodOrders
+    .filter((order) => order.paymentMethod === "online")
+    .reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const sittingCash = sittings
+    .filter((session) => session.paymentMethod !== "online")
+    .reduce((sum, session) => sum + Number(session.grandTotal ?? session.billedAmount ?? 0), 0);
+  const sittingOnline = sittings
+    .filter((session) => session.paymentMethod === "online")
+    .reduce((sum, session) => sum + Number(session.grandTotal ?? session.billedAmount ?? 0), 0);
+
+  const grossTotal = foodGrossTotal + sittingGrossTotal;
+  const discountTotal = foodDiscountTotal + sittingDiscountTotal;
+  const total = foodSaleTotal + sittingSaleTotal;
 
   return {
     startDate: startKey,
     endDate: endKey,
-    total: summary.total,
-    grossTotal: summary.grossTotal,
-    discountTotal: summary.discountTotal,
-    cash: summary.cash,
-    online: summary.online,
-    privateSittings: summary.privateSittings,
-    privateSittingTotal: summary.privateSittingTotal,
-    foodOrders: summary.foodOrders,
+    total,
+    grossTotal,
+    discountTotal,
+    cash: foodCash + sittingCash,
+    online: foodOnline + sittingOnline,
+    foodOrders: foodOrders.length,
+    foodSaleTotal,
+    privateSittings: sittings.length,
+    privateSittingTotal: sittingSaleTotal,
+    totalOrders: foodOrders.length + sittings.length,
     cancelledWithPaymentCount: cancellations.cancelledWithPaymentCount,
     cancelledWithPaymentAmount: cancellations.cancelledWithPaymentAmount,
     cancelledWithoutPaymentCount: cancellations.cancelledWithoutPaymentCount,
     cancelledWithoutPaymentAmount: cancellations.cancelledWithoutPaymentAmount,
-    items: itemsReport.items
+    items: itemsReport.items,
+    foodOrderDetails: foodOrders,
+    sittingDetails: sittings,
+    cancellationDetails: cancellations.details
   };
 }
 
@@ -1450,11 +1520,11 @@ export function reportToCsv(report) {
     `Gross Sale,${report.grossTotal ?? report.total}`,
     `Discount Given,${report.discountTotal ?? 0}`,
     `Net Collection,${report.total}`,
-    `Cash,${report.cash}`,
-    `Online,${report.online}`,
+    `Food Sales,${report.foodSaleTotal ?? 0}`,
+    `Food Orders,${report.foodOrders ?? 0}`,
+    `Private Sitting Sales,${report.privateSittingTotal ?? 0}`,
     `Private Sittings,${report.privateSittings ?? 0}`,
-    `Private Sitting Amount,${report.privateSittingTotal ?? 0}`,
-    `Food Orders,${report.foodOrders ?? report.orders ?? 0}`,
+    `Total Orders,${report.totalOrders ?? report.orders ?? 0}`,
     `Cancelled With Payment Count,${report.cancelledWithPaymentCount ?? 0}`,
     `Cancelled With Payment Amount,${report.cancelledWithPaymentAmount ?? 0}`,
     `Cancelled Without Payment Count,${report.cancelledWithoutPaymentCount ?? 0}`,

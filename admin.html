@@ -151,18 +151,9 @@
         <button class="ghost-btn" id="closeMenu" type="button">Close</button>
       </div>
       <div class="admin-menu-body">
-        <div class="admin-menu-tabs">
-          <button class="primary-btn" id="salesTab" type="button">Sales</button>
-          <button class="ghost-btn" id="reportTab" type="button">Report</button>
-        </div>
-        <section class="sales-panel" id="salesPanel">
-          <label class="select-label" for="salesTableSelect">Select Table</label>
-          <select class="table-select" id="salesTableSelect"></select>
-          <h3 id="historyTitle">Table History</h3>
-          <div class="history-list" id="historyList"></div>
-        </section>
-        <section class="sales-panel" id="reportPanel" hidden>
+        <section class="sales-panel report-only-panel" id="reportPanel">
           <h3>Sales Report</h3>
+          <p class="subtle report-hint">Select date range for all tables — food orders, private sitting, discounts, and cancellations.</p>
           <div class="report-filters">
             <label class="select-label" for="reportStartDate">From</label>
             <input class="table-select" id="reportStartDate" type="date">
@@ -170,10 +161,9 @@
             <input class="table-select" id="reportEndDate" type="date">
           </div>
           <div class="report-actions">
-            <button class="secondary-btn" id="refreshReportBtn" type="button">Load Report</button>
-            <button class="ghost-btn" id="exportReportBtn" type="button">Export CSV</button>
+            <button class="primary-btn" id="generateReportPdfBtn" type="button">Generate PDF Report</button>
           </div>
-          <div id="reportContent"></div>
+          <p class="subtle" id="reportStatus">Choose dates and tap Generate PDF Report.</p>
         </section>
       </div>
     </section>

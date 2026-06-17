@@ -1642,6 +1642,14 @@ button:disabled {
   min-width: 0;
 }
 
+.report-hint {
+  margin: 0 0 12px;
+}
+
+.report-only-panel {
+  display: block;
+}
+
 .discount-final {
   margin: 0;
   font-weight: 800;

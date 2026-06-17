@@ -7,7 +7,6 @@ import {
   escapeHtml,
   fetchDayWiseReport,
   fetchMenu,
-  fetchTableHistory,
   formatCurrency,
   formatTime,
   getTodayKey,
@@ -18,12 +17,13 @@ import {
   placePrivateSittingFoodOrder,
   registerServiceWorker,
   rejectActivePaymentClaim,
-  reportToCsv,
   showRichToast,
   showToast,
   updateActiveOrderStatus,
   verifyOrderPayment
 } from "./firebase.js";
+import { downloadSalesReportPdf } from "./report-pdf.js";
+import { preloadJsPdf } from "./private-sitting-pdf.js";
 import {
   autoPrintAfterPayment,
   printReceiptForOrderId,
@@ -81,18 +81,11 @@ const elements = {
   signOutBtn: document.querySelector("#signOutBtn"),
   adminMenuModal: document.querySelector("#adminMenuModal"),
   closeMenu: document.querySelector("#closeMenu"),
-  salesTab: document.querySelector("#salesTab"),
-  reportTab: document.querySelector("#reportTab"),
-  salesPanel: document.querySelector("#salesPanel"),
   reportPanel: document.querySelector("#reportPanel"),
   reportStartDate: document.querySelector("#reportStartDate"),
   reportEndDate: document.querySelector("#reportEndDate"),
-  refreshReportBtn: document.querySelector("#refreshReportBtn"),
-  exportReportBtn: document.querySelector("#exportReportBtn"),
-  reportContent: document.querySelector("#reportContent"),
-  salesTableSelect: document.querySelector("#salesTableSelect"),
-  historyTitle: document.querySelector("#historyTitle"),
-  historyList: document.querySelector("#historyList"),
+  generateReportPdfBtn: document.querySelector("#generateReportPdfBtn"),
+  reportStatus: document.querySelector("#reportStatus"),
   paymentMethodModal: document.querySelector("#paymentMethodModal"),
   closePaymentMethod: document.querySelector("#closePaymentMethod"),
   paymentMethodTable: document.querySelector("#paymentMethodTable"),
@@ -123,7 +116,6 @@ export function initAdminOrders() {
   if (!elements.tableGrid) return;
   registerServiceWorker();
   elements.restaurant.textContent = CONFIG.RESTAURANT_NAME;
-  populateSalesTableSelect();
   setDefaultReportDates();
   bindUi();
   startAdminApp();
@@ -145,11 +137,7 @@ function bindUi() {
   elements.adminMenuModal.addEventListener("click", (event) => {
     if (event.target === elements.adminMenuModal) closeAdminMenu();
   });
-  elements.salesTab.addEventListener("click", showSalesPanel);
-  elements.reportTab.addEventListener("click", showReportPanel);
-  elements.refreshReportBtn.addEventListener("click", loadReport);
-  elements.exportReportBtn.addEventListener("click", exportReportCsv);
-  elements.salesTableSelect.addEventListener("change", () => loadSalesForTable(elements.salesTableSelect.value));
+  elements.generateReportPdfBtn?.addEventListener("click", generateReportPdf);
   elements.closePaymentMethod.addEventListener("click", closePaymentMethodModal);
   elements.paymentMethodModal.addEventListener("click", (event) => {
     if (event.target === elements.paymentMethodModal) closePaymentMethodModal();
@@ -796,128 +784,45 @@ function printTableBill(tableId, orderId) {
   }
 }
 
-function populateSalesTableSelect() {
-  const orderTables = CONFIG.ORDER_SECTIONS.flatMap((section) => section.tables);
-  elements.salesTableSelect.innerHTML = orderTables.map((tableId) => `
-    <option value="${escapeHtml(tableId)}">${escapeHtml(formatTableDisplayName(tableId))}</option>
-  `).join("");
-}
-
 function openAdminMenu() {
   window.dispatchEvent(new CustomEvent("manager-menu-close"));
   elements.adminMenuModal.hidden = false;
-  showReportPanel();
-}
-
-function showSalesPanel() {
-  elements.salesPanel.hidden = false;
-  elements.reportPanel.hidden = true;
-  elements.salesTab.className = "primary-btn";
-  elements.reportTab.className = "ghost-btn";
-}
-
-function showReportPanel() {
-  elements.salesPanel.hidden = true;
-  elements.reportPanel.hidden = false;
-  elements.salesTab.className = "ghost-btn";
-  elements.reportTab.className = "primary-btn";
-  loadReport();
-}
-
-async function loadSalesForTable(tableId) {
-  elements.historyTitle.textContent = `${formatTableDisplayName(tableId)} Sales History`;
-  elements.historyList.innerHTML = "<p class=\"subtle\">Loading history...</p>";
-
-  try {
-    const rows = await fetchTableHistory(tableId);
-    if (!rows.length) {
-      elements.historyList.innerHTML = "<p class=\"subtle\">No paid history yet for this table.</p>";
-      return;
-    }
-    elements.historyList.innerHTML = rows.map(historyRowHtml).join("");
-  } catch {
-    elements.historyList.innerHTML = "<p class=\"subtle\">History unavailable, please refresh.</p>";
+  preloadJsPdf();
+  if (elements.reportStatus) {
+    elements.reportStatus.textContent = "Choose dates and tap Generate PDF Report.";
   }
 }
 
-function historyRowHtml(order) {
-  const items = (order.items || []).map((item) => `
-    <li><span>${escapeHtml(item.name)}</span><strong>x${Number(item.qty || 0)}</strong></li>
-  `).join("");
+async function generateReportPdf() {
+  const startKey = elements.reportStartDate?.value || getTodayKey();
+  const endKey = elements.reportEndDate?.value || startKey;
+  if (startKey > endKey) {
+    showToast("Start date cannot be after end date.");
+    return;
+  }
 
-  return `
-    <article class="history-row">
-      <div class="history-row-head">
-        <div>
-          <strong>${formatCurrency(order.total)}</strong>
-          <div class="subtle">${escapeHtml(paymentMethodLabel(order.paymentMethod))} · ${escapeHtml(order.placedBy || "customer")}</div>
-          ${order.customerName || order.customerMobileNormalized ? `<div class="subtle">${escapeHtml(order.customerName || "Customer")} - ${escapeHtml(maskMobile(order.customerMobileNormalized || order.customerMobile))}</div>` : ""}
-          <div class="subtle">Bill ${escapeHtml(String(order.orderId || order.id || "").slice(0, 8))}</div>
-        </div>
-        <div class="history-times">
-          <span>Paid: ${formatDateTime(order.paidAt)}</span>
-          <span>Order: ${formatDateTime(order.orderedAt)}</span>
-        </div>
-      </div>
-      <ul class="order-lines">${items}</ul>
-    </article>
-  `;
-}
-
-async function loadReport() {
-  const startKey = elements.reportStartDate.value || getTodayKey();
-  const endKey = elements.reportEndDate.value || startKey;
-  elements.reportContent.innerHTML = "<p class=\"subtle\">Loading report...</p>";
+  const button = elements.generateReportPdfBtn;
+  if (button) button.disabled = true;
+  if (elements.reportStatus) {
+    elements.reportStatus.textContent = "Generating report PDF...";
+  }
 
   try {
     const report = await fetchDayWiseReport(startKey, endKey);
     state.lastReport = report;
-    elements.reportContent.innerHTML = reportHtml(report);
+    await downloadSalesReportPdf(report);
+    if (elements.reportStatus) {
+      elements.reportStatus.textContent = `PDF downloaded for ${startKey}${endKey !== startKey ? ` to ${endKey}` : ""}.`;
+    }
+    showToast("Report PDF downloaded");
   } catch {
-    elements.reportContent.innerHTML = "<p class=\"subtle\">Report unavailable, please refresh.</p>";
+    if (elements.reportStatus) {
+      elements.reportStatus.textContent = "Could not generate report. Please refresh and try again.";
+    }
+    showToast("Report PDF failed");
+  } finally {
+    if (button) button.disabled = false;
   }
-}
-
-function reportHtml(report) {
-  const itemRows = report.items.length
-    ? report.items.map((item) => `
-      <li>
-        <span>${escapeHtml(item.name)} <small>x${Number(item.qty || 0)}</small></span>
-        <strong>${formatCurrency(item.total)}</strong>
-      </li>
-    `).join("")
-    : "<li><span>No items sold in range.</span><strong>Rs 0</strong></li>";
-
-  return `
-    <div class="report-grid">
-      <article><span>Gross Sale</span><strong>${formatCurrency(report.grossTotal || 0)}</strong></article>
-      <article><span>Discount Given</span><strong>${formatCurrency(report.discountTotal || 0)}</strong></article>
-      <article><span>Net Collection</span><strong>${formatCurrency(report.total || 0)}</strong></article>
-      <article><span>Cash</span><strong>${formatCurrency(report.cash || 0)}</strong></article>
-      <article><span>Online</span><strong>${formatCurrency(report.online || 0)}</strong></article>
-      <article><span>Food Orders</span><strong>${Number(report.foodOrders || 0)}</strong></article>
-      <article><span>Private Sittings</span><strong>${Number(report.privateSittings || 0)}</strong></article>
-      <article><span>Sitting Amount</span><strong>${formatCurrency(report.privateSittingTotal || 0)}</strong></article>
-      <article><span>Cancelled (Paid)</span><strong>${Number(report.cancelledWithPaymentCount || 0)} · ${formatCurrency(report.cancelledWithPaymentAmount || 0)}</strong></article>
-      <article><span>Cancelled (Unpaid)</span><strong>${Number(report.cancelledWithoutPaymentCount || 0)} · ${formatCurrency(report.cancelledWithoutPaymentAmount || 0)}</strong></article>
-    </div>
-    <h4>Menu Items Sold (${escapeHtml(report.startDate)} – ${escapeHtml(report.endDate)})</h4>
-    <ul class="report-item-list">${itemRows}</ul>
-  `;
-}
-
-function exportReportCsv() {
-  if (!state.lastReport) {
-    showToast("Load a report first");
-    return;
-  }
-  const blob = new Blob([reportToCsv(state.lastReport)], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `sales-${state.lastReport.startDate}-${state.lastReport.endDate}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 function openPaymentMethodModal(tableId, options = {}) {

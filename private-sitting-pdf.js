@@ -2,7 +2,7 @@ import { CONFIG, escapeHtml } from "./firebase.js";
 
 let jsPdfModule = null;
 
-async function getJsPdf() {
+export async function getJsPdf() {
   if (!jsPdfModule) {
     jsPdfModule = await import("https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm");
   }
