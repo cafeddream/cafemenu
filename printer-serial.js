@@ -146,6 +146,35 @@ export async function connectPrinter(options = {}) {
   return getPrinterStatus();
 }
 
+export async function ensurePrinterConnected() {
+  if (isPrinterConnected()) return true;
+  if (!navigator.serial) return false;
+
+  const grantedPorts = await navigator.serial.getPorts();
+  if (!grantedPorts.length) return false;
+
+  try {
+    if (isPrinterConnected()) {
+      await disconnectPrinter();
+    }
+    await openPort(grantedPorts[0]);
+    attachPort(grantedPorts[0]);
+    return isPrinterConnected();
+  } catch (error) {
+    lastError = error?.message || String(error);
+    connected = false;
+    activePort = null;
+    portInfo = null;
+    return false;
+  }
+}
+
+export async function hasSavedPrinterPort() {
+  if (!navigator.serial) return false;
+  const grantedPorts = await navigator.serial.getPorts();
+  return grantedPorts.length > 0;
+}
+
 export async function reconnectSavedPrinter() {
   if (!navigator.serial) {
     throw new Error("Web Serial is not supported. Use Chrome on Android.");

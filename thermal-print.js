@@ -7,11 +7,14 @@ import {
   buildReceiptDocumentHtml,
   buildReceiptFromOrder,
   fetchReceipt,
+  showToast,
   toDate
 } from "./firebase.js";
 import { buildReceiptEscPos, buildRawAsciiTest, buildTestPrintEscPos } from "./escpos.js";
 import {
+  ensurePrinterConnected,
   isPrinterConnected,
+  isSerialSupported,
   writeEscPos
 } from "./printer-serial.js";
 
@@ -82,15 +85,24 @@ export async function printThermalReceipt(receipt, options = {}) {
   const printer = PRINTERS[printerKey];
   if (!printer?.enabled) return false;
 
-  if (isPrinterConnected()) {
-    try {
-      return await printEscPosReceipt(receipt);
-    } catch (error) {
-      console.warn("ESC/POS print failed, falling back to HTML:", error);
+  if (isSerialSupported()) {
+    const connected = isPrinterConnected() || await ensurePrinterConnected();
+    if (connected) {
+      try {
+        return await printEscPosReceipt(receipt);
+      } catch (error) {
+        console.warn("ESC/POS print failed:", error);
+        return false;
+      }
     }
+    console.warn("Thermal printer not connected. Connect in Settings before paying.");
+    return false;
   }
 
-  return printThermalReceiptHtml(receipt);
+  if (options.allowHtmlFallback) {
+    return printThermalReceiptHtml(receipt);
+  }
+  return false;
 }
 
 export async function printReceiptForOrderId(orderId) {
@@ -115,18 +127,23 @@ export async function autoPrintAfterPayment(orderId, orderSnapshot, paymentMetho
   if (!CONFIG.AUTO_PRINT_RECEIPTS) return;
 
   try {
+    let printed = false;
     if (orderSnapshot?.exists?.()) {
       const order = { ...orderSnapshot.data(), orderId: orderSnapshot.data()?.orderId || orderId };
-      await printReceiptFromOrder(order, paymentMethod);
-      return;
+      printed = await printReceiptFromOrder(order, paymentMethod);
+    } else if (orderSnapshot && typeof orderSnapshot === "object") {
+      printed = await printReceiptFromOrder(orderSnapshot, paymentMethod);
+    } else {
+      printed = await printReceiptForOrderId(orderId);
     }
-    if (orderSnapshot && typeof orderSnapshot === "object") {
-      await printReceiptFromOrder(orderSnapshot, paymentMethod);
-      return;
+    if (!printed && isSerialSupported()) {
+      showToast("Receipt not printed. Connect printer in Settings.");
     }
-    await printReceiptForOrderId(orderId);
   } catch (error) {
     console.warn("Receipt print failed:", error);
+    if (isSerialSupported()) {
+      showToast("Receipt print failed. Check printer connection.");
+    }
   }
 }
 
