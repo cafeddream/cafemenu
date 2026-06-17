@@ -1,7 +1,11 @@
 import { CONFIG } from "./firebase.js";
 
 const BAUD_STORAGE_KEY = "cafe_printer_baud";
+const PORT_KEY_STORAGE_KEY = "cafe_printer_port_key";
+const PORT_INDEX_STORAGE_KEY = "cafe_printer_port_index";
 const OPEN_WAKE_MS = 300;
+const OPEN_TIMEOUT_MS = 5000;
+const WRITE_TIMEOUT_MS = 8000;
 const WRITE_CHUNK_SIZE = 128;
 const WRITE_CHUNK_DELAY_MS = 20;
 const WRITE_FINISH_DELAY_MS = 100;
@@ -24,6 +28,22 @@ function dispatchStatusChange() {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function withTimeout(promise, ms, message = "Operation timed out") {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
 }
 
 function isBlockedSigBaseUuid(uuid = "") {
@@ -58,6 +78,54 @@ export function normalizeAllowedBluetoothServiceClassIds(ids = []) {
 function getAllowedBluetoothServiceClassIds() {
   const configured = CONFIG.PRINTER_CONFIG?.allowedBluetoothServiceClassIds || [];
   return normalizeAllowedBluetoothServiceClassIds(configured);
+}
+
+export function getPortPreferenceKey(port) {
+  if (!port) return null;
+  const info = port.getInfo?.() || {};
+  if (info.bluetoothServiceClassId) {
+    return `bt:${String(info.bluetoothServiceClassId).toLowerCase()}`;
+  }
+  if (info.usbVendorId && info.usbProductId) {
+    return `usb:${info.usbVendorId}:${info.usbProductId}`;
+  }
+  return null;
+}
+
+export function findPreferredGrantedPort(grantedPorts = []) {
+  if (!grantedPorts.length) return null;
+
+  const savedKey = localStorage.getItem(PORT_KEY_STORAGE_KEY);
+  if (savedKey) {
+    const match = grantedPorts.find((port) => getPortPreferenceKey(port) === savedKey);
+    if (match) return match;
+  }
+
+  const savedIndex = Number(localStorage.getItem(PORT_INDEX_STORAGE_KEY));
+  if (Number.isInteger(savedIndex) && savedIndex >= 0 && savedIndex < grantedPorts.length) {
+    return grantedPorts[savedIndex];
+  }
+
+  if (grantedPorts.length === 1) return grantedPorts[0];
+  return null;
+}
+
+async function persistPortPreference(port) {
+  const key = getPortPreferenceKey(port);
+  if (key) {
+    localStorage.setItem(PORT_KEY_STORAGE_KEY, key);
+  }
+
+  if (!navigator.serial) return;
+  try {
+    const grantedPorts = await navigator.serial.getPorts();
+    const index = grantedPorts.findIndex((entry) => entry === port);
+    if (index >= 0) {
+      localStorage.setItem(PORT_INDEX_STORAGE_KEY, String(index));
+    }
+  } catch {
+    // Ignore preference index errors.
+  }
 }
 
 export function getBaudRate() {
@@ -112,13 +180,17 @@ async function safeClosePort(port) {
 
 async function openPort(port) {
   try {
-    await port.open({
-      baudRate: getBaudRate(),
-      dataBits: 8,
-      stopBits: 1,
-      parity: "none",
-      flowControl: "none"
-    });
+    await withTimeout(
+      port.open({
+        baudRate: getBaudRate(),
+        dataBits: 8,
+        stopBits: 1,
+        parity: "none",
+        flowControl: "none"
+      }),
+      OPEN_TIMEOUT_MS,
+      "Printer connection timed out."
+    );
     await delay(OPEN_WAKE_MS);
   } catch (error) {
     await safeClosePort(port);
@@ -126,7 +198,7 @@ async function openPort(port) {
   }
 }
 
-function attachPort(port) {
+async function attachPort(port) {
   activePort = port;
   connected = true;
   lastError = "";
@@ -139,6 +211,7 @@ function attachPort(port) {
     dispatchStatusChange();
   };
 
+  await persistPortPreference(port);
   dispatchStatusChange();
 }
 
@@ -192,10 +265,13 @@ export async function connectPrinter(options = {}) {
     port = await pickPortFromPicker();
   } else {
     const grantedPorts = await navigator.serial.getPorts();
-    if (grantedPorts.length === 1) {
-      port = grantedPorts[0];
-    } else {
-      port = await pickPortFromPicker();
+    port = findPreferredGrantedPort(grantedPorts);
+    if (!port) {
+      if (grantedPorts.length === 1) {
+        port = grantedPorts[0];
+      } else {
+        port = await pickPortFromPicker();
+      }
     }
   }
 
@@ -204,7 +280,7 @@ export async function connectPrinter(options = {}) {
   }
 
   await openPort(port);
-  attachPort(port);
+  await attachPort(port);
   return getPrinterStatus();
 }
 
@@ -215,18 +291,22 @@ export async function ensurePrinterConnected() {
   const grantedPorts = await navigator.serial.getPorts();
   if (!grantedPorts.length) return false;
 
+  const port = findPreferredGrantedPort(grantedPorts);
+  if (!port) {
+    lastError = "Reconnect your printer in Settings (pick HS_SPP).";
+    return false;
+  }
+
   try {
-    if (isPrinterConnected()) {
-      await disconnectPrinter();
-    }
-    await openPort(grantedPorts[0]);
-    attachPort(grantedPorts[0]);
+    await openPort(port);
+    await attachPort(port);
     return isPrinterConnected();
   } catch (error) {
     lastError = error?.message || String(error);
     connected = false;
     activePort = null;
     portInfo = null;
+    await safeClosePort(port);
     return false;
   }
 }
@@ -247,13 +327,17 @@ export async function reconnectSavedPrinter() {
     throw new Error("No saved printer. Tap Connect Printer and pick MPT-II.");
   }
 
+  const port = findPreferredGrantedPort(grantedPorts);
+  if (!port) {
+    throw new Error("Multiple printers saved. Tap Connect Printer and pick HS_SPP.");
+  }
+
   if (isPrinterConnected()) {
     await disconnectPrinter();
   }
 
-  const port = grantedPorts[0];
   await openPort(port);
-  attachPort(port);
+  await attachPort(port);
   return getPrinterStatus();
 }
 
@@ -277,7 +361,7 @@ export async function disconnectPrinter() {
   dispatchStatusChange();
 }
 
-export async function writeEscPos(bytes) {
+async function writeEscPosChunks(bytes) {
   if (!isPrinterConnected() || !activePort?.writable) {
     throw new Error("Printer not connected.");
   }
@@ -295,6 +379,14 @@ export async function writeEscPos(bytes) {
   } finally {
     writer.releaseLock();
   }
+}
+
+export async function writeEscPos(bytes) {
+  return withTimeout(
+    writeEscPosChunks(bytes),
+    WRITE_TIMEOUT_MS,
+    "Printer write timed out."
+  );
 }
 
 window.addEventListener("beforeunload", () => {

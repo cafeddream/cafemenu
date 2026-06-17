@@ -79,6 +79,22 @@ async function printEscPosReceipt(receipt) {
   return true;
 }
 
+function withTimeout(promise, ms, message = "Print timed out") {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
 export async function printThermalReceipt(receipt, options = {}) {
   if (!CONFIG.AUTO_PRINT_RECEIPTS) return false;
   const printerKey = options.printer || "customer";
@@ -86,10 +102,13 @@ export async function printThermalReceipt(receipt, options = {}) {
   if (!printer?.enabled) return false;
 
   if (isSerialSupported()) {
-    const connected = isPrinterConnected() || await ensurePrinterConnected();
-    if (connected) {
+    let ready = isPrinterConnected();
+    if (!ready) {
+      ready = await ensurePrinterConnected();
+    }
+    if (ready) {
       try {
-        return await printEscPosReceipt(receipt);
+        return await withTimeout(printEscPosReceipt(receipt), 10000);
       } catch (error) {
         console.warn("ESC/POS print failed:", error);
         return false;
