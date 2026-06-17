@@ -54,7 +54,7 @@ export const CONFIG = {
   RESTAURANT_NAME: "Cafe D Dream",
   KITCHEN_TIMER_MINUTES: 20,
   AUTO_PRINT_RECEIPTS: false,
-  AUTO_SHARE_RECEIPTS: true,
+  AUTO_SHARE_RECEIPTS: false,
   PRINTER_CONFIG: {
     name: "MPT-II",
     baudRate: 115200,

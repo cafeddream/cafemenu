@@ -1,7 +1,6 @@
 import {
   CONFIG,
   buildCustomerDisplayName,
-  buildPrivateSittingCheckoutReceipt,
   calculateSittingBill,
   completePrivateSession,
   computeDiscount,
@@ -22,7 +21,6 @@ import {
   verifyOrderPayment
 } from "./firebase.js";
 import { openAdminOrderModal } from "./admin-orders.js";
-import { openShareReceiptModal } from "./receipt-share.js";
 import { buildSittingEntryHtmlPreview, buildSittingEntryPdf, preloadJsPdf } from "./private-sitting-pdf.js";
 import { isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout } from "./sitting-sync.js";
 import {
@@ -789,11 +787,6 @@ async function confirmCheckout(method) {
     closeCheckoutModal();
     closeSessionModal();
     showToast(`${session.sittingId} checked out — ${formatCurrency(discountInfo.finalTotal)}`);
-
-    if (CONFIG.AUTO_SHARE_RECEIPTS) {
-      const receipt = buildPrivateSittingCheckoutReceipt(draft, method, discountInfo);
-      openShareReceiptModal(receipt, { defaultMobile: session.mobile || "" });
-    }
 
     // Update the Google Sheet row in the background so checkout finishes instantly.
     if (session?.sheetRowNumber) {

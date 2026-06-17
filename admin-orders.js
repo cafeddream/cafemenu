@@ -25,7 +25,6 @@ import {
 import { downloadSalesReportPdf } from "./report-pdf.js";
 import { preloadJsPdf } from "./private-sitting-pdf.js";
 import {
-  shareReceiptAfterPayment,
   shareReceiptForOrder,
   shareReceiptForOrderId
 } from "./receipt-share.js";
@@ -882,11 +881,9 @@ async function confirmPaidWithMethod(method) {
       const orderSnap = await placeCounterOrderWithPayment(tableId, pendingItems, method, discount);
       closePaymentMethodModal();
       showToast(`Order placed for ${formatTableDisplayName(tableId)}`);
-      shareReceiptAfterPayment(orderSnap?.data()?.orderId || orderId, orderSnap, method);
     } else {
       await verifyOrderPayment(orderId, method, discount);
       closePaymentMethodModal();
-      shareReceiptAfterPayment(orderId, null, method);
     }
   } catch {
     showToast(isCounterOrder ? "Order failed. Check connection and refresh." : "Connection error, please refresh");
