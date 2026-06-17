@@ -80,9 +80,10 @@ export function buildReceiptEscPos(receipt) {
   const generated = toDate(receipt.generatedAt) || new Date();
   const tableLabel = formatTableDisplayName(receipt.tableId);
   const orderShort = String(receipt.orderId || "").slice(0, 8).toUpperCase();
-  const subtotal = Number(receipt.subtotal ?? receipt.total ?? 0);
+  const discountAmount = Number(receipt.discountAmount || 0);
+  const subtotal = Number(receipt.subtotal ?? receipt.grossTotal ?? receipt.total ?? 0);
   const tax = Number(receipt.tax || 0);
-  const grandTotal = Number(receipt.total ?? subtotal + tax);
+  const grandTotal = Number(receipt.total ?? subtotal + tax - discountAmount);
   const cafeName = receipt.cafeName || CONFIG.RESTAURANT_NAME;
 
   const chunks = [
@@ -114,6 +115,9 @@ export function buildReceiptEscPos(receipt) {
 
   chunks.push(line("--------------------------------"));
   chunks.push(line(`Subtotal    ${formatEscPosCurrency(subtotal)}`));
+  if (discountAmount > 0) {
+    chunks.push(line(`Discount   -${formatEscPosCurrency(discountAmount)}`));
+  }
   if (tax > 0) {
     chunks.push(line(`Tax         ${formatEscPosCurrency(tax)}`));
   }

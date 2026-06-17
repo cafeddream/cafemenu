@@ -1620,6 +1620,34 @@ button:disabled {
   font-size: 18px;
 }
 
+.discount-control {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px dashed var(--border, #d8d8d8);
+  border-bottom: 1px dashed var(--border, #d8d8d8);
+}
+
+.discount-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.discount-type-select {
+  flex: 0 0 42%;
+}
+
+.discount-value-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.discount-final {
+  margin: 0;
+  font-weight: 800;
+  color: var(--ink);
+}
+
 .staff-nav {
   display: flex;
   flex-wrap: wrap;

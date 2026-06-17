@@ -225,10 +225,12 @@ export async function placePrivateSittingFoodOrder(tableId, sessionId, cartItems
   return getDoc(ref);
 }
 
-export async function recordSittingPayment(sessionId, amount, paymentMethod = "cash") {
+export async function recordSittingPayment(sessionId, amount, paymentMethod = "cash", discount = null) {
   const method = paymentMethod === "online" ? "online" : "cash";
   const paymentDocument = doc(db, "dailySummaries", getTodayKey(), "payments", `sitting-${sessionId}`);
   const summaryDocument = dailySummaryRef();
+  const discountInfo = computeDiscount(amount, discount);
+  const finalAmount = discountInfo.finalTotal;
 
   await runTransaction(db, async (transaction) => {
     const paymentSnapshot = await transaction.get(paymentDocument);
@@ -236,22 +238,34 @@ export async function recordSittingPayment(sessionId, amount, paymentMethod = "c
 
     transaction.set(summaryDocument, {
       date: getTodayKey(),
-      total: increment(Number(amount || 0)),
-      cash: increment(method === "cash" ? Number(amount || 0) : 0),
-      online: increment(method === "online" ? Number(amount || 0) : 0),
+      total: increment(finalAmount),
+      grossTotal: increment(discountInfo.grossTotal),
+      discountTotal: increment(discountInfo.discountAmount),
+      cash: increment(method === "cash" ? finalAmount : 0),
+      online: increment(method === "online" ? finalAmount : 0),
+      privateSittings: increment(1),
+      privateSittingTotal: increment(finalAmount),
       updatedAt: serverTimestamp()
     }, { merge: true });
 
     transaction.set(paymentDocument, {
       sessionId,
-      amount: Number(amount || 0),
+      amount: finalAmount,
+      grossTotal: discountInfo.grossTotal,
+      discountAmount: discountInfo.discountAmount,
       paymentMethod: method,
       type: "private_sitting",
       paidAt: serverTimestamp()
     });
   });
 
-  await logAuditEntry("sitting_paid", null, { sessionId, amount, paymentMethod: method });
+  await logAuditEntry("sitting_paid", null, {
+    sessionId,
+    amount: finalAmount,
+    grossTotal: discountInfo.grossTotal,
+    discountAmount: discountInfo.discountAmount,
+    paymentMethod: method
+  });
 }
 
 export async function createPrivateSession(payload) {
@@ -573,6 +587,35 @@ export function calculateTotal(items = []) {
   return items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0);
 }
 
+// Normalizes a discount input into gross/discount/final amounts.
+// discount = { type: "amount" | "percent", value: number }
+export function computeDiscount(grossTotal, discount = null) {
+  const gross = Math.max(0, Math.round(Number(grossTotal || 0)));
+  let type = "amount";
+  let value = 0;
+  if (discount && typeof discount === "object") {
+    type = discount.type === "percent" ? "percent" : "amount";
+    value = Math.max(0, Number(discount.value || 0));
+  }
+
+  let discountAmount = 0;
+  if (type === "percent") {
+    value = Math.min(100, value);
+    discountAmount = Math.round((gross * value) / 100);
+  } else {
+    discountAmount = Math.round(value);
+  }
+  discountAmount = Math.max(0, Math.min(gross, discountAmount));
+
+  return {
+    grossTotal: gross,
+    discountType: type,
+    discountValue: value,
+    discountAmount,
+    finalTotal: Math.max(0, gross - discountAmount)
+  };
+}
+
 function cleanOrderItems(items = []) {
   return items
     .filter((item) => item.qty > 0)
@@ -610,9 +653,11 @@ function createReceiptNumber(orderId) {
   return `R-${String(orderId || createOrderId("ORD")).slice(0, 8).toUpperCase()}`;
 }
 
-function createReceiptPayload(order, paymentMethod) {
+function createReceiptPayload(order, paymentMethod, discountInfo = null) {
   const items = normalizeOrderItems(order.items || []);
-  const total = calculateTotal(items);
+  const grossTotal = calculateTotal(items);
+  const discount = discountInfo || computeDiscount(grossTotal, null);
+  const total = discount.finalTotal;
   const orderId = order.orderId;
   return {
     receiptNumber: order.receiptNumber || createReceiptNumber(orderId),
@@ -622,6 +667,11 @@ function createReceiptPayload(order, paymentMethod) {
     logoSrc: CONFIG.RECEIPT_LOGO_SRC,
     items,
     total,
+    subtotal: grossTotal,
+    grossTotal,
+    discountAmount: discount.discountAmount,
+    discountType: discount.discountType,
+    discountValue: discount.discountValue,
     paymentMethod: paymentMethod === "online" ? "Online" : "Cash",
     paymentStatus: "Verified",
     generatedAt: serverTimestamp()
@@ -683,7 +733,7 @@ export async function placeOrAppendOrder(tableId, cartItems, placedBy = "custome
 }
 
 // Places a counter order only after staff chooses a payment method.
-export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMethod = "cash") {
+export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMethod = "cash", discount = null) {
   const cleanItems = cleanOrderItems(cartItems);
 
   if (!cleanItems.length) return null;
@@ -694,21 +744,28 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
   const legacyDocument = orderRef(tableId);
   const summaryDocument = dailySummaryRef();
   let orderIdForAudit = newOrderId;
-  let totalForAudit = 0;
+  let discountForAudit = null;
 
   await runTransaction(db, async (transaction) => {
-    const amountDue = calculateTotal(cleanItems);
+    const grossDue = calculateTotal(cleanItems);
+    const discountInfo = computeDiscount(grossDue, discount);
+    const amountDue = discountInfo.finalTotal;
     const paymentDocument = paymentRef(newOrderId);
     const historyDocument = tableHistoryOrderRef(tableId, newOrderId);
     const receiptDocument = receiptRef(newOrderId);
     const paymentSnapshot = await transaction.get(paymentDocument);
     orderIdForAudit = newOrderId;
-    totalForAudit = amountDue;
+    discountForAudit = discountInfo;
     const orderData = {
       orderId: newOrderId,
       tableId,
       items: cleanItems,
       total: amountDue,
+      grossTotal: discountInfo.grossTotal,
+      discountType: discountInfo.discountType,
+      discountValue: discountInfo.discountValue,
+      discountAmount: discountInfo.discountAmount,
+      finalTotal: amountDue,
       status: "preparing",
       placedBy: "counter",
       paymentStatus: "verified_paid",
@@ -726,12 +783,15 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
     transaction.set(legacyDocument, orderData);
 
     if (!paymentSnapshot.exists()) {
-      const receipt = createReceiptPayload(orderData, method);
+      const receipt = createReceiptPayload(orderData, method, discountInfo);
       transaction.set(summaryDocument, {
         date: getTodayKey(),
         total: increment(amountDue),
+        grossTotal: increment(discountInfo.grossTotal),
+        discountTotal: increment(discountInfo.discountAmount),
         cash: increment(method === "cash" ? amountDue : 0),
         online: increment(method === "online" ? amountDue : 0),
+        foodOrders: increment(1),
         updatedAt: serverTimestamp()
       }, { merge: true });
 
@@ -739,7 +799,10 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
         orderId: newOrderId,
         tableId,
         amount: amountDue,
+        grossTotal: discountInfo.grossTotal,
+        discountAmount: discountInfo.discountAmount,
         paymentMethod: method,
+        type: "food_order",
         paidAt: serverTimestamp()
       });
 
@@ -750,6 +813,11 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
         tableId,
         items: cleanItems,
         total: amountDue,
+        grossTotal: discountInfo.grossTotal,
+        discountType: discountInfo.discountType,
+        discountValue: discountInfo.discountValue,
+        discountAmount: discountInfo.discountAmount,
+        finalTotal: amountDue,
         status: "paid",
         placedBy: "counter",
         customerName: null,
@@ -767,7 +835,9 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
 
   await logAuditEntry("counter_order_paid", tableId, {
     orderId: orderIdForAudit,
-    total: totalForAudit,
+    total: discountForAudit?.finalTotal ?? 0,
+    grossTotal: discountForAudit?.grossTotal ?? null,
+    discountAmount: discountForAudit?.discountAmount ?? 0,
     paymentMethod: method
   });
 
@@ -809,10 +879,14 @@ export async function cancelActiveOrder(orderId) {
   const order = snapshot.data();
   const status = order.status || "new";
   if (status === "served" || status === "paid") return false;
+  const wasPaid = order.paymentStatus === "verified_paid";
   await deleteDoc(activeOrderRef(orderId));
   await logAuditEntry("order_cancelled", order.tableId, {
     orderId,
-    total: order.total || 0
+    total: order.total || 0,
+    paymentStatus: order.paymentStatus || "pending",
+    wasPaid,
+    discountAmount: order.discountAmount || 0
   });
   return true;
 }
@@ -925,11 +999,12 @@ export async function requestCashAtCounter(tableId) {
   });
 }
 
-async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = "paid") {
+async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = "paid", discount = null) {
   const orderDocument = activeOrderRef(orderId);
   const summaryDocument = dailySummaryRef();
   const method = paymentMethod === "online" ? "online" : "cash";
   let tableId = null;
+  let discountInfo = null;
 
   await runTransaction(db, async (transaction) => {
     const orderSnapshot = await transaction.get(orderDocument);
@@ -939,12 +1014,18 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
     tableId = order.tableId;
     const currentOrderId = order.orderId || orderId;
     const payableItems = normalizeOrderItems(order.items || []);
-    const amountDue = calculateTotal(payableItems);
+    const grossDue = calculateTotal(payableItems);
+    discountInfo = computeDiscount(grossDue, discount);
+    const amountDue = discountInfo.finalTotal;
     const paymentDocument = paymentRef(currentOrderId);
     const historyDocument = tableHistoryOrderRef(tableId, currentOrderId);
     const receiptDocument = receiptRef(currentOrderId);
     const paymentSnapshot = await transaction.get(paymentDocument);
-    const receipt = createReceiptPayload({ ...order, orderId: currentOrderId, items: payableItems, total: amountDue }, method);
+    const receipt = createReceiptPayload(
+      { ...order, orderId: currentOrderId, items: payableItems, total: amountDue },
+      method,
+      discountInfo
+    );
 
     transaction.update(orderDocument, {
       status: nextStatus,
@@ -954,6 +1035,11 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
       kitchenStartedAt: serverTimestamp(),
       items: payableItems,
       total: amountDue,
+      grossTotal: discountInfo.grossTotal,
+      discountType: discountInfo.discountType,
+      discountValue: discountInfo.discountValue,
+      discountAmount: discountInfo.discountAmount,
+      finalTotal: amountDue,
       paidTotal: amountDue,
       paidItems: payableItems,
       receiptNumber: receipt.receiptNumber,
@@ -965,8 +1051,11 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
       transaction.set(summaryDocument, {
         date: getTodayKey(),
         total: increment(amountDue),
+        grossTotal: increment(discountInfo.grossTotal),
+        discountTotal: increment(discountInfo.discountAmount),
         cash: increment(method === "cash" ? amountDue : 0),
         online: increment(method === "online" ? amountDue : 0),
+        foodOrders: increment(1),
         updatedAt: serverTimestamp()
       }, { merge: true });
 
@@ -974,7 +1063,10 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
         orderId: currentOrderId,
         tableId,
         amount: amountDue,
+        grossTotal: discountInfo.grossTotal,
+        discountAmount: discountInfo.discountAmount,
         paymentMethod: method,
+        type: "food_order",
         paidAt: serverTimestamp()
       });
 
@@ -985,6 +1077,11 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
         tableId,
         items: payableItems,
         total: amountDue,
+        grossTotal: discountInfo.grossTotal,
+        discountType: discountInfo.discountType,
+        discountValue: discountInfo.discountValue,
+        discountAmount: discountInfo.discountAmount,
+        finalTotal: amountDue,
         status: "paid",
         placedBy: order.placedBy || "customer",
         customerName: order.customerName || null,
@@ -1000,17 +1097,23 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
     }
   });
 
-  await logAuditEntry("order_paid", tableId, { orderId, paymentMethod: method });
+  await logAuditEntry("order_paid", tableId, {
+    orderId,
+    paymentMethod: method,
+    grossTotal: discountInfo?.grossTotal ?? null,
+    discountAmount: discountInfo?.discountAmount ?? 0,
+    finalTotal: discountInfo?.finalTotal ?? null
+  });
 }
 
 // Verifies payment and releases the order to the kitchen without completing the table.
-export async function verifyOrderPayment(orderId, paymentMethod = "online") {
-  await recordOrderPayment(orderId, paymentMethod, "preparing");
+export async function verifyOrderPayment(orderId, paymentMethod = "online", discount = null) {
+  await recordOrderPayment(orderId, paymentMethod, "preparing", discount);
 }
 
 // Marks an order as paid and updates the daily collection only once per order/day.
-export async function markOrderPaid(orderId, paymentMethod = "cash") {
-  await recordOrderPayment(orderId, paymentMethod, "paid");
+export async function markOrderPaid(orderId, paymentMethod = "cash", discount = null) {
+  await recordOrderPayment(orderId, paymentMethod, "paid", discount);
 }
 
 // Deletes the current order for a table after payment.
@@ -1051,6 +1154,8 @@ export function buildReportFromOrders(paidOrders, startKey, endKey) {
     endDate: endKey,
     orders: paidOrders.length,
     total: 0,
+    grossTotal: 0,
+    discountTotal: 0,
     cash: 0,
     online: 0,
     counter: 0,
@@ -1061,8 +1166,12 @@ export function buildReportFromOrders(paidOrders, startKey, endKey) {
 
   paidOrders.forEach((order) => {
     const total = Number(order.total || 0);
+    const gross = Number(order.grossTotal ?? total);
+    const discount = Number(order.discountAmount || 0);
     const method = order.paymentMethod === "online" ? "online" : "cash";
     report.total += total;
+    report.grossTotal += gross;
+    report.discountTotal += discount;
     report[method] += total;
     if (order.placedBy === "counter") report.counter += 1;
     else report.customer += 1;
@@ -1092,6 +1201,111 @@ export async function fetchReportForDateRange(startKey, endKey) {
   return buildReportFromOrders(paidOrders, startKey, endKey);
 }
 
+// Lists inclusive YYYY-MM-DD date keys between two date keys.
+function listDateKeys(startKey, endKey) {
+  const keys = [];
+  const start = new Date(`${startKey}T00:00:00`);
+  const end = new Date(`${endKey}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+    return [startKey];
+  }
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    keys.push(getTodayKey(d));
+  }
+  return keys;
+}
+
+// Reads cancellation audit entries within a date range.
+export async function fetchCancellationsForDateRange(startKey, endKey) {
+  const summary = {
+    cancelledWithPaymentCount: 0,
+    cancelledWithPaymentAmount: 0,
+    cancelledWithoutPaymentCount: 0,
+    cancelledWithoutPaymentAmount: 0
+  };
+
+  try {
+    const cancelQuery = query(collection(db, "auditLog"), where("action", "==", "order_cancelled"));
+    const snapshot = await getDocs(cancelQuery);
+    snapshot.docs.forEach((entry) => {
+      const data = entry.data();
+      const createdAt = toDate(data.createdAt);
+      if (!createdAt) return;
+      const key = getTodayKey(createdAt);
+      if (key < startKey || key > endKey) return;
+      const details = data.details || {};
+      const amount = Number(details.total || 0);
+      if (details.wasPaid) {
+        summary.cancelledWithPaymentCount += 1;
+        summary.cancelledWithPaymentAmount += amount;
+      } else {
+        summary.cancelledWithoutPaymentCount += 1;
+        summary.cancelledWithoutPaymentAmount += amount;
+      }
+    });
+  } catch {
+    // Audit log may be unavailable; report still renders without cancellations.
+  }
+
+  return summary;
+}
+
+// Reads aggregated daily summary docs across a date range.
+export async function fetchDailySummaries(startKey, endKey) {
+  const keys = listDateKeys(startKey, endKey);
+  const docs = await Promise.all(keys.map((key) => getDoc(dailySummaryRef(key))));
+  const totals = {
+    total: 0,
+    grossTotal: 0,
+    discountTotal: 0,
+    cash: 0,
+    online: 0,
+    privateSittings: 0,
+    privateSittingTotal: 0,
+    foodOrders: 0
+  };
+  docs.forEach((snap) => {
+    if (!snap.exists()) return;
+    const data = snap.data();
+    totals.total += Number(data.total || 0);
+    totals.grossTotal += Number(data.grossTotal || data.total || 0);
+    totals.discountTotal += Number(data.discountTotal || 0);
+    totals.cash += Number(data.cash || 0);
+    totals.online += Number(data.online || 0);
+    totals.privateSittings += Number(data.privateSittings || 0);
+    totals.privateSittingTotal += Number(data.privateSittingTotal || 0);
+    totals.foodOrders += Number(data.foodOrders || 0);
+  });
+  return totals;
+}
+
+// Builds a complete day-wise business report (no table selection required).
+export async function fetchDayWiseReport(startKey, endKey) {
+  const [itemsReport, summary, cancellations] = await Promise.all([
+    fetchReportForDateRange(startKey, endKey),
+    fetchDailySummaries(startKey, endKey),
+    fetchCancellationsForDateRange(startKey, endKey)
+  ]);
+
+  return {
+    startDate: startKey,
+    endDate: endKey,
+    total: summary.total,
+    grossTotal: summary.grossTotal,
+    discountTotal: summary.discountTotal,
+    cash: summary.cash,
+    online: summary.online,
+    privateSittings: summary.privateSittings,
+    privateSittingTotal: summary.privateSittingTotal,
+    foodOrders: summary.foodOrders,
+    cancelledWithPaymentCount: cancellations.cancelledWithPaymentCount,
+    cancelledWithPaymentAmount: cancellations.cancelledWithPaymentAmount,
+    cancelledWithoutPaymentCount: cancellations.cancelledWithoutPaymentCount,
+    cancelledWithoutPaymentAmount: cancellations.cancelledWithoutPaymentAmount,
+    items: itemsReport.items
+  };
+}
+
 // Builds a today's report from saved paid history across all configured tables.
 export async function fetchTodayReport() {
   const todayKey = getTodayKey();
@@ -1116,6 +1330,8 @@ export function formatTableDisplayName(tableId) {
 export function buildReceiptFromOrder(order, paymentMethod = "cash") {
   const items = normalizeOrderItems(order?.items || []);
   const total = Number(order?.total ?? calculateTotal(items));
+  const grossTotal = Number(order?.grossTotal ?? total);
+  const discountAmount = Number(order?.discountAmount || 0);
   const orderId = order?.orderId || order?.id || "";
   const method = paymentMethod === "online" ? "online" : "cash";
   return {
@@ -1126,7 +1342,9 @@ export function buildReceiptFromOrder(order, paymentMethod = "cash") {
     logoSrc: CONFIG.RECEIPT_LOGO_SRC,
     items,
     total,
-    subtotal: total,
+    subtotal: grossTotal,
+    grossTotal,
+    discountAmount,
     tax: 0,
     paymentMethod: method === "online" ? "Online" : "Cash",
     paymentStatus: order?.paymentStatus === "verified_paid" ? "Verified" : "Pending",
@@ -1139,9 +1357,10 @@ export function receiptToThermalHtml(receipt) {
   const generated = toDate(receipt.generatedAt) || new Date();
   const tableLabel = formatTableDisplayName(receipt.tableId);
   const orderShort = String(receipt.orderId || "").slice(0, 8).toUpperCase();
-  const subtotal = Number(receipt.subtotal ?? receipt.total ?? 0);
+  const discountAmount = Number(receipt.discountAmount || 0);
+  const subtotal = Number(receipt.subtotal ?? receipt.grossTotal ?? receipt.total ?? 0);
   const tax = Number(receipt.tax || 0);
-  const grandTotal = Number(receipt.total ?? subtotal + tax);
+  const grandTotal = Number(receipt.total ?? subtotal + tax - discountAmount);
   const rows = (receipt.items || []).map((item) => {
     const qty = Number(item.qty || 0);
     const price = Number(item.price || 0);
@@ -1170,6 +1389,7 @@ export function receiptToThermalHtml(receipt) {
       </table>
       <hr>
       <p class="receipt-total"><span>Subtotal</span><strong>${formatCurrency(subtotal)}</strong></p>
+      ${discountAmount > 0 ? `<p class="receipt-total"><span>Discount</span><strong>-${formatCurrency(discountAmount)}</strong></p>` : ""}
       ${tax > 0 ? `<p class="receipt-total"><span>Tax</span><strong>${formatCurrency(tax)}</strong></p>` : ""}
       <p class="receipt-total receipt-grand-total"><span>Grand Total</span><strong>${formatCurrency(grandTotal)}</strong></p>
       <p class="receipt-meta">Payment: ${escapeHtml(receipt.paymentMethod || "")}</p>
@@ -1227,17 +1447,23 @@ export function buildReceiptDocumentHtml(receipt) {
 export function reportToCsv(report) {
   const lines = [
     `Report,${report.startDate},to,${report.endDate}`,
-    `Total,${report.total}`,
+    `Gross Sale,${report.grossTotal ?? report.total}`,
+    `Discount Given,${report.discountTotal ?? 0}`,
+    `Net Collection,${report.total}`,
     `Cash,${report.cash}`,
     `Online,${report.online}`,
-    `Bills,${report.orders}`,
-    `Counter orders,${report.counter}`,
-    `Customer orders,${report.customer}`,
+    `Private Sittings,${report.privateSittings ?? 0}`,
+    `Private Sitting Amount,${report.privateSittingTotal ?? 0}`,
+    `Food Orders,${report.foodOrders ?? report.orders ?? 0}`,
+    `Cancelled With Payment Count,${report.cancelledWithPaymentCount ?? 0}`,
+    `Cancelled With Payment Amount,${report.cancelledWithPaymentAmount ?? 0}`,
+    `Cancelled Without Payment Count,${report.cancelledWithoutPaymentCount ?? 0}`,
+    `Cancelled Without Payment Amount,${report.cancelledWithoutPaymentAmount ?? 0}`,
     "",
     "Item,Price,Qty,Line Total"
   ];
 
-  report.items.forEach((item) => {
+  (report.items || []).forEach((item) => {
     lines.push(`"${String(item.name).replaceAll('"', '""')}",${item.price},${item.qty},${item.total}`);
   });
 

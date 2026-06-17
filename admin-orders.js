@@ -3,9 +3,10 @@ import {
   STATUS_LABELS,
   cancelActiveOrder,
   clearTable,
+  computeDiscount,
   escapeHtml,
+  fetchDayWiseReport,
   fetchMenu,
-  fetchReportForDateRange,
   fetchTableHistory,
   formatCurrency,
   formatTime,
@@ -51,6 +52,7 @@ const state = {
   pendingPaidOrderId: null,
   pendingPaymentItems: null,
   pendingPaymentIsCounterOrder: false,
+  pendingPaymentGross: 0,
   hoverPreview: null,
   orderTableId: null,
   groupedMenu: {},
@@ -94,6 +96,9 @@ const elements = {
   paymentMethodModal: document.querySelector("#paymentMethodModal"),
   closePaymentMethod: document.querySelector("#closePaymentMethod"),
   paymentMethodTable: document.querySelector("#paymentMethodTable"),
+  paymentDiscountType: document.querySelector("#paymentDiscountType"),
+  paymentDiscountValue: document.querySelector("#paymentDiscountValue"),
+  paymentFinalPayable: document.querySelector("#paymentFinalPayable"),
   paidCashBtn: document.querySelector("#paidCashBtn"),
   paidOnlineBtn: document.querySelector("#paidOnlineBtn"),
   adminOrderModal: document.querySelector("#adminOrderModal"),
@@ -151,6 +156,8 @@ function bindUi() {
   });
   elements.paidCashBtn.addEventListener("click", () => confirmPaidWithMethod("cash"));
   elements.paidOnlineBtn.addEventListener("click", () => confirmPaidWithMethod("online"));
+  elements.paymentDiscountType?.addEventListener("change", updatePaymentDiscountDisplay);
+  elements.paymentDiscountValue?.addEventListener("input", updatePaymentDiscountDisplay);
   elements.closeAdminOrder.addEventListener("click", closeAdminOrderModal);
   elements.adminOrderModal.addEventListener("click", (event) => {
     if (event.target === elements.adminOrderModal) closeAdminOrderModal();
@@ -799,8 +806,7 @@ function populateSalesTableSelect() {
 function openAdminMenu() {
   window.dispatchEvent(new CustomEvent("manager-menu-close"));
   elements.adminMenuModal.hidden = false;
-  showSalesPanel();
-  loadSalesForTable(elements.salesTableSelect.value || CONFIG.TABLES[0]);
+  showReportPanel();
 }
 
 function showSalesPanel() {
@@ -864,7 +870,7 @@ async function loadReport() {
   elements.reportContent.innerHTML = "<p class=\"subtle\">Loading report...</p>";
 
   try {
-    const report = await fetchReportForDateRange(startKey, endKey);
+    const report = await fetchDayWiseReport(startKey, endKey);
     state.lastReport = report;
     elements.reportContent.innerHTML = reportHtml(report);
   } catch {
@@ -884,12 +890,16 @@ function reportHtml(report) {
 
   return `
     <div class="report-grid">
-      <article><span>Total</span><strong>${formatCurrency(report.total)}</strong></article>
-      <article><span>Cash</span><strong>${formatCurrency(report.cash)}</strong></article>
-      <article><span>Online</span><strong>${formatCurrency(report.online)}</strong></article>
-      <article><span>Bills</span><strong>${Number(report.orders || 0)}</strong></article>
-      <article><span>Counter</span><strong>${Number(report.counter || 0)}</strong></article>
-      <article><span>Customer</span><strong>${Number(report.customer || 0)}</strong></article>
+      <article><span>Gross Sale</span><strong>${formatCurrency(report.grossTotal || 0)}</strong></article>
+      <article><span>Discount Given</span><strong>${formatCurrency(report.discountTotal || 0)}</strong></article>
+      <article><span>Net Collection</span><strong>${formatCurrency(report.total || 0)}</strong></article>
+      <article><span>Cash</span><strong>${formatCurrency(report.cash || 0)}</strong></article>
+      <article><span>Online</span><strong>${formatCurrency(report.online || 0)}</strong></article>
+      <article><span>Food Orders</span><strong>${Number(report.foodOrders || 0)}</strong></article>
+      <article><span>Private Sittings</span><strong>${Number(report.privateSittings || 0)}</strong></article>
+      <article><span>Sitting Amount</span><strong>${formatCurrency(report.privateSittingTotal || 0)}</strong></article>
+      <article><span>Cancelled (Paid)</span><strong>${Number(report.cancelledWithPaymentCount || 0)} · ${formatCurrency(report.cancelledWithPaymentAmount || 0)}</strong></article>
+      <article><span>Cancelled (Unpaid)</span><strong>${Number(report.cancelledWithoutPaymentCount || 0)} · ${formatCurrency(report.cancelledWithoutPaymentAmount || 0)}</strong></article>
     </div>
     <h4>Menu Items Sold (${escapeHtml(report.startDate)} – ${escapeHtml(report.endDate)})</h4>
     <ul class="report-item-list">${itemRows}</ul>
@@ -917,11 +927,29 @@ function openPaymentMethodModal(tableId, options = {}) {
   state.pendingPaidOrderId = options.orderId || null;
   state.pendingPaymentItems = options.items ? cloneOrderItems(options.items) : null;
   state.pendingPaymentIsCounterOrder = Boolean(options.isCounterOrder);
+  state.pendingPaymentGross = amount;
   elements.paymentMethodTable.innerHTML = `
     <span>Mark ${escapeHtml(formatTableDisplayName(tableId))} paid by:</span>
-    <strong>Amount: ${formatCurrency(amount)}</strong>
+    <strong>Bill Total: ${formatCurrency(amount)}</strong>
   `;
+  if (elements.paymentDiscountType) elements.paymentDiscountType.value = "amount";
+  if (elements.paymentDiscountValue) elements.paymentDiscountValue.value = "";
+  updatePaymentDiscountDisplay();
   elements.paymentMethodModal.hidden = false;
+}
+
+function readPaymentDiscount() {
+  const type = elements.paymentDiscountType?.value === "percent" ? "percent" : "amount";
+  const value = Number(elements.paymentDiscountValue?.value || 0);
+  return { type, value: Number.isFinite(value) ? value : 0 };
+}
+
+function updatePaymentDiscountDisplay() {
+  if (!elements.paymentFinalPayable) return;
+  const info = computeDiscount(state.pendingPaymentGross, readPaymentDiscount());
+  elements.paymentFinalPayable.textContent = info.discountAmount > 0
+    ? `Final Payable: ${formatCurrency(info.finalTotal)} (− ${formatCurrency(info.discountAmount)})`
+    : `Final Payable: ${formatCurrency(info.finalTotal)}`;
 }
 
 function closePaymentMethodModal() {
@@ -929,6 +957,8 @@ function closePaymentMethodModal() {
   state.pendingPaidOrderId = null;
   state.pendingPaymentItems = null;
   state.pendingPaymentIsCounterOrder = false;
+  state.pendingPaymentGross = 0;
+  if (elements.paymentDiscountValue) elements.paymentDiscountValue.value = "";
   elements.paymentMethodModal.hidden = true;
 }
 
@@ -938,17 +968,18 @@ async function confirmPaidWithMethod(method) {
   const orderId = state.pendingPaidOrderId;
   const pendingItems = state.pendingPaymentItems ? cloneOrderItems(state.pendingPaymentItems) : null;
   const isCounterOrder = state.pendingPaymentIsCounterOrder;
+  const discount = readPaymentDiscount();
   elements.paidCashBtn.disabled = true;
   elements.paidOnlineBtn.disabled = true;
 
   try {
     if (pendingItems?.length) {
-      const orderSnap = await placeCounterOrderWithPayment(tableId, pendingItems, method);
+      const orderSnap = await placeCounterOrderWithPayment(tableId, pendingItems, method, discount);
       closePaymentMethodModal();
       showToast(`Order placed for ${formatTableDisplayName(tableId)}`);
       autoPrintAfterPayment(orderSnap?.data()?.orderId || orderId, orderSnap, method);
     } else {
-      await verifyOrderPayment(orderId, method);
+      await verifyOrderPayment(orderId, method, discount);
       closePaymentMethodModal();
       autoPrintAfterPayment(orderId, null, method);
     }

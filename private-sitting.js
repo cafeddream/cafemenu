@@ -3,6 +3,7 @@ import {
   buildCustomerDisplayName,
   calculateSittingBill,
   completePrivateSession,
+  computeDiscount,
   createPrivateSession,
   escapeHtml,
   filterSessionFoodOrders,
@@ -71,7 +72,10 @@ const elements = {
   checkoutBody: document.querySelector("#psCheckoutBody"),
   closeCheckout: document.querySelector("#closePsCheckout"),
   checkoutCashBtn: document.querySelector("#psCheckoutCash"),
-  checkoutOnlineBtn: document.querySelector("#psCheckoutOnline")
+  checkoutOnlineBtn: document.querySelector("#psCheckoutOnline"),
+  checkoutDiscountType: document.querySelector("#psCheckoutDiscountType"),
+  checkoutDiscountValue: document.querySelector("#psCheckoutDiscountValue"),
+  checkoutFinalPayable: document.querySelector("#psCheckoutFinalPayable")
 };
 
 function emptyCustomer() {
@@ -704,7 +708,25 @@ function startCheckout() {
   if (!session) return;
   state.checkoutDraft = buildCheckoutDraft(session);
   renderCheckoutModal(state.checkoutDraft);
+  if (elements.checkoutDiscountType) elements.checkoutDiscountType.value = "amount";
+  if (elements.checkoutDiscountValue) elements.checkoutDiscountValue.value = "";
+  updateCheckoutDiscountDisplay();
   if (elements.checkoutModal) elements.checkoutModal.hidden = false;
+}
+
+function readCheckoutDiscount() {
+  const type = elements.checkoutDiscountType?.value === "percent" ? "percent" : "amount";
+  const value = Number(elements.checkoutDiscountValue?.value || 0);
+  return { type, value: Number.isFinite(value) ? value : 0 };
+}
+
+function updateCheckoutDiscountDisplay() {
+  if (!elements.checkoutFinalPayable) return;
+  const grandTotal = Number(state.checkoutDraft?.grandTotal || 0);
+  const info = computeDiscount(grandTotal, readCheckoutDiscount());
+  elements.checkoutFinalPayable.textContent = info.discountAmount > 0
+    ? `Final Payable: ${formatCurrency(info.finalTotal)} (− ${formatCurrency(info.discountAmount)})`
+    : `Final Payable: ${formatCurrency(info.finalTotal)}`;
 }
 
 function closeCheckoutModal() {
@@ -719,14 +741,31 @@ async function confirmCheckout(method) {
   const buttons = [elements.checkoutCashBtn, elements.checkoutOnlineBtn];
   buttons.forEach((button) => { if (button) button.disabled = true; });
 
+  const discountInfo = computeDiscount(draft.grandTotal, readCheckoutDiscount());
+  // Apply the discount to the sitting charge first, then spill over onto food orders.
+  let remainingDiscount = discountInfo.discountAmount;
+  const sittingDiscount = Math.min(remainingDiscount, draft.sittingAmount);
+  remainingDiscount -= sittingDiscount;
+  const foodOrderDiscounts = draft.foodOrders.map((order) => {
+    const orderTotal = Number(order.total || 0);
+    const applied = Math.min(remainingDiscount, orderTotal);
+    remainingDiscount -= applied;
+    return { orderId: order.orderId || order.id, discount: applied };
+  });
+
   try {
-    await recordSittingPayment(draft.sessionId, draft.sittingAmount, method);
+    await recordSittingPayment(draft.sessionId, draft.sittingAmount, method, {
+      type: "amount",
+      value: sittingDiscount
+    });
 
     await Promise.all(
-      draft.foodOrders
-        .map((order) => order.orderId || order.id)
-        .filter(Boolean)
-        .map((orderId) => verifyOrderPayment(orderId, method))
+      foodOrderDiscounts
+        .filter((entry) => entry.orderId)
+        .map((entry) => verifyOrderPayment(entry.orderId, method, {
+          type: "amount",
+          value: entry.discount
+        }))
     );
 
     await completePrivateSession(draft.sessionId, {
@@ -735,7 +774,11 @@ async function confirmCheckout(method) {
       billedAmount: draft.sittingAmount,
       sittingAmount: draft.sittingAmount,
       foodAmount: draft.foodAmount,
-      grandTotal: draft.grandTotal,
+      grossTotal: discountInfo.grossTotal,
+      discountType: discountInfo.discountType,
+      discountValue: discountInfo.discountValue,
+      discountAmount: discountInfo.discountAmount,
+      grandTotal: discountInfo.finalTotal,
       paymentMethod: method
     });
 
@@ -743,7 +786,7 @@ async function confirmCheckout(method) {
 
     closeCheckoutModal();
     closeSessionModal();
-    showToast(`${session.sittingId} checked out — ${formatCurrency(draft.grandTotal)}`);
+    showToast(`${session.sittingId} checked out — ${formatCurrency(discountInfo.finalTotal)}`);
 
     // Update the Google Sheet row in the background so checkout finishes instantly.
     if (session?.sheetRowNumber) {
@@ -754,7 +797,11 @@ async function confirmCheckout(method) {
         durationMinutes: draft.sitting.durationMinutes,
         sittingAmount: draft.sittingAmount,
         foodAmount: draft.foodAmount,
-        grandTotal: draft.grandTotal,
+        grossTotal: discountInfo.grossTotal,
+        discountType: discountInfo.discountType,
+        discountValue: discountInfo.discountValue,
+        discountAmount: discountInfo.discountAmount,
+        grandTotal: discountInfo.finalTotal,
         paymentMethod: method,
         billedAmount: draft.sittingAmount
       }).catch(() => {
@@ -794,6 +841,8 @@ function bindPrivateSittingUi() {
   });
   elements.checkoutCashBtn?.addEventListener("click", () => confirmCheckout("cash"));
   elements.checkoutOnlineBtn?.addEventListener("click", () => confirmCheckout("online"));
+  elements.checkoutDiscountType?.addEventListener("change", updateCheckoutDiscountDisplay);
+  elements.checkoutDiscountValue?.addEventListener("input", updateCheckoutDiscountDisplay);
   window.addEventListener("ps-food-order-modal-closed", handleFoodOrderModalClosed);
   bindPrinterSettingsUi();
 }

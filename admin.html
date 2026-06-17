@@ -126,6 +126,17 @@
         <button class="ghost-btn" id="closePsCheckout" type="button">Close</button>
       </div>
       <div class="ps-checkout-body" id="psCheckoutBody"></div>
+      <div class="discount-control ps-checkout-discount" style="padding:0 16px;">
+        <label class="select-label" for="psCheckoutDiscountValue">Discount (optional)</label>
+        <div class="discount-input-row">
+          <select id="psCheckoutDiscountType" class="table-select discount-type-select">
+            <option value="amount">₹ Amount</option>
+            <option value="percent">% Percent</option>
+          </select>
+          <input id="psCheckoutDiscountValue" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
+        </div>
+        <p class="discount-final" id="psCheckoutFinalPayable">Final Payable: ₹0</p>
+      </div>
       <div class="modal-foot ps-checkout-actions" style="padding:16px;">
         <button class="primary-btn" id="psCheckoutCash" type="button">Cash</button>
         <button class="secondary-btn" id="psCheckoutOnline" type="button">Online</button>
@@ -216,6 +227,17 @@
       </div>
       <div class="payment-method-body">
         <p id="paymentMethodTable">Select payment method.</p>
+        <div class="discount-control">
+          <label class="select-label" for="paymentDiscountValue">Discount (optional)</label>
+          <div class="discount-input-row">
+            <select id="paymentDiscountType" class="table-select discount-type-select">
+              <option value="amount">₹ Amount</option>
+              <option value="percent">% Percent</option>
+            </select>
+            <input id="paymentDiscountValue" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
+          </div>
+          <p class="discount-final" id="paymentFinalPayable">Final Payable: ₹0</p>
+        </div>
         <button class="primary-btn" id="paidCashBtn" type="button">Cash</button>
         <button class="secondary-btn" id="paidOnlineBtn" type="button">Online</button>
       </div>

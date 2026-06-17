@@ -25,7 +25,12 @@ const SHEET_HEADERS = [
   "C2 Front URL",
   "C2 Back URL",
   "PDF URL",
-  "Session ID"
+  "Session ID",
+  "Gross Total",
+  "Discount Type",
+  "Discount Value",
+  "Discount Amount",
+  "Final Total"
 ];
 
 function doPost(e) {
@@ -86,7 +91,12 @@ function handleCheckIn(payload) {
     photoUrls[2] || "",
     photoUrls[3] || "",
     pdfUrl,
-    payload.sessionId || ""
+    payload.sessionId || "",
+    "",
+    "",
+    "",
+    "",
+    ""
   ];
 
   sheet.appendRow(row);
@@ -114,6 +124,11 @@ function handleCheckout(payload) {
   sheet.getRange(rowNumber, 12).setValue(payload.foodAmount || "");
   sheet.getRange(rowNumber, 13).setValue(payload.grandTotal ?? payload.billedAmount ?? "");
   sheet.getRange(rowNumber, 14).setValue(payload.paymentMethod || "");
+  sheet.getRange(rowNumber, 21).setValue(payload.grossTotal ?? "");
+  sheet.getRange(rowNumber, 22).setValue(payload.discountType || "");
+  sheet.getRange(rowNumber, 23).setValue(payload.discountValue ?? "");
+  sheet.getRange(rowNumber, 24).setValue(payload.discountAmount ?? "");
+  sheet.getRange(rowNumber, 25).setValue(payload.grandTotal ?? "");
 
   return { ok: true };
 }
