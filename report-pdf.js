@@ -1,4 +1,4 @@
-import { CONFIG, formatCurrency, formatTableDisplayName, toDate } from "./firebase.js";
+import { CONFIG, formatTableDisplayName, toDate } from "./firebase.js";
 import { getJsPdf } from "./private-sitting-pdf.js";
 
 const PAGE = { left: 14, right: 196, width: 182, bottom: 272, top: 18 };
@@ -35,8 +35,10 @@ function formatItemsSummary(items = [], maxLen = 42) {
   return text.length > maxLen ? `${text.slice(0, maxLen - 3)}...` : text;
 }
 
+// jsPDF built-in fonts cannot render the ₹ Unicode glyph; use Rs. for PDF output.
 function fmtMoney(amount) {
-  return formatCurrency(amount).replace(/\s/g, " ");
+  const value = Number(amount || 0).toLocaleString("en-IN");
+  return `Rs. ${value}`;
 }
 
 function setFill(doc, rgb) {
@@ -243,7 +245,7 @@ export async function buildSalesReportPdf(report) {
         formatItemsSummary(order.items),
         order.paymentMethod === "online" ? "Online" : "Cash",
         fmtMoney(gross),
-        discount > 0 ? `-${fmtMoney(discount)}` : fmtMoney(0),
+        discount > 0 ? `-Rs. ${Number(discount).toLocaleString("en-IN")}` : "Rs. 0",
         fmtMoney(net)
       ], y, index);
     });
@@ -267,7 +269,7 @@ export async function buildSalesReportPdf(report) {
         fmtMoney(session.sittingAmount || 0),
         fmtMoney(session.foodAmount || 0),
         fmtMoney(gross),
-        discount > 0 ? `-${fmtMoney(discount)}` : fmtMoney(0),
+        discount > 0 ? `-Rs. ${Number(discount).toLocaleString("en-IN")}` : "Rs. 0",
         fmtMoney(net)
       ], y, index);
     });
