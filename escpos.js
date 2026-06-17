@@ -27,7 +27,7 @@ function concatChunks(chunks) {
 }
 
 function line(text = "") {
-  return concatChunks([encodeText(text), bytes(0x0a)]);
+  return concatChunks([encodeText(text), bytes(0x0d, 0x0a)]);
 }
 
 function init() {
@@ -43,17 +43,17 @@ function bold(on = true) {
   return bytes(ESC, 0x45, on ? 1 : 0);
 }
 
-function feed(lines = 3) {
-  return bytes(ESC, 0x64, Math.max(0, Math.min(255, lines)));
-}
-
-function cutPartial() {
-  return bytes(GS, 0x56, 1);
+function feedAndCut(lines = 4) {
+  return bytes(GS, 0x56, 0x42, Math.max(0, Math.min(255, lines)));
 }
 
 function formatEscPosCurrency(amount) {
   const value = Number(amount || 0).toLocaleString("en-IN");
   return `Rs ${value}`;
+}
+
+export function buildRawAsciiTest() {
+  return encodeText("TEST\r\n\r\n\r\n");
 }
 
 export function buildTestPrintEscPos(options = {}) {
@@ -70,8 +70,7 @@ export function buildTestPrintEscPos(options = {}) {
     bold(false),
     line(message),
     line(timestamp),
-    feed(3),
-    cutPartial()
+    feedAndCut(4)
   ]);
 }
 
@@ -129,8 +128,7 @@ export function buildReceiptEscPos(receipt) {
   chunks.push(line("Thank You"));
   chunks.push(line("Visit Again"));
   chunks.push(bold(false));
-  chunks.push(feed(3));
-  chunks.push(cutPartial());
+  chunks.push(feedAndCut(4));
 
   return concatChunks(chunks);
 }

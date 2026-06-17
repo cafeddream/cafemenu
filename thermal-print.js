@@ -9,7 +9,7 @@ import {
   fetchReceipt,
   toDate
 } from "./firebase.js";
-import { buildReceiptEscPos, buildTestPrintEscPos } from "./escpos.js";
+import { buildReceiptEscPos, buildRawAsciiTest, buildTestPrintEscPos } from "./escpos.js";
 import {
   isPrinterConnected,
   writeEscPos
@@ -131,6 +131,7 @@ export async function autoPrintAfterPayment(orderId, orderSnapshot, paymentMetho
 }
 
 export async function printTestReceipt() {
+  await writeEscPos(buildRawAsciiTest());
   const bytes = buildTestPrintEscPos({
     title: CONFIG.RESTAURANT_NAME,
     message: "Printer Connected Successfully",

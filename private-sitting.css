@@ -468,6 +468,33 @@ body[data-active-tab="orders"] .ps-manager-main {
   width: 100%;
 }
 
+.ps-printer-baud-field {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.ps-printer-baud-field span {
+  color: var(--ps-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ps-printer-baud-field select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--ps-line);
+  border-radius: 10px;
+  background: #12151c;
+  color: var(--ps-text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ps-printer-baud-field select:disabled {
+  opacity: 0.6;
+}
+
 .ps-manager-page .modal-backdrop {
   background: rgba(0, 0, 0, 0.72);
 }

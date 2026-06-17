@@ -56,8 +56,14 @@ export const CONFIG = {
   AUTO_PRINT_RECEIPTS: true,
   PRINTER_CONFIG: {
     name: "MPT-II",
-    baudRate: 9600,
-    allowedBluetoothServiceClassIds: []
+    baudRate: 115200,
+    allowedBluetoothServiceClassIds: [
+      "00001101-0000-1000-8000-00805f9b34fb",
+      "1101",
+      "00001100-0000-1000-8000-00805f9b34fb",
+      "e7810a71-73ae-499d-8c15-faa9aaf9843d",
+      "49535343-fe7d-4ae5-8fa9-9fdfcf3e0c83"
+    ]
   },
   RECEIPT_LOGO_SRC: "./assets/receipt-logo.png",
   APPS_SCRIPT_URL: "PASTE_DEPLOYED_WEB_APP_URL",
