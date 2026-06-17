@@ -86,8 +86,9 @@ export async function printThermalReceipt(receipt, options = {}) {
   if (!printer?.enabled) return false;
 
   if (isSerialSupported()) {
-    const connected = isPrinterConnected() || await ensurePrinterConnected();
-    if (connected) {
+    let ready = isPrinterConnected();
+    if (!ready) ready = await ensurePrinterConnected();
+    if (ready) {
       try {
         return await printEscPosReceipt(receipt);
       } catch (error) {

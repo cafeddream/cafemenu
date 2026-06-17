@@ -944,13 +944,14 @@ async function confirmPaidWithMethod(method) {
   try {
     if (pendingItems?.length) {
       const orderSnap = await placeCounterOrderWithPayment(tableId, pendingItems, method);
+      closePaymentMethodModal();
       showToast(`Order placed for ${formatTableDisplayName(tableId)}`);
-      await autoPrintAfterPayment(orderSnap?.data()?.orderId || orderId, orderSnap, method);
+      autoPrintAfterPayment(orderSnap?.data()?.orderId || orderId, orderSnap, method);
     } else {
       await verifyOrderPayment(orderId, method);
-      await autoPrintAfterPayment(orderId, null, method);
+      closePaymentMethodModal();
+      autoPrintAfterPayment(orderId, null, method);
     }
-    closePaymentMethodModal();
   } catch {
     showToast(isCounterOrder ? "Order failed. Check connection and refresh." : "Connection error, please refresh");
   } finally {
