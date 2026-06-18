@@ -100,6 +100,7 @@ function handleCheckout(payload) {
   sheet.getRange(rowNumber, 10).setValue(payload.durationMinutes || "");
 
   let pdfUrl = "";
+  let pdfFileId = "";
   const pdfBase64 = String(payload.pdfBase64 || "");
   if (pdfBase64.length > 500) {
     const bytes = Utilities.base64Decode(pdfBase64);
@@ -112,11 +113,13 @@ function handleCheckout(payload) {
           const existing = DriveApp.getFileById(payload.pdfFileId);
           existing.setContent(pdfBlob);
           pdfUrl = existing.getUrl();
+          pdfFileId = existing.getId();
         } catch (replaceError) {
           const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
           const dayFolder = ensureDayFolder_(dateKey);
           const pdfFile = dayFolder.createFile(pdfBlob);
           pdfUrl = pdfFile.getUrl();
+          pdfFileId = pdfFile.getId();
           sheet.getRange(rowNumber, 11).setValue(pdfUrl);
         }
       } else {
@@ -124,6 +127,7 @@ function handleCheckout(payload) {
         const dayFolder = ensureDayFolder_(dateKey);
         const pdfFile = dayFolder.createFile(pdfBlob);
         pdfUrl = pdfFile.getUrl();
+        pdfFileId = pdfFile.getId();
         sheet.getRange(rowNumber, 11).setValue(pdfUrl);
       }
     }
@@ -131,7 +135,8 @@ function handleCheckout(payload) {
 
   return {
     ok: true,
-    pdfDriveUrl: pdfUrl
+    pdfDriveUrl: pdfUrl,
+    pdfFileId: pdfFileId
   };
 }
 

@@ -1,39 +1,10 @@
-import { CONFIG, escapeHtml, formatTableDisplayName, toDate } from "./firebase.js";
+import { CONFIG, buildCustomerDisplayName, escapeHtml, formatTableDisplayName, toDate } from "./firebase.js";
 
 let jsPdfModule = null;
-let pdfLibModule = null;
 let logoDataUrl = null;
 let logoLoadPromise = null;
 
 export const MIN_PDF_BASE64_LEN = 500;
-
-export function base64ToUint8Array(base64 = "") {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
-export function uint8ArrayToBase64(bytes) {
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
-export async function getPdfLib() {
-  if (!pdfLibModule) {
-    pdfLibModule = await withTimeout(
-      import("https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm"),
-      15000
-    );
-  }
-  return pdfLibModule;
-}
 
 const PAGE = { left: 14, right: 196, width: 182, bottom: 272, top: 18 };
 
@@ -111,10 +82,6 @@ function formatDobLabel(value = "") {
   return date.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function fmtMoney(amount) {
-  return `Rs. ${Number(amount || 0).toLocaleString("en-IN")}`;
-}
-
 function setFill(doc, rgb) {
   doc.setFillColor(rgb[0], rgb[1], rgb[2]);
 }
@@ -127,7 +94,7 @@ function setText(doc, rgb) {
   doc.setTextColor(rgb[0], rgb[1], rgb[2]);
 }
 
-function formatCheckInLabel(checkInAt, checkInLabel = "") {
+export function formatCheckInLabel(checkInAt, checkInLabel = "") {
   if (checkInLabel) return checkInLabel;
   const date = toDate(checkInAt);
   return date ? date.toLocaleString() : new Date().toLocaleString();
@@ -143,27 +110,26 @@ export function buildSittingPdfFileName(sittingId, sessionId) {
 
 function drawPdfHeader(doc, subtitle) {
   setFill(doc, C.brand);
-  doc.rect(PAGE.left, 10, PAGE.width, 24, "F");
+  doc.rect(PAGE.left, 10, PAGE.width, 22, "F");
 
   try {
     if (logoDataUrl) {
-      doc.addImage(stripDataUrl(logoDataUrl), "PNG", PAGE.left + 4, 12, 18, 18);
+      doc.addImage(stripDataUrl(logoDataUrl), "PNG", PAGE.left + 4, 12, 16, 16);
     }
   } catch {
-    // Logo optional in PDF.
+    // Logo optional.
   }
 
   setText(doc, C.white);
-  doc.setFontSize(18);
+  doc.setFontSize(16);
   doc.setFont(undefined, "bold");
-  doc.text(CONFIG.RESTAURANT_NAME, PAGE.left + 26, 20);
-  doc.setFontSize(10);
+  doc.text(CONFIG.RESTAURANT_NAME, PAGE.left + 24, 19);
+  doc.setFontSize(9);
   doc.setFont(undefined, "normal");
-  doc.text(subtitle, PAGE.left + 26, 28);
-  doc.text(new Date().toLocaleString(), PAGE.right - 4, 20, { align: "right" });
+  doc.text(subtitle, PAGE.left + 24, 26);
 
   setText(doc, C.ink);
-  return 42;
+  return 38;
 }
 
 function drawSectionTitle(doc, title, y) {
@@ -172,187 +138,124 @@ function drawSectionTitle(doc, title, y) {
   setText(doc, C.white);
   doc.setFontSize(10);
   doc.setFont(undefined, "bold");
-  doc.text(title, PAGE.left + 3, y);
+  const label = String(title || "Guest").trim() || "Guest";
+  doc.text(label, PAGE.left + 3, y);
   setText(doc, C.ink);
-  return y + 10;
+  return y + 9;
 }
 
 function drawMetaLine(doc, label, value, y) {
-  doc.setFontSize(10);
+  doc.setFontSize(9);
   doc.setFont(undefined, "bold");
-  doc.text(`${label}:`, PAGE.left, y);
+  setText(doc, C.muted);
+  doc.text(`${label}`, PAGE.left + 2, y);
   doc.setFont(undefined, "normal");
-  doc.text(String(value || "-"), PAGE.left + 32, y);
-  return y + 6;
+  setText(doc, C.ink);
+  doc.text(String(value || "-"), PAGE.left + 28, y);
+  return y + 5;
 }
 
 function addPhotoPair(doc, frontUrl, backUrl, y) {
-  const photoW = 84;
-  const photoH = 48;
-  doc.setFontSize(8);
+  const photoW = 72;
+  const photoH = 40;
+  doc.setFontSize(7);
   setText(doc, C.muted);
 
   try {
     if (frontUrl) {
-      doc.text("ID Front", PAGE.left, y);
-      doc.addImage(stripDataUrl(frontUrl), "JPEG", PAGE.left, y + 2, photoW, photoH);
+      doc.text("ID Front", PAGE.left + 2, y);
+      doc.addImage(stripDataUrl(frontUrl), "JPEG", PAGE.left + 2, y + 1.5, photoW, photoH);
     } else {
-      doc.text("ID Front unavailable", PAGE.left, y);
+      doc.text("ID Front unavailable", PAGE.left + 2, y);
     }
   } catch {
-    doc.text("ID Front unavailable", PAGE.left, y);
+    doc.text("ID Front unavailable", PAGE.left + 2, y);
   }
 
   try {
     if (backUrl) {
-      doc.text("ID Back", PAGE.left + photoW + 8, y);
-      doc.addImage(stripDataUrl(backUrl), "JPEG", PAGE.left + photoW + 8, y + 2, photoW, photoH);
+      doc.text("ID Back", PAGE.left + photoW + 10, y);
+      doc.addImage(stripDataUrl(backUrl), "JPEG", PAGE.left + photoW + 10, y + 1.5, photoW, photoH);
     } else {
-      doc.text("ID Back unavailable", PAGE.left + photoW + 8, y);
+      doc.text("ID Back unavailable", PAGE.left + photoW + 10, y);
     }
   } catch {
-    doc.text("ID Back unavailable", PAGE.left + photoW + 8, y);
+    doc.text("ID Back unavailable", PAGE.left + photoW + 10, y);
   }
 
   setText(doc, C.ink);
-  return y + photoH + 10;
+  return y + photoH + 8;
 }
 
-function drawKeyValueRows(doc, rows, y) {
-  rows.forEach(([label, value], index) => {
-    const bg = index % 2 === 1 ? C.rowAlt : C.white;
-    setFill(doc, bg);
-    setDraw(doc, C.line);
-    doc.rect(PAGE.left, y - 4, PAGE.width, 8, "FD");
-    doc.setFontSize(9);
-    doc.setFont(undefined, "bold");
-    setText(doc, C.ink);
-    doc.text(label, PAGE.left + 2, y);
-    doc.setFont(undefined, "normal");
-    doc.text(String(value), PAGE.right - 2, y, { align: "right" });
-    y += 8;
-  });
-  return y + 4;
-}
-
-function drawPageFooter(doc, label) {
+function drawPageFooter(doc) {
   setText(doc, C.muted);
-  doc.setFontSize(8);
-  doc.text(`${CONFIG.RESTAURANT_NAME} · ${label}`, PAGE.left, 287);
+  doc.setFontSize(7);
+  doc.text(`${CONFIG.RESTAURANT_NAME} · Private Sitting Session Record`, PAGE.left, 287);
 }
 
-function drawEntryPage(doc, data) {
+function drawSessionRecordPage(doc, data) {
   let y = drawPdfHeader(doc, "Private Sitting Record");
 
-  y = drawSectionTitle(doc, "Session Details", y);
-  y = drawMetaLine(doc, "Sitting", formatTableDisplayName(data.sittingId), y);
-  y = drawMetaLine(doc, "Mobile", data.mobile, y);
-  y = drawMetaLine(doc, "Check-in", formatCheckInLabel(data.checkInAt, data.checkInLabel), y);
-  if (data.sessionId) {
-    y = drawMetaLine(doc, "Ref", String(data.sessionId).slice(0, 8).toUpperCase(), y);
-  }
-  y += 4;
+  const displayName = String(data.displayName || "").trim() || buildCustomerDisplayName(data.customers || []);
+  doc.setFontSize(17);
+  doc.setFont(undefined, "bold");
+  setText(doc, C.ink);
+  doc.text(displayName, PAGE.left + PAGE.width / 2, y + 2, { align: "center" });
+  y += 10;
 
-  (data.customers || []).forEach((customer, index) => {
-    y = drawSectionTitle(doc, `Customer ${index + 1}`, y);
-    y = drawMetaLine(doc, "Name", customer.name, y);
-    y = drawMetaLine(doc, "DOB", formatDobLabel(customer.dob), y);
-    y = addPhotoPair(
-      doc,
-      customer.photoFrontDataUrl,
-      customer.photoBackDataUrl,
-      y
-    );
+  setFill(doc, C.rowAlt);
+  setDraw(doc, C.line);
+  const cardTop = y;
+  const cardH = 26;
+  doc.rect(PAGE.left, cardTop, PAGE.width, cardH, "FD");
+
+  doc.setFontSize(9);
+  doc.setFont(undefined, "bold");
+  setText(doc, C.ink);
+  doc.text("Private Sitting", PAGE.left + 4, cardTop + 7);
+  doc.setFont(undefined, "normal");
+  doc.text(formatTableDisplayName(data.sittingId), PAGE.left + 4, cardTop + 13);
+
+  doc.setFont(undefined, "bold");
+  doc.text("Check-in", PAGE.left + 58, cardTop + 7);
+  doc.setFont(undefined, "normal");
+  const checkInText = formatCheckInLabel(data.checkInAt, data.checkInLabel);
+  doc.text(checkInText, PAGE.left + 58, cardTop + 13, { maxWidth: 52 });
+
+  doc.setFont(undefined, "bold");
+  doc.text("Check-out", PAGE.left + 118, cardTop + 7);
+  doc.setFont(undefined, "normal");
+  doc.text(data.checkOutLabel || "—", PAGE.left + 118, cardTop + 13, { maxWidth: 52 });
+
+  doc.setFont(undefined, "bold");
+  doc.text("Mobile", PAGE.left + 4, cardTop + 21);
+  doc.setFont(undefined, "normal");
+  doc.text(String(data.mobile || "-"), PAGE.left + 28, cardTop + 21);
+
+  y = cardTop + cardH + 6;
+
+  (data.customers || []).forEach((customer) => {
+    const sectionTitle = String(customer.name || "").trim() || "Guest";
+    y = drawSectionTitle(doc, sectionTitle, y);
+    y = drawMetaLine(doc, "Date of Birth", formatDobLabel(customer.dob), y);
+    y = addPhotoPair(doc, customer.photoFrontDataUrl, customer.photoBackDataUrl, y);
     y += 2;
   });
 
-  drawPageFooter(doc, "Private Sitting Entry Record");
+  drawPageFooter(doc);
 }
 
-function drawCheckoutPageContent(doc, checkout) {
-  let y = drawPdfHeader(doc, "Checkout Summary");
-
-  y = drawSectionTitle(doc, "Timing", y);
-  y = drawMetaLine(doc, "Check-out", checkout.checkOutLabel || "-", y);
-  y = drawMetaLine(doc, "Duration", `${checkout.durationMinutes || 0} min`, y);
-  y += 4;
-
-  y = drawSectionTitle(doc, "Billing", y);
-  const discount = Number(checkout.discountAmount || 0);
-  const rows = [
-    ["Sitting Charge", fmtMoney(checkout.sittingAmount)],
-    ["Food Total", fmtMoney(checkout.foodAmount)],
-    ["Gross Total", fmtMoney(checkout.grossTotal)]
-  ];
-  if (discount > 0) {
-    rows.push(["Discount", `-${fmtMoney(discount)}`]);
-  }
-  rows.push(
-    ["Grand Total", fmtMoney(checkout.grandTotal)],
-    ["Payment", checkout.paymentMethod === "online" ? "Online" : "Cash"]
-  );
-  y = drawKeyValueRows(doc, rows, y);
-
-  drawPageFooter(doc, "Private Sitting Checkout");
-}
-
-function drawCheckoutPage(doc, checkout) {
-  doc.addPage();
-  drawCheckoutPageContent(doc, checkout);
-}
-
-export async function buildCheckoutPageOnlyPdfBytes(checkout) {
+export async function buildSittingSessionPdf(data) {
   await preloadPdfLogo();
   const jsPDF = await getJsPdf();
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  drawCheckoutPageContent(doc, checkout);
-  const dataUri = doc.output("datauristring");
-  const base64 = dataUri.split(",")[1] || "";
-  return base64ToUint8Array(base64);
-}
-
-export async function mergeCheckoutIntoExistingPdf(existingPdfBytes, checkout) {
-  const { PDFDocument } = await getPdfLib();
-  const existing = await PDFDocument.load(existingPdfBytes);
-  const checkoutBytes = await buildCheckoutPageOnlyPdfBytes(checkout);
-  const checkoutDoc = await PDFDocument.load(checkoutBytes);
-  const copied = await existing.copyPages(checkoutDoc, checkoutDoc.getPageIndices());
-  copied.forEach((page) => existing.addPage(page));
-  return existing.save();
-}
-
-export async function buildSittingRecordPdf({
-  phase = "checkin",
-  sittingId,
-  mobile,
-  sessionId,
-  customers = [],
-  checkInAt,
-  checkInLabel,
-  checkout = null
-}) {
-  await preloadPdfLogo();
-  const jsPDF = await getJsPdf();
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-
-  drawEntryPage(doc, {
-    sittingId,
-    mobile,
-    sessionId,
-    customers,
-    checkInAt,
-    checkInLabel
-  });
-
-  if (phase === "full" && checkout) {
-    drawCheckoutPage(doc, checkout);
-  }
-
+  drawSessionRecordPage(doc, data);
   return doc.output("datauristring");
 }
 
-export async function buildSittingEntryPdf(data) {
-  return buildSittingRecordPdf({ ...data, phase: "checkin" });
+/** @deprecated Use buildSittingSessionPdf */
+export async function buildSittingRecordPdf(data) {
+  return buildSittingSessionPdf(data);
 }
 
 export function compressPhotoDataUrl(dataUrl, maxWidth = 520, quality = 0.62) {
@@ -405,14 +308,14 @@ export function mergeCustomersWithPhotos(customers = [], customerPhotos = []) {
 }
 
 export function buildSittingEntryHtmlPreview(data) {
-  const customers = (data.customers || []).map((customer, index) => `
+  const displayName = data.displayName || buildCustomerDisplayName(data.customers || []);
+  const customers = (data.customers || []).map((customer) => `
     <section class="ps-pdf-customer">
-      <strong>Customer ${index + 1}</strong>
-      <div>${escapeHtml(customer.name || "-")}</div>
+      <strong>${escapeHtml(customer.name || "Guest")}</strong>
       <div>DOB: ${escapeHtml(formatDobLabel(customer.dob))}</div>
       <div class="ps-photo-grid">
-        ${customer.photoFrontDataUrl ? `<img src="${customer.photoFrontDataUrl}" alt="Customer ${index + 1} ID front">` : ""}
-        ${customer.photoBackDataUrl ? `<img src="${customer.photoBackDataUrl}" alt="Customer ${index + 1} ID back">` : ""}
+        ${customer.photoFrontDataUrl ? `<img src="${customer.photoFrontDataUrl}" alt="ID front">` : ""}
+        ${customer.photoBackDataUrl ? `<img src="${customer.photoBackDataUrl}" alt="ID back">` : ""}
       </div>
     </section>
   `).join("");
@@ -420,7 +323,8 @@ export function buildSittingEntryHtmlPreview(data) {
   return `
     <div class="ps-pdf-preview">
       <strong>${escapeHtml(CONFIG.RESTAURANT_NAME)}</strong>
-      <div>Sitting: ${escapeHtml(data.sittingId || "-")}</div>
+      <div class="ps-pdf-couple-name">${escapeHtml(displayName)}</div>
+      <div>Private Sitting: ${escapeHtml(formatTableDisplayName(data.sittingId || "-"))}</div>
       <div>Mobile: ${escapeHtml(data.mobile || "-")}</div>
       ${customers}
     </div>

@@ -719,6 +719,12 @@ body[data-active-tab="orders"] .ps-manager-main {
   gap: 10px;
 }
 
+.ps-pdf-couple-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ps-ink, #1c1c1c);
+}
+
 .ps-pdf-preview img {
   width: 100%;
   border-radius: 10px;
