@@ -1548,6 +1548,11 @@ export async function fetchDayWiseReport(startKey, endKey) {
   ]);
 
   const salesFoodOrders = foodOrders.filter((order) => order.paymentStatus !== "voided");
+  const voidFoodOrders = foodOrders.filter((order) => order.paymentStatus === "voided");
+  const voidFoodGross = voidFoodOrders.reduce(
+    (sum, order) => sum + Number(order.grossTotal ?? order.voidAmount ?? 0),
+    0
+  );
   const itemsReport = buildReportFromOrders(salesFoodOrders, startKey, endKey);
   const foodSaleTotal = salesFoodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
   const foodGrossTotal = salesFoodOrders.reduce((sum, order) => sum + Number(order.grossTotal ?? order.total ?? 0), 0);
@@ -1569,9 +1574,41 @@ export async function fetchDayWiseReport(startKey, endKey) {
     .filter((session) => session.paymentMethod === "online")
     .reduce((sum, session) => sum + Number(session.grandTotal ?? session.billedAmount ?? 0), 0);
 
-  const grossTotal = foodGrossTotal + sittingGrossTotal;
+  const grossTotal = foodGrossTotal
+    + sittingGrossTotal
+    + cancellations.cancelledWithPaymentAmount
+    + voidFoodGross;
   const discountTotal = foodDiscountTotal + sittingDiscountTotal;
   const total = foodSaleTotal + sittingSaleTotal;
+  const paidOrderCount = salesFoodOrders.length + sittings.length;
+
+  const enrichedVoidDetails = voids.details.map((row) => {
+    const full = voidFoodOrders.find((order) => order.orderId === row.orderId);
+    if (!full) return row;
+    return {
+      ...row,
+      items: full.items,
+      grossTotal: full.grossTotal ?? full.voidAmount ?? row.amount,
+      voidRemarks: full.voidRemarks || row.voidRemarks,
+      tableId: full.tableId || row.tableId
+    };
+  });
+
+  const foodOrderIds = new Set(foodOrders.map((order) => order.orderId).filter(Boolean));
+  const missingVoidOrders = enrichedVoidDetails
+    .filter((row) => row.orderId && !foodOrderIds.has(row.orderId))
+    .map((row) => ({
+      orderId: row.orderId,
+      tableId: row.tableId,
+      items: row.items || [],
+      paymentStatus: "voided",
+      voidRemarks: row.voidRemarks || "",
+      grossTotal: Number(row.grossTotal ?? row.amount ?? 0),
+      voidAmount: Number(row.amount ?? row.grossTotal ?? 0),
+      voidedAt: row.time,
+      total: 0,
+      discountAmount: 0
+    }));
 
   return {
     startDate: startKey,
@@ -1585,18 +1622,20 @@ export async function fetchDayWiseReport(startKey, endKey) {
     foodSaleTotal,
     privateSittings: sittings.length,
     privateSittingTotal: sittingSaleTotal,
-    totalOrders: salesFoodOrders.length + sittings.length,
+    paidOrderCount,
+    totalOrders: paidOrderCount,
     cancelledWithPaymentCount: cancellations.cancelledWithPaymentCount,
     cancelledWithPaymentAmount: cancellations.cancelledWithPaymentAmount,
     cancelledWithoutPaymentCount: cancellations.cancelledWithoutPaymentCount,
     cancelledWithoutPaymentAmount: cancellations.cancelledWithoutPaymentAmount,
-    voidOrderCount: voids.voidOrderCount,
-    voidOrderAmount: voids.voidOrderAmount,
+    voidOrderCount: voidFoodOrders.length,
+    voidOrderAmount: voidFoodGross,
+    voidOrderGross: voidFoodGross,
     items: itemsReport.items,
-    foodOrderDetails: foodOrders,
+    foodOrderDetails: [...foodOrders, ...missingVoidOrders],
     sittingDetails: sittings,
     cancellationDetails: cancellations.details,
-    voidOrderDetails: voids.details
+    voidOrderDetails: enrichedVoidDetails
   };
 }
 
@@ -1803,20 +1842,20 @@ export function buildReceiptDocumentHtml(receipt) {
 export function reportToCsv(report) {
   const lines = [
     `Report,${report.startDate},to,${report.endDate}`,
-    `Gross Sale,${report.grossTotal ?? report.total}`,
+    `Gross Sales (incl. void + cancelled paid),${report.grossTotal ?? report.total}`,
     `Discount Given,${report.discountTotal ?? 0}`,
-    `Net Collection,${report.total}`,
-    `Food Sales,${report.foodSaleTotal ?? 0}`,
-    `Food Orders,${report.foodOrders ?? 0}`,
+    `Net Collection (paid),${report.total}`,
+    `Food Sales (paid),${report.foodSaleTotal ?? 0}`,
+    `Food Orders (paid),${report.foodOrders ?? 0}`,
     `Private Sitting Sales,${report.privateSittingTotal ?? 0}`,
     `Private Sittings,${report.privateSittings ?? 0}`,
-    `Total Orders,${report.totalOrders ?? report.orders ?? 0}`,
+    `Paid Orders + Sittings,${report.paidOrderCount ?? report.totalOrders ?? 0}`,
     `Cancelled With Payment Count,${report.cancelledWithPaymentCount ?? 0}`,
     `Cancelled With Payment Amount,${report.cancelledWithPaymentAmount ?? 0}`,
     `Cancelled Without Payment Count,${report.cancelledWithoutPaymentCount ?? 0}`,
     `Cancelled Without Payment Amount,${report.cancelledWithoutPaymentAmount ?? 0}`,
     `Void Orders Count,${report.voidOrderCount ?? 0}`,
-    `Void Orders Amount,${report.voidOrderAmount ?? 0}`,
+    `Void Orders Gross,${report.voidOrderGross ?? report.voidOrderAmount ?? 0}`,
     "",
     "Item,Price,Qty,Line Total"
   ];

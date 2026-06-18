@@ -34,6 +34,14 @@ function formatOrderDateTime(order) {
   return formatPaidAt(order.paidAt);
 }
 
+function formatCancelDateTime(row) {
+  if (row.time) {
+    const parsed = toDate(row.time);
+    if (parsed) return formatPaidAt(parsed);
+  }
+  return row.date || "-";
+}
+
 function formatOrderPaymentLabel(order) {
   if (order.paymentStatus === "voided") {
     const reason = String(order.voidRemarks || "").trim();
@@ -42,12 +50,18 @@ function formatOrderPaymentLabel(order) {
   return order.paymentMethod === "online" ? "Online" : "Cash";
 }
 
-function formatItemsSummary(items = [], maxLen = 42) {
+function formatItemsSummary(items = []) {
   if (!items.length) return "-";
-  const text = items
+  return items
     .map((item) => `${item.name || "Item"} x${Number(item.qty || 0)}`)
     .join(", ");
-  return text.length > maxLen ? `${text.slice(0, maxLen - 3)}...` : text;
+}
+
+function orderGrossAmount(order) {
+  if (order.paymentStatus === "voided") {
+    return Number(order.grossTotal ?? order.voidAmount ?? 0);
+  }
+  return Number(order.grossTotal ?? order.total ?? 0);
 }
 
 // jsPDF built-in fonts cannot render the ₹ Unicode glyph; use Rs. for PDF output.
@@ -144,29 +158,74 @@ function drawTableHeader(doc, columns, y) {
   return y + HEADER_H;
 }
 
-function drawTableRow(doc, columns, cells, y, rowIndex) {
-  y = newPageIfNeeded(doc, y, ROW_H + 1);
+function drawTableRow(doc, columns, cells, y, rowIndex, options = {}) {
+  const rowH = options.rowH || ROW_H;
+  y = newPageIfNeeded(doc, y, rowH + 1);
   let x = PAGE.left;
   const bg = rowIndex % 2 === 1 ? C.rowAlt : C.white;
+  const ink = options.ink || C.ink;
 
   setFill(doc, bg);
   setDraw(doc, C.line);
-  doc.rect(PAGE.left, y, PAGE.width, ROW_H, "FD");
+  doc.rect(PAGE.left, y, PAGE.width, rowH, "FD");
 
   doc.setFontSize(8);
   doc.setFont(undefined, "normal");
   columns.forEach((col, index) => {
     const raw = cells[index] ?? "-";
-    const text = truncateToWidth(doc, raw, col.w - 4);
+    const shouldTruncate = !options.noTruncateIndices?.includes(index);
+    const text = shouldTruncate ? truncateToWidth(doc, raw, col.w - 4) : String(raw || "-");
     const textX = col.align === "right" ? x + col.w - 2 : x + 2;
     if (col.muted) setText(doc, C.muted);
-    else setText(doc, C.ink);
+    else setText(doc, ink);
     doc.text(text, textX, y + 5.5, { align: col.align || "left" });
     x += col.w;
   });
 
   setText(doc, C.ink);
-  return y + ROW_H;
+  return y + rowH;
+}
+
+function drawFoodOrderRow(doc, columns, cells, y, rowIndex, options = {}) {
+  const itemsColIndex = 2;
+  const itemsCol = columns[itemsColIndex];
+  const itemsText = String(cells[itemsColIndex] || "-");
+  const lineHeight = 4;
+  const lines = doc.splitTextToSize(itemsText, itemsCol.w - 4);
+  const rowH = Math.max(ROW_H, lines.length * lineHeight + 3);
+  y = newPageIfNeeded(doc, y, rowH + 1);
+
+  let x = PAGE.left;
+  const bg = rowIndex % 2 === 1 ? C.rowAlt : C.white;
+  const ink = options.ink || C.ink;
+
+  setFill(doc, bg);
+  setDraw(doc, C.line);
+  doc.rect(PAGE.left, y, PAGE.width, rowH, "FD");
+
+  doc.setFontSize(8);
+  doc.setFont(undefined, "normal");
+  columns.forEach((col, index) => {
+    const textX = col.align === "right" ? x + col.w - 2 : x + 2;
+    if (col.muted) setText(doc, C.muted);
+    else setText(doc, ink);
+
+    if (index === itemsColIndex) {
+      const startY = y + (rowH - lines.length * lineHeight) / 2 + 3.5;
+      lines.forEach((line, lineIndex) => {
+        doc.text(line, textX, startY + lineIndex * lineHeight, { align: col.align || "left" });
+      });
+    } else {
+      const raw = cells[index] ?? "-";
+      const noTruncate = index === 1;
+      const text = noTruncate ? String(raw || "-") : truncateToWidth(doc, raw, col.w - 4);
+      doc.text(text, textX, y + 5.5, { align: col.align || "left" });
+    }
+    x += col.w;
+  });
+
+  setText(doc, C.ink);
+  return y + rowH;
 }
 
 function drawKeyValueTable(doc, rows, y) {
@@ -182,40 +241,32 @@ function drawKeyValueTable(doc, rows, y) {
 }
 
 const FOOD_COLS = [
-  { label: "Date / Time", w: 30 },
-  { label: "Table", w: 14 },
-  { label: "Items", w: 58 },
-  { label: "Pay", w: 16 },
-  { label: "Gross", w: 22, align: "right" },
-  { label: "Disc.", w: 20, align: "right" },
-  { label: "Net", w: 22, align: "right" }
+  { label: "Date / Time", w: 28 },
+  { label: "Table", w: 20 },
+  { label: "Items", w: 54 },
+  { label: "Pay", w: 22 },
+  { label: "Gross", w: 20, align: "right" },
+  { label: "Disc.", w: 18, align: "right" },
+  { label: "Net", w: 20, align: "right" }
 ];
 
 const SITTING_COLS = [
   { label: "Date / Time", w: 28 },
   { label: "Room", w: 14 },
-  { label: "Guest", w: 36 },
-  { label: "Sitting", w: 22, align: "right" },
+  { label: "Guest", w: 40 },
+  { label: "Sitting", w: 20, align: "right" },
   { label: "Food", w: 20, align: "right" },
-  { label: "Gross", w: 22, align: "right" },
+  { label: "Gross", w: 20, align: "right" },
   { label: "Disc.", w: 18, align: "right" },
   { label: "Net", w: 22, align: "right" }
 ];
 
 const CANCEL_COLS = [
-  { label: "Date / Time", w: 36 },
-  { label: "Table", w: 16 },
-  { label: "Order", w: 24 },
-  { label: "Status", w: 42 },
-  { label: "Amount", w: 28, align: "right" }
-];
-
-const VOID_COLS = [
   { label: "Date / Time", w: 30 },
-  { label: "Table", w: 14 },
-  { label: "Order", w: 20 },
-  { label: "Amount", w: 24, align: "right" },
-  { label: "Reason", w: 54 }
+  { label: "Table", w: 20 },
+  { label: "Order", w: 24 },
+  { label: "Status", w: 40 },
+  { label: "Amount", w: 28, align: "right" }
 ];
 
 const MENU_COLS = [
@@ -240,17 +291,17 @@ export async function buildSalesReportPdf(report) {
 
   y = drawSectionTitle(doc, "Summary", y);
   y = drawKeyValueTable(doc, [
-    ["Total Sales (Net)", fmtMoney(report.total || 0)],
-    ["Gross Sales", fmtMoney(report.grossTotal || 0)],
+    ["Net Collection (paid)", fmtMoney(report.total || 0)],
+    ["Gross Sales (incl. void + cancelled paid)", fmtMoney(report.grossTotal || 0)],
     ["Discount Given", fmtMoney(report.discountTotal || 0)],
-    ["Total Orders", String(report.totalOrders || 0)],
-    ["Food Sales", `${fmtMoney(report.foodSaleTotal || 0)}  (${report.foodOrders || 0} orders)`],
+    ["Paid Orders + Sittings", String(report.paidOrderCount ?? report.totalOrders ?? 0)],
+    ["Food Sales (paid)", `${fmtMoney(report.foodSaleTotal || 0)}  (${report.foodOrders || 0} orders)`],
     ["Private Sitting Sales", `${fmtMoney(report.privateSittingTotal || 0)}  (${report.privateSittings || 0} sessions)`],
     ["Cash Collection", fmtMoney(report.cash || 0)],
     ["Online Collection", fmtMoney(report.online || 0)],
     ["Cancelled Without Payment", `${report.cancelledWithoutPaymentCount || 0} orders  ·  ${fmtMoney(report.cancelledWithoutPaymentAmount || 0)}`],
     ["Cancelled After Payment", `${report.cancelledWithPaymentCount || 0} orders  ·  ${fmtMoney(report.cancelledWithPaymentAmount || 0)}`],
-    ["Void Orders (not collected)", `${report.voidOrderCount || 0} orders  ·  ${fmtMoney(report.voidOrderAmount || 0)}`]
+    ["Void Orders (not collected)", `${report.voidOrderCount || 0} orders  ·  ${fmtMoney(report.voidOrderGross ?? report.voidOrderAmount ?? 0)}`]
   ], y);
 
   y = drawSectionTitle(doc, "Food Orders (All Tables)", y);
@@ -260,10 +311,11 @@ export async function buildSalesReportPdf(report) {
     y = drawEmptyRow(doc, FOOD_COLS, "No food orders in this period.", y);
   } else {
     foodOrders.forEach((order, index) => {
-      const gross = Number(order.grossTotal ?? order.total ?? 0);
+      const isVoid = order.paymentStatus === "voided";
+      const gross = orderGrossAmount(order);
       const discount = Number(order.discountAmount || 0);
-      const net = order.paymentStatus === "voided" ? 0 : Number(order.total || 0);
-      y = drawTableRow(doc, FOOD_COLS, [
+      const net = isVoid ? 0 : Number(order.total || 0);
+      y = drawFoodOrderRow(doc, FOOD_COLS, [
         formatOrderDateTime(order),
         formatTableDisplayName(order.tableId),
         formatItemsSummary(order.items),
@@ -271,7 +323,7 @@ export async function buildSalesReportPdf(report) {
         fmtMoney(gross),
         discount > 0 ? `-Rs. ${Number(discount).toLocaleString("en-IN")}` : "Rs. 0",
         fmtMoney(net)
-      ], y, index);
+      ], y, index, isVoid ? { ink: C.danger } : {});
     });
   }
   y += 4;
@@ -295,7 +347,7 @@ export async function buildSalesReportPdf(report) {
         fmtMoney(gross),
         discount > 0 ? `-Rs. ${Number(discount).toLocaleString("en-IN")}` : "Rs. 0",
         fmtMoney(net)
-      ], y, index);
+      ], y, index, { noTruncateIndices: [2] });
     });
   }
   y += 4;
@@ -308,12 +360,12 @@ export async function buildSalesReportPdf(report) {
   } else {
     cancellations.forEach((row, index) => {
       y = drawTableRow(doc, CANCEL_COLS, [
-        row.time || row.date || "-",
+        formatCancelDateTime(row),
         formatTableDisplayName(row.tableId),
         String(row.orderId || "").slice(0, 8) || "-",
         row.wasPaid ? "After payment" : "Without payment",
         fmtMoney(row.amount || 0)
-      ], y, index);
+      ], y, index, { noTruncateIndices: [1] });
     });
   }
   y += 4;
