@@ -220,31 +220,34 @@ function drawMetaLine(doc, label, value, y) {
 }
 
 function addPhotoPair(doc, frontUrl, backUrl, y) {
-  const photoW = 72;
-  const photoH = 40;
+  const PHOTO_GAP = 6;
+  const photoW = (PAGE.width - PHOTO_GAP) / 2;
+  const photoH = 42;
+  const leftX = PAGE.left + 2;
+  const rightX = leftX + photoW + PHOTO_GAP;
   doc.setFontSize(7);
   setText(doc, C.muted);
 
   try {
     if (frontUrl) {
-      doc.text("ID Front", PAGE.left + 2, y);
-      doc.addImage(stripDataUrl(frontUrl), "JPEG", PAGE.left + 2, y + 1.5, photoW, photoH);
+      doc.text("ID Front", leftX, y);
+      doc.addImage(stripDataUrl(frontUrl), "JPEG", leftX, y + 1.5, photoW, photoH);
     } else {
-      doc.text("ID Front unavailable", PAGE.left + 2, y);
+      doc.text("ID Front unavailable", leftX, y);
     }
   } catch {
-    doc.text("ID Front unavailable", PAGE.left + 2, y);
+    doc.text("ID Front unavailable", leftX, y);
   }
 
   try {
     if (backUrl) {
-      doc.text("ID Back", PAGE.left + photoW + 10, y);
-      doc.addImage(stripDataUrl(backUrl), "JPEG", PAGE.left + photoW + 10, y + 1.5, photoW, photoH);
+      doc.text("ID Back", rightX, y);
+      doc.addImage(stripDataUrl(backUrl), "JPEG", rightX, y + 1.5, photoW, photoH);
     } else {
-      doc.text("ID Back unavailable", PAGE.left + photoW + 10, y);
+      doc.text("ID Back unavailable", rightX, y);
     }
   } catch {
-    doc.text("ID Back unavailable", PAGE.left + photoW + 10, y);
+    doc.text("ID Back unavailable", rightX, y);
   }
 
   setText(doc, C.ink);
@@ -264,7 +267,7 @@ function drawSessionRecordPage(doc, data) {
   doc.setFontSize(17);
   doc.setFont(undefined, "bold");
   setText(doc, C.ink);
-  doc.text(displayName, PAGE.left + PAGE.width / 2, y + 2, { align: "center" });
+  doc.text(displayName, PAGE.left + 2, y + 2);
   y += 10;
 
   setFill(doc, C.rowAlt);

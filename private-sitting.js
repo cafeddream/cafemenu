@@ -16,6 +16,7 @@ import {
   listenToPrivateSessions,
   maskMobile,
   recordSittingPayment,
+  serverTimestamp,
   showToast,
   updatePrivateSession,
   verifyOrderPayment
@@ -137,56 +138,80 @@ function formatCheckInError(error) {
 async function runCheckInBackground(sessionId, draft, customers, checkInLabel, customerPhotos) {
   const pdfFileName = buildSittingPdfFileName(draft.sittingId, sessionId);
   const customersForPdf = mergeCustomersWithPhotos(customers, customerPhotos);
-  let pdfBase64 = "";
-
-  try {
-    const pdfDataUrl = await withTimeout(
-      buildSittingSessionPdf({
-        sittingId: draft.sittingId,
-        mobile: draft.mobile,
-        sessionId,
-        displayName: buildCustomerDisplayName(customers),
-        customers: customersForPdf,
-        checkInLabel,
-        checkOutLabel: "—"
-      }),
-      30000,
-      null
-    );
-    pdfBase64 = pdfDataUrl ? (pdfDataUrl.split(",")[1] || "") : "";
-  } catch (error) {
-    console.warn("Check-in PDF skipped:", error);
-  }
-
   const syncPayload = {
     sessionId,
     sittingId: draft.sittingId,
     mobile: draft.mobile,
     customers: customers.map(({ name, dob }) => ({ name, dob })),
-    pdfBase64,
     pdfFileName,
     checkInLabel,
     dateKey: getTodayKey()
   };
 
+  const buildPdfBase64 = async () => {
+    try {
+      const pdfDataUrl = await withTimeout(
+        buildSittingSessionPdf({
+          sittingId: draft.sittingId,
+          mobile: draft.mobile,
+          sessionId,
+          displayName: buildCustomerDisplayName(customers),
+          customers: customersForPdf,
+          checkInLabel,
+          checkOutLabel: "—"
+        }),
+        30000,
+        null
+      );
+      return pdfDataUrl ? (pdfDataUrl.split(",")[1] || "") : "";
+    } catch (error) {
+      console.warn("Check-in PDF skipped:", error);
+      return "";
+    }
+  };
+
+  showToast("Check-in saved. PDF uploading to Drive...");
+
+  let pdfBase64 = await buildPdfBase64();
+  syncPayload.pdfBase64 = pdfBase64;
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
   try {
-    const syncResult = await syncSittingCheckIn(syncPayload);
-    if (syncResult?.ok) {
-      await updatePrivateSession(sessionId, {
+    let syncResult = await syncSittingCheckIn(syncPayload);
+    if (!syncResult?.ok || !pdfBase64) {
+      await sleep(3000);
+      if (!pdfBase64) {
+        pdfBase64 = await buildPdfBase64();
+        syncPayload.pdfBase64 = pdfBase64;
+      }
+      syncResult = await syncSittingCheckIn(syncPayload);
+    }
+
+    if (syncResult?.ok && syncResult.pdfFileId) {
+      const updateData = {
         sheetSynced: true,
         sheetRowNumber: syncResult.rowNumber,
         pdfDriveUrl: syncResult.pdfDriveUrl || "",
         pdfFileId: syncResult.pdfFileId || "",
         pdfFileName
-      });
+      };
+      const photosJson = JSON.stringify(customerPhotos);
+      if (photosJson.length < 700000) {
+        updateData.customerPhotos = customerPhotos;
+        updateData.pdfCapturedAt = serverTimestamp();
+      }
+      await updatePrivateSession(sessionId, updateData);
+      showToast("Session PDF saved to Google Drive.");
       return;
     }
+
     if (!syncResult?.skipped) {
-      showToast("Check-in saved. Google sync pending.");
+      showToast("Session saved but PDF not on Drive — open session and retry sync");
     }
   } catch (error) {
     console.warn("Check-in sync failed:", error);
-    showToast("Check-in saved. Google sync failed.");
+    showToast("Session saved but PDF not on Drive — open session and retry sync");
   }
 }
 
@@ -472,7 +497,7 @@ function renderSettings() {
     </section>
     <section class="ps-settings-card">
       <h3>Google Sync</h3>
-      <p>${syncReady ? "PDF with photos at check-in; checkout time stamped on same file. Redeploy Apps Script after update." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
+      <p>${syncReady ? "Session PDF (photos + details) saved to Google Drive at check-in. Checkout only adds check-out time on the same file." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
     </section>
     <section class="ps-settings-card">
       <h3>Sitting Rates</h3>

@@ -101,6 +101,7 @@ CONFIG.ORDER_SECTIONS = CONFIG.TABLE_SECTIONS.filter((section) => section.id !==
 const app = initializeApp(CONFIG.FIREBASE);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export { serverTimestamp };
 
 export function getKitchenTimerSeconds() {
   return Math.max(1, Number(CONFIG.KITCHEN_TIMER_MINUTES || 20)) * 60;

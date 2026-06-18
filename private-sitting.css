@@ -723,6 +723,7 @@ body[data-active-tab="orders"] .ps-manager-main {
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--ps-ink, #1c1c1c);
+  text-align: left;
 }
 
 .ps-pdf-preview img {
