@@ -19,6 +19,52 @@
   box-sizing: border-box;
 }
 
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a[href],
+[role="button"],
+.pill,
+.sidebar-item,
+.table-card-orderable,
+.admin-top-tab,
+.qty-btn,
+.icon-btn {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+.pill,
+.sidebar-item,
+.admin-top-tab {
+  user-select: none;
+}
+
+button:not(:disabled):active,
+.pill:active,
+.sidebar-item:active,
+.table-card-orderable:active,
+.admin-top-tab:active,
+.qty-btn:active,
+.icon-btn:active {
+  transform: scale(0.97);
+  transition: transform 0.08s ease, background 0.08s ease, filter 0.08s ease, box-shadow 0.08s ease;
+}
+
+.primary-btn:not(:disabled):active,
+.danger-btn.primary-btn:not(:disabled):active {
+  filter: brightness(0.92);
+}
+
+.ghost-btn:not(:disabled):active,
+.secondary-btn:not(:disabled):active,
+.danger-btn:not(:disabled):active {
+  filter: brightness(0.96);
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -857,9 +903,15 @@ button:disabled {
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
-.admin-section-btn:hover {
-  border-color: #d7dde6;
-  box-shadow: 0 6px 18px rgba(20, 25, 32, 0.07);
+@media (hover: hover) and (pointer: fine) {
+  .admin-section-btn:hover {
+    border-color: #d7dde6;
+    box-shadow: 0 6px 18px rgba(20, 25, 32, 0.07);
+  }
+}
+
+.admin-section-btn:active {
+  transform: scale(0.97);
 }
 
 .admin-section-btn.active {
@@ -1056,13 +1108,15 @@ button:disabled {
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 
-.table-clear-btn:not(:disabled):hover {
-  background: #ffd9d9;
-  border-color: #efb0b0;
+@media (hover: hover) and (pointer: fine) {
+  .table-clear-btn:not(:disabled):hover {
+    background: #ffd9d9;
+    border-color: #efb0b0;
+  }
 }
 
 .table-clear-btn:not(:disabled):active {
-  transform: translateY(1px);
+  transform: scale(0.97);
 }
 
 .table-order-group {
@@ -1578,14 +1632,21 @@ button:disabled {
   transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
 
-.table-card-orderable:hover {
-  box-shadow: 0 14px 30px rgba(20, 25, 32, 0.1);
-  transform: translateY(-1px);
+@media (hover: hover) and (pointer: fine) {
+  .table-card-orderable:hover {
+    box-shadow: 0 14px 30px rgba(20, 25, 32, 0.1);
+    transform: translateY(-1px);
+  }
+
+  .table-card-empty.table-card-orderable:hover {
+    border-color: color-mix(in srgb, var(--primary) 28%, #e3e6ea);
+    background: #fffaf7;
+  }
 }
 
-.table-card-empty.table-card-orderable:hover {
-  border-color: color-mix(in srgb, var(--primary) 28%, #e3e6ea);
-  background: #fffaf7;
+.table-card-orderable:active {
+  transform: scale(0.97);
+  box-shadow: 0 8px 18px rgba(20, 25, 32, 0.08);
 }
 
 .table-card-orderable:focus-visible {

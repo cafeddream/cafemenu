@@ -99,9 +99,19 @@
   cursor: pointer;
 }
 
-.ps-menu-dropdown-item:hover,
 .ps-menu-dropdown-item:focus-visible {
   background: rgba(255, 255, 255, 0.06);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ps-menu-dropdown-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+
+.ps-menu-dropdown-item:active {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(0.98);
 }
 
 .ps-menu-dropdown-logout {
@@ -140,6 +150,15 @@ body[data-active-tab="orders"] .ps-manager-main {
   color: var(--ps-muted);
   font-size: 10px;
   font-weight: 800;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition: transform 0.08s ease, background 0.08s ease;
+}
+
+.ps-bottom-nav button:active {
+  transform: scale(0.97);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .ps-nav-icon {
@@ -232,6 +251,10 @@ body[data-active-tab="orders"] .ps-manager-main {
   padding: 12px 14px;
   color: inherit;
   text-align: left;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition: transform 0.08s ease, filter 0.08s ease;
 }
 
 .ps-active-sitting {
@@ -273,6 +296,20 @@ body[data-active-tab="orders"] .ps-manager-main {
   padding: 14px 12px;
   color: #fff;
   text-align: left;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition: transform 0.08s ease, filter 0.08s ease;
+}
+
+.ps-sitting-card:active {
+  transform: scale(0.97);
+  filter: brightness(0.92);
+}
+
+.ps-active-row:active {
+  transform: scale(0.98);
+  filter: brightness(0.96);
 }
 
 .ps-sitting-card.ps-wide {
