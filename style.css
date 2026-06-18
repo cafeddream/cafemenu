@@ -1625,6 +1625,20 @@ button:disabled {
   font-size: 18px;
 }
 
+#paymentMethodActions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+#paymentMethodActions button {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 8px;
+  font-size: 14px;
+}
+
 .discount-control {
   display: grid;
   gap: 6px;
@@ -2499,10 +2513,10 @@ body.staff-login-active .ps-splash {
   color: #fff;
 }
 
-.void-order-panel {
+.void-order-panel:not([hidden]) {
   display: grid;
   gap: 10px;
-  margin-top: 8px;
+  margin-top: 4px;
   padding-top: 12px;
   border-top: 1px dashed #ddd;
 }
@@ -2519,12 +2533,12 @@ body.staff-login-active .ps-splash {
 }
 
 .void-order-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
-  justify-content: flex-end;
 }
 
-.payment-method-body .danger-btn#voidOrderBtn {
+.void-order-actions button {
   width: 100%;
-  margin-top: 4px;
+  min-height: 44px;
 }
