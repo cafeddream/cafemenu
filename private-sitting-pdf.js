@@ -1,8 +1,39 @@
 import { CONFIG, escapeHtml, formatTableDisplayName, toDate } from "./firebase.js";
 
 let jsPdfModule = null;
+let pdfLibModule = null;
 let logoDataUrl = null;
 let logoLoadPromise = null;
+
+export const MIN_PDF_BASE64_LEN = 500;
+
+export function base64ToUint8Array(base64 = "") {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+export function uint8ArrayToBase64(bytes) {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+export async function getPdfLib() {
+  if (!pdfLibModule) {
+    pdfLibModule = await withTimeout(
+      import("https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm"),
+      15000
+    );
+  }
+  return pdfLibModule;
+}
 
 const PAGE = { left: 14, right: 196, width: 182, bottom: 272, top: 18 };
 
@@ -238,8 +269,7 @@ function drawEntryPage(doc, data) {
   drawPageFooter(doc, "Private Sitting Entry Record");
 }
 
-function drawCheckoutPage(doc, checkout) {
-  doc.addPage();
+function drawCheckoutPageContent(doc, checkout) {
   let y = drawPdfHeader(doc, "Checkout Summary");
 
   y = drawSectionTitle(doc, "Timing", y);
@@ -264,6 +294,31 @@ function drawCheckoutPage(doc, checkout) {
   y = drawKeyValueRows(doc, rows, y);
 
   drawPageFooter(doc, "Private Sitting Checkout");
+}
+
+function drawCheckoutPage(doc, checkout) {
+  doc.addPage();
+  drawCheckoutPageContent(doc, checkout);
+}
+
+export async function buildCheckoutPageOnlyPdfBytes(checkout) {
+  await preloadPdfLogo();
+  const jsPDF = await getJsPdf();
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  drawCheckoutPageContent(doc, checkout);
+  const dataUri = doc.output("datauristring");
+  const base64 = dataUri.split(",")[1] || "";
+  return base64ToUint8Array(base64);
+}
+
+export async function mergeCheckoutIntoExistingPdf(existingPdfBytes, checkout) {
+  const { PDFDocument } = await getPdfLib();
+  const existing = await PDFDocument.load(existingPdfBytes);
+  const checkoutBytes = await buildCheckoutPageOnlyPdfBytes(checkout);
+  const checkoutDoc = await PDFDocument.load(checkoutBytes);
+  const copied = await existing.copyPages(checkoutDoc, checkoutDoc.getPageIndices());
+  copied.forEach((page) => existing.addPage(page));
+  return existing.save();
 }
 
 export async function buildSittingRecordPdf({

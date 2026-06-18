@@ -34,6 +34,9 @@ function doPost(e) {
     if (action === "checkout") {
       return jsonResponse(handleCheckout(payload));
     }
+    if (action === "fetchPdf") {
+      return jsonResponse(handleFetchPdf(payload));
+    }
 
     return jsonResponse({ ok: false, error: "Unknown action" });
   } catch (error) {
@@ -97,29 +100,56 @@ function handleCheckout(payload) {
   sheet.getRange(rowNumber, 10).setValue(payload.durationMinutes || "");
 
   let pdfUrl = "";
-  if (payload.pdfBase64) {
-    const pdfBlob = Utilities.newBlob(
-      Utilities.base64Decode(payload.pdfBase64),
-      "application/pdf",
-      payload.pdfFileName || "session_checkout.pdf"
-    );
+  const pdfBase64 = String(payload.pdfBase64 || "");
+  if (pdfBase64.length > 500) {
+    const bytes = Utilities.base64Decode(pdfBase64);
+    if (bytes && bytes.length > 500) {
+      const fileName = payload.pdfFileName || "session_checkout.pdf";
+      const pdfBlob = Utilities.newBlob(bytes, "application/pdf", fileName);
 
-    if (payload.pdfFileId) {
-      const existing = DriveApp.getFileById(payload.pdfFileId);
-      existing.setContent(pdfBlob);
-      pdfUrl = existing.getUrl();
-    } else {
-      const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
-      const dayFolder = ensureDayFolder_(dateKey);
-      const pdfFile = dayFolder.createFile(pdfBlob);
-      pdfUrl = pdfFile.getUrl();
-      sheet.getRange(rowNumber, 11).setValue(pdfUrl);
+      if (payload.pdfFileId) {
+        try {
+          const existing = DriveApp.getFileById(payload.pdfFileId);
+          existing.setContent(pdfBlob);
+          pdfUrl = existing.getUrl();
+        } catch (replaceError) {
+          const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+          const dayFolder = ensureDayFolder_(dateKey);
+          const pdfFile = dayFolder.createFile(pdfBlob);
+          pdfUrl = pdfFile.getUrl();
+          sheet.getRange(rowNumber, 11).setValue(pdfUrl);
+        }
+      } else {
+        const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+        const dayFolder = ensureDayFolder_(dateKey);
+        const pdfFile = dayFolder.createFile(pdfBlob);
+        pdfUrl = pdfFile.getUrl();
+        sheet.getRange(rowNumber, 11).setValue(pdfUrl);
+      }
     }
   }
 
   return {
     ok: true,
     pdfDriveUrl: pdfUrl
+  };
+}
+
+function handleFetchPdf(payload) {
+  const fileId = String(payload.pdfFileId || "");
+  if (!fileId) {
+    return { ok: false, error: "Missing pdfFileId" };
+  }
+
+  const file = DriveApp.getFileById(fileId);
+  const bytes = file.getBlob().getBytes();
+  if (!bytes || bytes.length < 500) {
+    return { ok: false, error: "PDF file too small or empty" };
+  }
+
+  return {
+    ok: true,
+    pdfBase64: Utilities.base64Encode(bytes)
   };
 }
 

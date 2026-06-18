@@ -21,8 +21,8 @@ import {
   verifyOrderPayment
 } from "./firebase.js";
 import { openAdminOrderModal } from "./admin-orders.js";
-import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingRecordPdf, compressPhotoDataUrl, mergeCustomersWithPhotos, preloadJsPdf, withTimeout } from "./private-sitting-pdf.js";
-import { isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout } from "./sitting-sync.js";
+import { buildSittingEntryHtmlPreview, base64ToUint8Array, buildSittingPdfFileName, buildSittingRecordPdf, compressPhotoDataUrl, mergeCheckoutIntoExistingPdf, mergeCustomersWithPhotos, MIN_PDF_BASE64_LEN, preloadJsPdf, uint8ArrayToBase64, withTimeout } from "./private-sitting-pdf.js";
+import { fetchSessionPdf, isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout } from "./sitting-sync.js";
 import {
   connectPrinter,
   disconnectPrinter,
@@ -179,6 +179,7 @@ async function runCheckInBackground(sessionId, draft, customers, checkInLabel) {
         pdfFileId: syncResult.pdfFileId || "",
         pdfFileName
       });
+      clearSessionPhotosLocal(sessionId);
       return;
     }
     if (!syncResult?.skipped) {
@@ -188,6 +189,70 @@ async function runCheckInBackground(sessionId, draft, customers, checkInLabel) {
     console.warn("Check-in sync failed:", error);
     showToast("Check-in saved. Google sync failed.");
   }
+}
+
+function getLiveSession(sessionId) {
+  return [...state.activeSessions.values()].find((session) => {
+    const id = session.sessionId || session.id;
+    return id === sessionId;
+  }) || null;
+}
+
+async function buildCheckoutPdfForSync(liveSession, draft, checkOutLabel, discountInfo, method) {
+  const checkoutData = {
+    checkOutLabel,
+    durationMinutes: draft.sitting.durationMinutes,
+    sittingAmount: draft.sittingAmount,
+    foodAmount: draft.foodAmount,
+    grossTotal: discountInfo.grossTotal,
+    discountAmount: discountInfo.discountAmount,
+    grandTotal: discountInfo.finalTotal,
+    paymentMethod: method
+  };
+  const session = draft.session;
+  const pdfFileName = liveSession.pdfFileName || buildSittingPdfFileName(session.sittingId, draft.sessionId);
+
+  if (liveSession.pdfFileId) {
+    try {
+      const fetchResult = await fetchSessionPdf(liveSession.pdfFileId);
+      if (fetchResult?.ok && fetchResult.pdfBase64?.length > MIN_PDF_BASE64_LEN) {
+        const existingBytes = base64ToUint8Array(fetchResult.pdfBase64);
+        const merged = await withTimeout(
+          mergeCheckoutIntoExistingPdf(existingBytes, checkoutData),
+          30000,
+          null
+        );
+        if (merged) {
+          const pdfBase64 = uint8ArrayToBase64(merged);
+          if (pdfBase64.length > MIN_PDF_BASE64_LEN) {
+            return { pdfBase64, pdfFileName };
+          }
+        }
+      }
+    } catch (error) {
+      console.warn("Checkout PDF merge failed:", error);
+    }
+  }
+
+  try {
+    const pdfDataUrl = await buildSittingRecordPdf({
+      phase: "full",
+      sittingId: session.sittingId,
+      mobile: session.mobile,
+      sessionId: draft.sessionId,
+      customers: session.customers || [],
+      checkInAt: session.checkInAt,
+      checkout: checkoutData
+    });
+    const pdfBase64 = pdfDataUrl.split(",")[1] || "";
+    if (pdfBase64.length > MIN_PDF_BASE64_LEN) {
+      return { pdfBase64, pdfFileName };
+    }
+  } catch (error) {
+    console.warn("Checkout fallback PDF failed:", error);
+  }
+
+  return { pdfBase64: "", pdfFileName };
 }
 
 function emptyCustomer() {
@@ -909,56 +974,36 @@ async function confirmCheckout(method) {
       paymentMethod: method
     });
 
-    const session = draft.session;
+    const liveSession = getLiveSession(draft.sessionId) || draft.session;
     const checkOutLabel = new Date().toLocaleString();
-    const storedPhotos = loadSessionPhotosLocal(draft.sessionId);
-    const customersWithPhotos = mergeCustomersWithPhotos(
-      session.customers || [],
-      session.customerPhotos?.length ? session.customerPhotos : storedPhotos
+    const { pdfBase64, pdfFileName } = await buildCheckoutPdfForSync(
+      liveSession,
+      draft,
+      checkOutLabel,
+      discountInfo,
+      method
     );
-
-    let checkoutPdfBase64 = "";
-    let checkoutPdfFileName = session.pdfFileName || buildSittingPdfFileName(session.sittingId, draft.sessionId);
-    try {
-      const pdfDataUrl = await buildSittingRecordPdf({
-        phase: "full",
-        sittingId: session.sittingId,
-        mobile: session.mobile,
-        sessionId: draft.sessionId,
-        customers: customersWithPhotos,
-        checkInAt: session.checkInAt,
-        checkout: {
-          checkOutLabel,
-          durationMinutes: draft.sitting.durationMinutes,
-          sittingAmount: draft.sittingAmount,
-          foodAmount: draft.foodAmount,
-          grossTotal: discountInfo.grossTotal,
-          discountAmount: discountInfo.discountAmount,
-          grandTotal: discountInfo.finalTotal,
-          paymentMethod: method
-        }
-      });
-      checkoutPdfBase64 = pdfDataUrl.split(",")[1] || "";
-    } catch {
-      console.warn("Checkout PDF generation failed");
-    }
 
     closeCheckoutModal();
     closeSessionModal();
-    showToast(`${session.sittingId} checked out — ${formatCurrency(discountInfo.finalTotal)}`);
+    showToast(`${draft.session.sittingId} checked out — ${formatCurrency(discountInfo.finalTotal)}`);
 
-    if (session?.sheetRowNumber) {
+    if (liveSession?.sheetRowNumber) {
+      const syncPdfBase64 = pdfBase64.length > MIN_PDF_BASE64_LEN ? pdfBase64 : "";
       syncSittingCheckout({
         sessionId: draft.sessionId,
-        sheetRowNumber: session.sheetRowNumber,
+        sheetRowNumber: liveSession.sheetRowNumber,
         checkOutLabel,
         durationMinutes: draft.sitting.durationMinutes,
-        pdfBase64: checkoutPdfBase64,
-        pdfFileName: checkoutPdfFileName,
-        pdfFileId: session.pdfFileId || "",
+        pdfBase64: syncPdfBase64,
+        pdfFileName,
+        pdfFileId: liveSession.pdfFileId || "",
         dateKey: getTodayKey()
       }).then(() => {
         clearSessionPhotosLocal(draft.sessionId);
+        if (!syncPdfBase64) {
+          showToast("Checkout saved. Drive PDF was not updated.");
+        }
       }).catch(() => {
         showToast("Checkout saved. Sheet update failed.");
       });
