@@ -919,6 +919,9 @@ export async function voidActiveOrder(orderId, remarks) {
   if (order.paymentStatus === "verified_paid") {
     throw new Error("Paid orders cannot be voided");
   }
+  if (order.paymentStatus === "voided") {
+    throw new Error("Payment already voided for this order");
+  }
   if (order.paymentStatus === "session_hold" || order.privateSessionId) {
     throw new Error("Private sitting orders cannot be voided");
   }
@@ -927,6 +930,24 @@ export async function voidActiveOrder(orderId, remarks) {
   const currentOrderId = order.orderId || orderId;
   const items = normalizeOrderItems(order.items || []);
   const grossTotal = calculateTotal(items);
+  const updateData = {
+    paymentStatus: "voided",
+    voidRemarks,
+    voidAmount: grossTotal,
+    grossTotal,
+    total: 0,
+    finalTotal: 0,
+    discountAmount: 0,
+    discountType: "amount",
+    discountValue: 0,
+    status: "preparing",
+    kitchenStartedAt: serverTimestamp(),
+    voidedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  };
+
+  await updateDoc(activeOrderRef(orderId), updateData);
+  await updateDoc(orderRef(tableId), updateData).catch(() => {});
 
   await setDoc(tableHistoryOrderRef(tableId, currentOrderId), {
     orderId: currentOrderId,
@@ -935,44 +956,95 @@ export async function voidActiveOrder(orderId, remarks) {
     total: 0,
     grossTotal,
     voidAmount: grossTotal,
-    status: "voided",
+    finalTotal: 0,
+    discountAmount: 0,
+    status: "preparing",
     paymentStatus: "voided",
     voidRemarks,
-    voidedAt: serverTimestamp(),
     placedBy: order.placedBy || "customer",
     customerName: order.customerName || null,
     customerMobile: order.customerMobile || null,
     customerMobileNormalized: order.customerMobileNormalized || null,
     orderedAt: order.timestamp || null,
+    voidedAt: serverTimestamp(),
     savedAt: serverTimestamp()
-  });
-
-  await deleteDoc(activeOrderRef(orderId));
-  await deleteDoc(orderRef(tableId)).catch(() => {});
+  }, { merge: true });
 
   await logAuditEntry("order_voided", tableId, {
     orderId: currentOrderId,
     grossTotal,
     voidRemarks,
-    placedBy: order.placedBy || "customer"
+    placedBy: order.placedBy || "customer",
+    itemsSummary: buildItemsSummary(items)
   });
 
   return true;
 }
 
+// Places a counter order with payment voided — kitchen still receives the order.
 export async function voidPendingCounterOrder(tableId, items = [], grossTotal = 0, remarks) {
   const voidRemarks = normalizeVoidRemarks(remarks);
-  const cleanItems = normalizeOrderItems(items);
-  const amount = Number(grossTotal || calculateTotal(cleanItems));
+  const cleanItems = cleanOrderItems(items);
+  if (!cleanItems.length) return null;
+
+  const grossDue = Number(grossTotal) || calculateTotal(cleanItems);
+  const newOrderId = createOrderId(tableId);
+  const orderDocument = activeOrderRef(newOrderId);
+  const legacyDocument = orderRef(tableId);
+
+  await runTransaction(db, async (transaction) => {
+    const orderData = {
+      orderId: newOrderId,
+      tableId,
+      items: cleanItems,
+      total: 0,
+      grossTotal: grossDue,
+      voidAmount: grossDue,
+      finalTotal: 0,
+      discountAmount: 0,
+      discountType: "amount",
+      discountValue: 0,
+      status: "preparing",
+      placedBy: "counter",
+      paymentStatus: "voided",
+      voidRemarks,
+      timestamp: serverTimestamp(),
+      kitchenStartedAt: serverTimestamp(),
+      voidedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+
+    transaction.set(orderDocument, orderData);
+    transaction.set(legacyDocument, orderData);
+
+    transaction.set(tableHistoryOrderRef(tableId, newOrderId), {
+      orderId: newOrderId,
+      tableId,
+      items: cleanItems,
+      total: 0,
+      grossTotal: grossDue,
+      voidAmount: grossDue,
+      finalTotal: 0,
+      discountAmount: 0,
+      status: "preparing",
+      placedBy: "counter",
+      paymentStatus: "voided",
+      voidRemarks,
+      orderedAt: orderData.timestamp,
+      voidedAt: serverTimestamp(),
+      savedAt: serverTimestamp()
+    });
+  });
 
   await logAuditEntry("counter_order_voided", tableId, {
-    grossTotal: amount,
+    orderId: newOrderId,
+    grossTotal: grossDue,
     voidRemarks,
     itemCount: cleanItems.length,
     itemsSummary: buildItemsSummary(cleanItems)
   });
 
-  return true;
+  return getDoc(orderDocument);
 }
 
 // Resets a customer payment claim so staff can re-verify.
@@ -1249,6 +1321,8 @@ export function buildReportFromOrders(paidOrders, startKey, endKey) {
   const itemMap = new Map();
 
   paidOrders.forEach((order) => {
+    if (order.paymentStatus === "voided") return;
+
     const total = Number(order.total || 0);
     const gross = Number(order.grossTotal ?? total);
     const discount = Number(order.discountAmount || 0);
@@ -1299,17 +1373,33 @@ function listDateKeys(startKey, endKey) {
   return keys;
 }
 
-// Loads paid food orders across all tables for a date range.
-export async function fetchPaidFoodOrdersForDateRange(startKey, endKey, maxRows = 500) {
+// Loads paid and payment-void food orders across all tables for a date range.
+export async function fetchFoodOrdersForDateRange(startKey, endKey, maxRows = 500) {
   const histories = await Promise.all(CONFIG.TABLES.map((tableId) => fetchTableHistory(tableId, maxRows)));
   return histories.flat()
     .filter((order) => {
+      if (order.paymentStatus === "voided") {
+        const voidedAt = toDate(order.voidedAt);
+        if (!voidedAt) return false;
+        const key = getTodayKey(voidedAt);
+        return key >= startKey && key <= endKey;
+      }
       const paidAt = toDate(order.paidAt);
       if (!paidAt) return false;
       const key = getTodayKey(paidAt);
       return key >= startKey && key <= endKey;
     })
-    .sort((a, b) => (toDate(b.paidAt)?.getTime() || 0) - (toDate(a.paidAt)?.getTime() || 0));
+    .sort((a, b) => {
+      const aTime = toDate(a.voidedAt)?.getTime() || toDate(a.paidAt)?.getTime() || 0;
+      const bTime = toDate(b.voidedAt)?.getTime() || toDate(b.paidAt)?.getTime() || 0;
+      return bTime - aTime;
+    });
+}
+
+// Loads paid food orders across all tables for a date range.
+export async function fetchPaidFoodOrdersForDateRange(startKey, endKey, maxRows = 500) {
+  const orders = await fetchFoodOrdersForDateRange(startKey, endKey, maxRows);
+  return orders.filter((order) => order.paymentStatus !== "voided");
 }
 
 // Loads completed private sitting sessions checked out in a date range.
@@ -1449,24 +1539,25 @@ export async function fetchDailySummaries(startKey, endKey) {
 // Builds a complete day-wise business report (no table selection required).
 export async function fetchDayWiseReport(startKey, endKey) {
   const [foodOrders, sittings, cancellations, voids] = await Promise.all([
-    fetchPaidFoodOrdersForDateRange(startKey, endKey),
+    fetchFoodOrdersForDateRange(startKey, endKey),
     fetchCompletedSittingsForDateRange(startKey, endKey),
     fetchCancellationsForDateRange(startKey, endKey),
     fetchVoidedOrdersForDateRange(startKey, endKey)
   ]);
 
-  const itemsReport = buildReportFromOrders(foodOrders, startKey, endKey);
-  const foodSaleTotal = foodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
-  const foodGrossTotal = foodOrders.reduce((sum, order) => sum + Number(order.grossTotal ?? order.total ?? 0), 0);
-  const foodDiscountTotal = foodOrders.reduce((sum, order) => sum + Number(order.discountAmount || 0), 0);
+  const salesFoodOrders = foodOrders.filter((order) => order.paymentStatus !== "voided");
+  const itemsReport = buildReportFromOrders(salesFoodOrders, startKey, endKey);
+  const foodSaleTotal = salesFoodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const foodGrossTotal = salesFoodOrders.reduce((sum, order) => sum + Number(order.grossTotal ?? order.total ?? 0), 0);
+  const foodDiscountTotal = salesFoodOrders.reduce((sum, order) => sum + Number(order.discountAmount || 0), 0);
   const sittingSaleTotal = sittings.reduce((sum, session) => sum + Number(session.grandTotal ?? session.billedAmount ?? 0), 0);
   const sittingGrossTotal = sittings.reduce((sum, session) => sum + Number(session.grossTotal ?? session.grandTotal ?? session.billedAmount ?? 0), 0);
   const sittingDiscountTotal = sittings.reduce((sum, session) => sum + Number(session.discountAmount || 0), 0);
 
-  const foodCash = foodOrders
+  const foodCash = salesFoodOrders
     .filter((order) => order.paymentMethod !== "online")
     .reduce((sum, order) => sum + Number(order.total || 0), 0);
-  const foodOnline = foodOrders
+  const foodOnline = salesFoodOrders
     .filter((order) => order.paymentMethod === "online")
     .reduce((sum, order) => sum + Number(order.total || 0), 0);
   const sittingCash = sittings
@@ -1488,11 +1579,11 @@ export async function fetchDayWiseReport(startKey, endKey) {
     discountTotal,
     cash: foodCash + sittingCash,
     online: foodOnline + sittingOnline,
-    foodOrders: foodOrders.length,
+    foodOrders: salesFoodOrders.length,
     foodSaleTotal,
     privateSittings: sittings.length,
     privateSittingTotal: sittingSaleTotal,
-    totalOrders: foodOrders.length + sittings.length,
+    totalOrders: salesFoodOrders.length + sittings.length,
     cancelledWithPaymentCount: cancellations.cancelledWithPaymentCount,
     cancelledWithPaymentAmount: cancellations.cancelledWithPaymentAmount,
     cancelledWithoutPaymentCount: cancellations.cancelledWithoutPaymentCount,

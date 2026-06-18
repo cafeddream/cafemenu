@@ -27,6 +27,21 @@ function formatPaidAt(value) {
   });
 }
 
+function formatOrderDateTime(order) {
+  if (order.paymentStatus === "voided") {
+    return formatPaidAt(order.voidedAt);
+  }
+  return formatPaidAt(order.paidAt);
+}
+
+function formatOrderPaymentLabel(order) {
+  if (order.paymentStatus === "voided") {
+    const reason = String(order.voidRemarks || "").trim();
+    return reason ? `Void: ${reason}` : "Void";
+  }
+  return order.paymentMethod === "online" ? "Online" : "Cash";
+}
+
 function formatItemsSummary(items = [], maxLen = 42) {
   if (!items.length) return "-";
   const text = items
@@ -247,12 +262,12 @@ export async function buildSalesReportPdf(report) {
     foodOrders.forEach((order, index) => {
       const gross = Number(order.grossTotal ?? order.total ?? 0);
       const discount = Number(order.discountAmount || 0);
-      const net = Number(order.total || 0);
+      const net = order.paymentStatus === "voided" ? 0 : Number(order.total || 0);
       y = drawTableRow(doc, FOOD_COLS, [
-        formatPaidAt(order.paidAt),
+        formatOrderDateTime(order),
         formatTableDisplayName(order.tableId),
         formatItemsSummary(order.items),
-        order.paymentMethod === "online" ? "Online" : "Cash",
+        formatOrderPaymentLabel(order),
         fmtMoney(gross),
         discount > 0 ? `-Rs. ${Number(discount).toLocaleString("en-IN")}` : "Rs. 0",
         fmtMoney(net)
@@ -298,24 +313,6 @@ export async function buildSalesReportPdf(report) {
         String(row.orderId || "").slice(0, 8) || "-",
         row.wasPaid ? "After payment" : "Without payment",
         fmtMoney(row.amount || 0)
-      ], y, index);
-    });
-  }
-  y += 4;
-
-  y = drawSectionTitle(doc, "Void Orders", y);
-  y = drawTableHeader(doc, VOID_COLS, y);
-  const voidOrders = report.voidOrderDetails || [];
-  if (!voidOrders.length) {
-    y = drawEmptyRow(doc, VOID_COLS, "No void orders in this period.", y);
-  } else {
-    voidOrders.forEach((row, index) => {
-      y = drawTableRow(doc, VOID_COLS, [
-        row.time || row.date || "-",
-        formatTableDisplayName(row.tableId),
-        row.type === "counter_pending" ? "Counter" : String(row.orderId || "").slice(0, 8) || "-",
-        fmtMoney(row.amount || 0),
-        row.voidRemarks || "-"
       ], y, index);
     });
   }

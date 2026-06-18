@@ -1216,6 +1216,11 @@ body[data-active-tab="orders"] .ps-manager-main {
   color: #fbbf24;
 }
 
+.ps-order-status-void {
+  background: rgba(220, 38, 38, 0.18);
+  color: #f87171;
+}
+
 .ps-order-lines {
   list-style: none;
   margin: 0;

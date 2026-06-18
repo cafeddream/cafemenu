@@ -487,6 +487,11 @@ function tableCardHtml(tableId, orders, flash = false) {
 }
 
 function getOrderStatusLabel(order) {
+  if (order.paymentStatus === "voided") {
+    const status = order.status || "new";
+    if (status === "served") return "Served (Void)";
+    return "Payment Void";
+  }
   const status = order.status || "new";
   const paymentVerified = order.paymentStatus === "verified_paid";
   if (paymentVerified && status === "served") return "Served";
@@ -499,11 +504,14 @@ function mobileOrderCardHtml(order) {
   const paymentClaimed = order.paymentStatus === "customer_claimed_paid";
   const cashRequested = order.paymentStatus === "cash_at_counter";
   const paymentVerified = order.paymentStatus === "verified_paid";
+  const paymentVoided = order.paymentStatus === "voided";
   const isSessionHold = order.paymentStatus === "session_hold" || Boolean(order.privateSessionId);
   const statusLabel = getOrderStatusLabel(order);
   const statusClass = status === "served" || (paymentVerified && status === "served")
     ? "ps-order-status-served"
-    : status === "preparing"
+    : paymentVoided
+      ? "ps-order-status-void"
+      : status === "preparing"
       ? "ps-order-status-preparing"
       : "ps-order-status-new";
   const customerLine = order.customerName || order.customerMobileNormalized
@@ -526,6 +534,7 @@ function mobileOrderCardHtml(order) {
         <span class="ps-order-status-badge ${statusClass}">${escapeHtml(statusLabel)}</span>
       </div>
       ${customerLine}
+      ${paymentVoided ? `<div class="payment-alert void-alert">Payment void — ${escapeHtml(order.voidRemarks || "no payment")}</div>` : ""}
       ${paymentClaimed ? "<div class=\"payment-alert\">Customer says payment done - verify UPI</div>" : ""}
       ${cashRequested ? "<div class=\"payment-alert cash-alert\">Customer will pay cash at counter</div>" : ""}
       <ul class="ps-order-lines">${itemLines || "<li class=\"ps-order-line\"><span>No items</span></li>"}</ul>
@@ -536,7 +545,7 @@ function mobileOrderCardHtml(order) {
       <div class="card-actions" data-table="${escapeHtml(order.tableId)}" data-order="${escapeHtml(order.orderId || order.id)}" data-status="${escapeHtml(status)}">
         ${paymentClaimed ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"reject-pay\">Reject Payment Claim</button>" : ""}
         ${status === "new" || status === "preparing" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"cancel\">Cancel Order</button>" : ""}
-        ${status !== "paid" && !paymentVerified && !isSessionHold ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Confirm Payment</button>" : ""}
+        ${status !== "paid" && !paymentVerified && !isSessionHold && !paymentVoided ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Confirm Payment</button>" : ""}
         <button class="ghost-btn" type="button" data-action="share">Share Receipt</button>
       </div>
     </article>
@@ -927,7 +936,7 @@ async function confirmVoidOrder() {
     if (pendingItems?.length) {
       await voidPendingCounterOrder(tableId, pendingItems, grossTotal, remarks);
       closePaymentMethodModal();
-      showToast(`Order voided for ${formatTableDisplayName(tableId)}`);
+      showToast(`Payment voided — order sent to kitchen (${formatTableDisplayName(tableId)})`);
       return;
     }
 
@@ -942,7 +951,7 @@ async function confirmVoidOrder() {
       return;
     }
     closePaymentMethodModal();
-    showToast(`Order voided for ${formatTableDisplayName(tableId)}`);
+    showToast(`Payment voided — order sent to kitchen (${formatTableDisplayName(tableId)})`);
   } catch (error) {
     showToast(error?.message || "Could not void order");
   } finally {
