@@ -1,11 +1,11 @@
 import { CONFIG } from "./firebase.js";
 
-function isAppsScriptConfigured() {
+export function isAppsScriptConfigured() {
   const url = CONFIG.APPS_SCRIPT_URL || "";
   return url && !url.includes("PASTE_DEPLOYED_WEB_APP_URL");
 }
 
-async function postAppsScript(payload, timeoutMs = 90000) {
+export async function postAppsScript(payload, timeoutMs = 90000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 

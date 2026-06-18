@@ -68,11 +68,22 @@ The counter app opens as a **Manager** dashboard for PS 1–10 (occupancy, coupl
 
 Check-in flow per couple: **mobile**, **Customer 1 & 2** (name, DOB calendar, front + back ID photo each), auto PDF, Drive folder `Private Sitting/YYYY-MM-DD/`, Sheet row append.
 
+### Daily sales reports (auto → Drive)
+
+After redeploying [`google-apps-script/private-sitting-sync.gs`](google-apps-script/private-sitting-sync.gs) with the `saveSalesReport` action:
+
+- **Midnight** (admin app open) or **first open next morning**: yesterday's sales PDF uploads to `Cafe D Dream/Sales Reports/YYYY-MM-DD/`
+- A summary row appends to the **Sales Reports** sheet tab
+- On successful upload, that day's Firebase report data is cleared (archive lives on Drive)
+- Manual **Generate PDF Report** was removed from the admin menu
+
+Keep the admin tablet/app open overnight for exact midnight upload, or rely on morning catch-up.
+
 ## Features
 
 - Customer cart, UPI/cash payment flow, live order status on payment screen
 - Counter: clickable tables, take/add orders, mark paid, cancel order, reject payment claim, print bill
 - Private Sitting: PS dashboard, couple check-in with DOB calendar, front/back ID photos, PDF, Drive/Sheet sync, hourly checkout billing
 - Kitchen: 20-minute countdown timer (configurable), color green → red
-- Sales report with date range and CSV export
+- Daily sales report auto-upload to Google Drive; Firebase keeps ~1 day live data
 - Menu cached in `localStorage` when the sheet is unreachable

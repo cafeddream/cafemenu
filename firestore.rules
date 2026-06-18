@@ -125,7 +125,7 @@ service cloud.firestore {
     }
 
     match /auditLog/{entryId} {
-      allow read, create: if isStaff();
+      allow read, create, delete: if isStaff();
     }
 
     match /privateSessions/{sessionId} {

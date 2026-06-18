@@ -43,7 +43,8 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
-  where
+  where,
+  writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 export const MENU_CACHE_KEY = "cafe_menu_cache_v1";
@@ -1726,6 +1727,81 @@ export async function fetchDayWiseReport(startKey, endKey) {
     cancellationDetails: cancellations.details,
     voidOrderDetails: enrichedVoidDetails
   };
+}
+
+export function getYesterdayKey(date = new Date()) {
+  const previous = new Date(date);
+  previous.setDate(previous.getDate() - 1);
+  return getTodayKey(previous);
+}
+
+function dayBoundsForKey(dateKey) {
+  return {
+    start: new Date(`${dateKey}T00:00:00`),
+    end: new Date(`${dateKey}T23:59:59.999`)
+  };
+}
+
+async function deleteDocRefsInBatches(refs) {
+  for (let index = 0; index < refs.length; index += 450) {
+    const batch = writeBatch(db);
+    refs.slice(index, index + 450).forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
+}
+
+// Deletes report-source Firebase data for one calendar day after Drive archive.
+export async function purgeReportDataForDate(dateKey) {
+  if (!auth.currentUser) {
+    throw new Error("Staff sign-in required");
+  }
+
+  const todayKey = getTodayKey();
+  if (dateKey >= todayKey) {
+    throw new Error("Cannot purge today or future report data");
+  }
+
+  const { start, end } = dayBoundsForKey(dateKey);
+  const counts = { history: 0, audit: 0, summaries: 0, sessions: 0 };
+
+  for (const tableId of CONFIG.TABLES) {
+    const historyCollection = collection(db, "tableHistory", tableId, "orders");
+    const [paidSnapshot, voidSnapshot] = await Promise.all([
+      getDocs(query(historyCollection, where("paidAt", ">=", start), where("paidAt", "<=", end))).catch(() => ({ docs: [] })),
+      getDocs(query(historyCollection, where("voidedAt", ">=", start), where("voidedAt", "<=", end))).catch(() => ({ docs: [] }))
+    ]);
+    const orderIds = new Set();
+    [...paidSnapshot.docs, ...voidSnapshot.docs].forEach((historyDoc) => orderIds.add(historyDoc.id));
+    const refs = [...orderIds].map((orderId) => doc(db, "tableHistory", tableId, "orders", orderId));
+    await deleteDocRefsInBatches(refs);
+    counts.history += refs.length;
+  }
+
+  const auditSnapshot = await getDocs(
+    query(collection(db, "auditLog"), where("createdAt", ">=", start), where("createdAt", "<=", end))
+  );
+  await deleteDocRefsInBatches(auditSnapshot.docs.map((entry) => entry.ref));
+  counts.audit = auditSnapshot.size;
+
+  const paymentSnapshot = await getDocs(collection(db, "dailySummaries", dateKey, "payments"));
+  await deleteDocRefsInBatches(paymentSnapshot.docs.map((paymentDoc) => paymentDoc.ref));
+  const summarySnapshot = await getDoc(dailySummaryRef(dateKey));
+  if (summarySnapshot.exists()) {
+    await deleteDoc(dailySummaryRef(dateKey));
+    counts.summaries = 1;
+  }
+
+  const sessionSnapshot = await getDocs(collection(db, "privateSessions"));
+  const sessionRefs = sessionSnapshot.docs.filter((sessionDoc) => {
+    const session = sessionDoc.data();
+    if (session.status !== "completed") return false;
+    const checkOutAt = toDate(session.checkOutAt);
+    return Boolean(checkOutAt && getTodayKey(checkOutAt) === dateKey);
+  }).map((sessionDoc) => sessionDoc.ref);
+  await deleteDocRefsInBatches(sessionRefs);
+  counts.sessions = sessionRefs.length;
+
+  return counts;
 }
 
 // Builds a today's report from saved paid history across all configured tables.

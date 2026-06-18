@@ -5,11 +5,9 @@ import {
   clearTable,
   computeDiscount,
   escapeHtml,
-  fetchDayWiseReport,
   fetchMenu,
   formatCurrency,
   formatTime,
-  getTodayKey,
   listenToActiveOrders,
   listenToTodaySummary,
   maskMobile,
@@ -24,8 +22,6 @@ import {
   voidActiveOrder,
   voidPendingCounterOrder
 } from "./firebase.js";
-import { downloadSalesReportPdf } from "./report-pdf.js";
-import { preloadJsPdf } from "./private-sitting-pdf.js";
 import {
   shareReceiptForOrder,
   shareReceiptForOrderId
@@ -63,7 +59,6 @@ const state = {
   activeCategory: "",
   cart: new Map(),
   menuLoaded: false,
-  lastReport: null,
   menuSearchQuery: "",
   detailTableId: null,
   orderModalOptions: { deferPayment: false, sessionId: null }
@@ -80,15 +75,7 @@ const elements = {
   tableDetail: document.querySelector("#psTableDetail"),
   categoryTabs: document.querySelector("#adminCategoryTabs"),
   ordersView: document.querySelector("#psOrders"),
-  menuButton: document.querySelector("#menuButton"),
   signOutBtn: document.querySelector("#signOutBtn"),
-  adminMenuModal: document.querySelector("#adminMenuModal"),
-  closeMenu: document.querySelector("#closeMenu"),
-  reportPanel: document.querySelector("#reportPanel"),
-  reportStartDate: document.querySelector("#reportStartDate"),
-  reportEndDate: document.querySelector("#reportEndDate"),
-  generateReportPdfBtn: document.querySelector("#generateReportPdfBtn"),
-  reportStatus: document.querySelector("#reportStatus"),
   paymentMethodModal: document.querySelector("#paymentMethodModal"),
   closePaymentMethod: document.querySelector("#closePaymentMethod"),
   paymentMethodTable: document.querySelector("#paymentMethodTable"),
@@ -127,7 +114,6 @@ export function initAdminOrders() {
   if (!elements.tableGrid) return;
   registerServiceWorker();
   elements.restaurant.textContent = CONFIG.RESTAURANT_NAME;
-  setDefaultReportDates();
   bindUi();
   startAdminApp();
 }
@@ -143,12 +129,6 @@ function startAdminApp() {
 }
 
 function bindUi() {
-  elements.menuButton.addEventListener("click", openAdminMenu);
-  elements.closeMenu.addEventListener("click", closeAdminMenu);
-  elements.adminMenuModal.addEventListener("click", (event) => {
-    if (event.target === elements.adminMenuModal) closeAdminMenu();
-  });
-  elements.generateReportPdfBtn?.addEventListener("click", generateReportPdf);
   elements.closePaymentMethod.addEventListener("click", closePaymentMethodModal);
   elements.paymentMethodModal.addEventListener("click", (event) => {
     if (event.target === elements.paymentMethodModal) closePaymentMethodModal();
@@ -178,12 +158,6 @@ function bindUi() {
   window.addEventListener("resize", hideAdminHoverPreview);
   window.addEventListener("pointerdown", unlockAdminAudio, { once: true });
   window.addEventListener("keydown", unlockAdminAudio, { once: true });
-}
-
-function setDefaultReportDates() {
-  const today = getTodayKey();
-  elements.reportStartDate.value = today;
-  elements.reportEndDate.value = today;
 }
 
 async function preloadMenu() {
@@ -808,47 +782,6 @@ function shareTableBill(tableId, orderId) {
   }
 }
 
-function openAdminMenu() {
-  window.dispatchEvent(new CustomEvent("manager-menu-close"));
-  elements.adminMenuModal.hidden = false;
-  preloadJsPdf();
-  if (elements.reportStatus) {
-    elements.reportStatus.textContent = "Choose dates and tap Generate PDF Report.";
-  }
-}
-
-async function generateReportPdf() {
-  const startKey = elements.reportStartDate?.value || getTodayKey();
-  const endKey = elements.reportEndDate?.value || startKey;
-  if (startKey > endKey) {
-    showToast("Start date cannot be after end date.");
-    return;
-  }
-
-  const button = elements.generateReportPdfBtn;
-  if (button) button.disabled = true;
-  if (elements.reportStatus) {
-    elements.reportStatus.textContent = "Generating report PDF...";
-  }
-
-  try {
-    const report = await fetchDayWiseReport(startKey, endKey);
-    state.lastReport = report;
-    await downloadSalesReportPdf(report);
-    if (elements.reportStatus) {
-      elements.reportStatus.textContent = `PDF downloaded for ${startKey}${endKey !== startKey ? ` to ${endKey}` : ""}.`;
-    }
-    showToast("Report PDF downloaded");
-  } catch {
-    if (elements.reportStatus) {
-      elements.reportStatus.textContent = "Could not generate report. Please refresh and try again.";
-    }
-    showToast("Report PDF failed");
-  } finally {
-    if (button) button.disabled = false;
-  }
-}
-
 function setPaymentModalVoidMode(enabled) {
   state.paymentVoidMode = enabled;
   if (elements.paymentDiscountControl) elements.paymentDiscountControl.hidden = enabled;
@@ -998,10 +931,6 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit"
   });
-}
-
-function closeAdminMenu() {
-  elements.adminMenuModal.hidden = true;
 }
 
 export async function openAdminOrderModal(tableId, options = {}) {

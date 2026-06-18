@@ -27,7 +27,6 @@
       </button>
       <nav class="ps-menu-dropdown" id="managerMenuDropdown" hidden aria-label="Manager menu">
         <a class="ps-menu-dropdown-item" href="./kitchen.html">Kitchen View</a>
-        <button class="ps-menu-dropdown-item" id="menuButton" type="button">Sales and Reports</button>
         <button class="ps-menu-dropdown-item" id="drawerSettingsBtn" type="button">Setting</button>
         <button class="ps-menu-dropdown-item ps-menu-dropdown-logout" id="signOutBtn" type="button">Sign Out</button>
       </nav>
@@ -141,31 +140,6 @@
       <div class="modal-foot ps-checkout-actions" style="padding:16px;">
         <button class="primary-btn" id="psCheckoutCash" type="button">Cash</button>
         <button class="secondary-btn" id="psCheckoutOnline" type="button">Online</button>
-      </div>
-    </section>
-  </div>
-
-  <div class="modal-backdrop" id="adminMenuModal" hidden>
-    <section class="history-modal" role="dialog" aria-modal="true" aria-labelledby="menuTitle">
-      <div class="modal-head">
-        <h2 id="menuTitle">Admin Menu</h2>
-        <button class="ghost-btn" id="closeMenu" type="button">Close</button>
-      </div>
-      <div class="admin-menu-body">
-        <section class="sales-panel report-only-panel" id="reportPanel">
-          <h3>Sales Report</h3>
-          <p class="subtle report-hint">Select date range for all tables — food orders, private sitting, discounts, cancellations, and void orders.</p>
-          <div class="report-filters">
-            <label class="select-label" for="reportStartDate">From</label>
-            <input class="table-select" id="reportStartDate" type="date">
-            <label class="select-label" for="reportEndDate">To</label>
-            <input class="table-select" id="reportEndDate" type="date">
-          </div>
-          <div class="report-actions">
-            <button class="primary-btn" id="generateReportPdfBtn" type="button">Generate PDF Report</button>
-          </div>
-          <p class="subtle" id="reportStatus">Choose dates and tap Generate PDF Report.</p>
-        </section>
       </div>
     </section>
   </div>

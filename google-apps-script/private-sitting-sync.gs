@@ -7,7 +7,9 @@
  */
 const ROOT_FOLDER_NAME = "Cafe D Dream";
 const SITTING_FOLDER_NAME = "Private Sitting";
+const REPORTS_FOLDER_NAME = "Sales Reports";
 const SHEET_NAME = "Private Sitting";
+const SALES_SHEET_NAME = "Sales Reports";
 
 const SHEET_HEADERS = [
   "Date",
@@ -20,6 +22,16 @@ const SHEET_HEADERS = [
   "Check-in",
   "Check-out",
   "Duration (min)",
+  "PDF URL"
+];
+
+const SALES_SHEET_HEADERS = [
+  "Date",
+  "Net",
+  "Gross",
+  "Paid Orders",
+  "Void Count",
+  "Void Gross",
   "PDF URL"
 ];
 
@@ -42,6 +54,9 @@ function doPost(e) {
     }
     if (action === "uploadPhotos") {
       return jsonResponse(handleUploadPhotos(payload));
+    }
+    if (action === "saveSalesReport") {
+      return jsonResponse(handleSaveSalesReport(payload));
     }
 
     return jsonResponse({ ok: false, error: "Unknown action" });
@@ -361,6 +376,69 @@ function handleFetchPhotos(payload) {
     ok: true,
     photos: photos
   };
+}
+
+function handleSaveSalesReport(payload) {
+  const dateKey = String(payload.dateKey || "");
+  const pdfBase64 = String(payload.pdfBase64 || "");
+  if (!dateKey) {
+    return { ok: false, error: "Missing dateKey" };
+  }
+  if (!pdfBase64 || pdfBase64.length <= 500) {
+    return { ok: false, error: "Missing PDF" };
+  }
+
+  const bytes = Utilities.base64Decode(pdfBase64);
+  if (!isValidPdfBytes_(bytes)) {
+    return { ok: false, error: "Invalid PDF" };
+  }
+
+  const root = getOrCreateFolder_(DriveApp.getRootFolder(), ROOT_FOLDER_NAME);
+  const reportsRoot = getOrCreateFolder_(root, REPORTS_FOLDER_NAME);
+  const dayFolder = getOrCreateFolder_(reportsRoot, dateKey);
+  const fileName = "sales-report-" + dateKey + ".pdf";
+  const existing = dayFolder.getFilesByName(fileName);
+  while (existing.hasNext()) {
+    existing.next().setTrashed(true);
+  }
+
+  const pdfFile = dayFolder.createFile(buildPdfBlob_(bytes, fileName));
+  const pdfUrl = pdfFile.getUrl();
+  const pdfFileId = pdfFile.getId();
+  const summary = payload.summary || {};
+  const sheet = ensureSalesSheet_();
+  sheet.appendRow([
+    dateKey,
+    Number(summary.total || 0),
+    Number(summary.grossTotal || 0),
+    Number(summary.paidOrderCount || 0),
+    Number(summary.voidOrderCount || 0),
+    Number(summary.voidOrderGross || 0),
+    pdfUrl
+  ]);
+
+  return {
+    ok: true,
+    pdfUrl: pdfUrl,
+    pdfFileId: pdfFileId,
+    pdfBytes: bytes.length
+  };
+}
+
+function ensureSalesSheet_() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(SALES_SHEET_NAME);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(SALES_SHEET_NAME);
+    sheet.appendRow(SALES_SHEET_HEADERS);
+    return sheet;
+  }
+
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(SALES_SHEET_HEADERS);
+  }
+
+  return sheet;
 }
 
 function ensureSheet_() {

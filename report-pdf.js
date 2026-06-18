@@ -392,3 +392,8 @@ export async function downloadSalesReportPdf(report) {
   const filename = `sales-report-${report.startDate}${report.endDate !== report.startDate ? `-${report.endDate}` : ""}.pdf`;
   doc.save(filename);
 }
+
+export async function buildSalesReportPdfBase64(report) {
+  const doc = await buildSalesReportPdf(report);
+  return doc.output("datauristring").split(",")[1];
+}

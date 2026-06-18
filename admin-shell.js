@@ -1,6 +1,7 @@
 import { CONFIG } from "./firebase.js";
 import { initAdminOrders } from "./admin-orders.js";
 import { initPrivateSitting, refreshPrivateSittingView } from "./private-sitting.js";
+import { startDailyReportScheduler } from "./report-scheduler.js";
 import { requireStaffAuth } from "./staff-auth.js";
 
 const elements = {
@@ -107,6 +108,7 @@ function startManagerApp() {
   setActiveTab(sittingRoute ? "orders" : "orders");
   initPrivateSitting();
   initAdminOrders();
+  startDailyReportScheduler();
   hideSplash();
 }
 
