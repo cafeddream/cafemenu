@@ -16,13 +16,14 @@ import {
   listenToPrivateSessions,
   maskMobile,
   recordSittingPayment,
+  serverTimestamp,
   showToast,
   updatePrivateSession,
   verifyOrderPayment
 } from "./firebase.js";
 import { openAdminOrderModal } from "./admin-orders.js";
-import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, formatCheckInLabel, mergeCustomersWithPhotos, MIN_PDF_BASE64_LEN, preloadJsPdf, withTimeout } from "./private-sitting-pdf.js";
-import { fetchSessionPhotos, isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout } from "./sitting-sync.js";
+import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, formatCheckInLabel, mergeCustomersWithPhotos, MIN_PDF_BASE64_LEN, preloadJsPdf, stampCheckoutTimeOnPdf, base64ToUint8Array, uint8ArrayToBase64, withTimeout } from "./private-sitting-pdf.js";
+import { fetchSessionPdf, fetchSessionPhotos, isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout, uploadSittingPhotos } from "./sitting-sync.js";
 import {
   connectPrinter,
   disconnectPrinter,
@@ -153,43 +154,108 @@ function formatCheckInError(error) {
 }
 
 async function runCheckInBackground(sessionId, draft, customers, checkInLabel, customerPhotos) {
+  const pdfFileName = buildSittingPdfFileName(draft.sittingId, sessionId);
+  const customersForPdf = mergeCustomersWithPhotos(customers, customerPhotos);
+  const dateKey = getTodayKey();
+  const photosPayload = buildPhotosUploadPayload(customerPhotos);
+  const hasPhotos = photosPayload.some((photo) => photo.frontBase64 || photo.backBase64);
+
+  const buildPdfBase64 = async () => {
+    try {
+      const pdfDataUrl = await withTimeout(
+        buildSittingSessionPdf({
+          sittingId: draft.sittingId,
+          mobile: draft.mobile,
+          sessionId,
+          displayName: buildCustomerDisplayName(customers),
+          customers: customersForPdf,
+          checkInLabel,
+          checkOutLabel: "—"
+        }),
+        30000,
+        null
+      );
+      return pdfDataUrl ? (pdfDataUrl.split(",")[1] || "") : "";
+    } catch (error) {
+      console.warn("Check-in PDF build failed:", error);
+      return "";
+    }
+  };
+
+  showToast("Check-in saved. Uploading to Drive...");
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  let pdfBase64 = await buildPdfBase64();
+
   const syncPayload = {
     sessionId,
     sittingId: draft.sittingId,
     mobile: draft.mobile,
     customers: customers.map(({ name, dob }) => ({ name, dob })),
-    photos: buildPhotosUploadPayload(customerPhotos),
+    pdfBase64,
+    pdfFileName,
     checkInLabel,
-    dateKey: getTodayKey()
+    dateKey
   };
-
-  showToast("Check-in saved. Photos uploading to Drive...");
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const hasPhotos = syncPayload.photos.some((photo) => photo.frontBase64 || photo.backBase64);
 
   try {
     let syncResult = await syncSittingCheckIn(syncPayload);
-    if (!syncResult?.ok && hasPhotos) {
+    if (!syncResult?.ok || !pdfBase64) {
       await sleep(3000);
+      if (!pdfBase64) {
+        pdfBase64 = await buildPdfBase64();
+        syncPayload.pdfBase64 = pdfBase64;
+      }
       syncResult = await syncSittingCheckIn(syncPayload);
     }
 
-    if (syncResult?.ok && syncResult.photoFileIds?.length) {
-      await updatePrivateSession(sessionId, {
+    let photoFileIds = syncResult?.photoFileIds || [];
+    if (hasPhotos) {
+      try {
+        const photoResult = await uploadSittingPhotos({
+          sessionId,
+          dateKey,
+          photos: photosPayload
+        });
+        if (!photoResult?.ok && !photoResult?.skipped) {
+          await sleep(2000);
+          const retryPhoto = await uploadSittingPhotos({ sessionId, dateKey, photos: photosPayload });
+          if (retryPhoto?.ok) photoFileIds = retryPhoto.photoFileIds || [];
+        } else if (photoResult?.ok) {
+          photoFileIds = photoResult.photoFileIds || [];
+        }
+      } catch (photoError) {
+        console.warn("Drive photo upload failed:", photoError);
+      }
+    }
+
+    if (syncResult?.ok) {
+      const updateData = {
         sheetSynced: true,
         sheetRowNumber: syncResult.rowNumber,
-        photoDriveIds: syncResult.photoFileIds
-      });
-      showToast("ID photos saved to Google Drive.");
+        pdfDriveUrl: syncResult.pdfDriveUrl || "",
+        pdfFileId: syncResult.pdfFileId || "",
+        pdfFileName
+      };
+      if (photoFileIds.length) {
+        updateData.photoDriveIds = photoFileIds;
+      }
+      const photosJson = JSON.stringify(customerPhotos);
+      if (photosJson.length < 700000) {
+        updateData.customerPhotos = customerPhotos;
+        updateData.pdfCapturedAt = serverTimestamp();
+      }
+      await updatePrivateSession(sessionId, updateData);
+      showToast(syncResult.pdfFileId ? "Session PDF saved to Google Drive." : "Check-in synced. PDF upload may still be pending.");
       return;
     }
 
     if (!syncResult?.skipped) {
-      showToast("Session saved but photos not on Drive — retry from session");
+      showToast("Session saved but Drive sync failed — retry after refresh");
     }
   } catch (error) {
-    console.warn("Check-in photo sync failed:", error);
-    showToast("Session saved but photos not on Drive — retry from session");
+    console.warn("Check-in sync failed:", error);
+    showToast("Session saved but Drive sync failed — retry after refresh");
   }
 }
 
@@ -207,10 +273,11 @@ async function buildCheckoutPdfForSync(liveSession, checkOutLabel) {
   const customers = liveSession.customers || [];
   const photoDriveIds = liveSession.photoDriveIds || [];
   const photoFileIdsToDelete = collectPhotoFileIds(photoDriveIds);
+  const checkInLabel = formatCheckInLabel(liveSession.checkInAt, liveSession.checkInLabel);
 
   let customerPhotos = [];
 
-  if (photoDriveIds.length) {
+  if (photoDriveIds.length && photoFileIdsToDelete.length) {
     try {
       const fetchResult = await fetchSessionPhotos(photoFileIdsToDelete);
       if (fetchResult?.ok && fetchResult.photos) {
@@ -233,9 +300,9 @@ async function buildCheckoutPdfForSync(liveSession, checkOutLabel) {
   }
 
   const customersForPdf = mergeCustomersWithPhotos(customers, customerPhotos);
-  const checkInLabel = formatCheckInLabel(liveSession.checkInAt, liveSession.checkInLabel);
+  const hasPhotoData = customerPhotos.some((photo) => photo.photoFrontDataUrl || photo.photoBackDataUrl);
 
-  try {
+  const buildFullPdf = async () => {
     const pdfDataUrl = await withTimeout(
       buildSittingSessionPdf({
         sittingId: liveSession.sittingId,
@@ -252,6 +319,39 @@ async function buildCheckoutPdfForSync(liveSession, checkOutLabel) {
     );
     const pdfBase64 = pdfDataUrl ? (pdfDataUrl.split(",")[1] || "") : "";
     if (pdfBase64.length > MIN_PDF_BASE64_LEN) {
+      return pdfBase64;
+    }
+    return "";
+  };
+
+  try {
+    if (hasPhotoData) {
+      const pdfBase64 = await buildFullPdf();
+      if (pdfBase64) {
+        return { pdfBase64, pdfFileName, photoFileIdsToDelete };
+      }
+    }
+
+    if (liveSession.pdfFileId) {
+      const fetchResult = await fetchSessionPdf(liveSession.pdfFileId);
+      if (fetchResult?.ok && fetchResult.pdfBase64?.length > MIN_PDF_BASE64_LEN) {
+        const existingBytes = base64ToUint8Array(fetchResult.pdfBase64);
+        const stamped = await withTimeout(
+          stampCheckoutTimeOnPdf(existingBytes, checkOutLabel),
+          20000,
+          null
+        );
+        if (stamped) {
+          const pdfBase64 = uint8ArrayToBase64(stamped);
+          if (pdfBase64.length > MIN_PDF_BASE64_LEN) {
+            return { pdfBase64, pdfFileName, photoFileIdsToDelete };
+          }
+        }
+      }
+    }
+
+    const pdfBase64 = await buildFullPdf();
+    if (pdfBase64) {
       return { pdfBase64, pdfFileName, photoFileIdsToDelete };
     }
   } catch (error) {
@@ -503,7 +603,7 @@ function renderSettings() {
     </section>
     <section class="ps-settings-card">
       <h3>Google Sync</h3>
-      <p>${syncReady ? "ID photos saved to Google Drive at check-in. Session PDF is generated at checkout; photo files are then removed from Drive." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
+      <p>${syncReady ? "Check-in PDF + ID photos go to Google Drive. Checkout updates the PDF with check-out time and removes temporary photo files." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
     </section>
     <section class="ps-settings-card">
       <h3>Sitting Rates</h3>
@@ -927,6 +1027,7 @@ async function confirmCheckout(method) {
   try {
     const liveSession = getLiveSession(draft.sessionId) || draft.session;
     const checkOutLabel = new Date().toLocaleString();
+    showToast("Generating session PDF...");
     const { pdfBase64, pdfFileName, photoFileIdsToDelete } = await buildCheckoutPdfForSync(liveSession, checkOutLabel);
 
     await recordSittingPayment(draft.sessionId, draft.sittingAmount, method, {
@@ -963,7 +1064,7 @@ async function confirmCheckout(method) {
 
     if (liveSession?.sheetRowNumber) {
       const syncPdfBase64 = pdfBase64.length > MIN_PDF_BASE64_LEN ? pdfBase64 : "";
-      syncSittingCheckout({
+      const runCheckoutSync = async () => syncSittingCheckout({
         sessionId: draft.sessionId,
         sheetRowNumber: liveSession.sheetRowNumber,
         checkOutLabel,
@@ -973,22 +1074,34 @@ async function confirmCheckout(method) {
         pdfFileId: liveSession.pdfFileId || "",
         photoFileIdsToDelete,
         dateKey: getTodayKey()
-      }).then((syncResult) => {
+      });
+
+      try {
+        let syncResult = await runCheckoutSync();
+        if (!syncResult?.ok && syncPdfBase64) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          syncResult = await runCheckoutSync();
+        }
+
         if (!syncPdfBase64) {
-          showToast("Checkout saved. Session PDF was not created on Drive.");
+          showToast("Checkout saved. Session PDF was not created.");
           return;
         }
         if (syncResult?.pdfDriveUrl || syncResult?.pdfFileId) {
-          updatePrivateSession(draft.sessionId, {
+          await updatePrivateSession(draft.sessionId, {
             pdfDriveUrl: syncResult.pdfDriveUrl || "",
             pdfFileId: syncResult.pdfFileId || liveSession.pdfFileId || "",
             pdfFileName
-          }).catch(() => {});
+          });
           showToast("Session PDF saved to Google Drive.");
+        } else if (!syncResult?.skipped) {
+          showToast("Checkout saved. Drive PDF upload failed.");
         }
-      }).catch(() => {
+      } catch {
         showToast("Checkout saved. Sheet/Drive update failed.");
-      });
+      }
+    } else if (pdfBase64.length > MIN_PDF_BASE64_LEN) {
+      showToast("Checkout saved. Sheet row missing — PDF could not sync to Drive.");
     }
   } catch {
     showToast("Checkout failed. Please try again.");

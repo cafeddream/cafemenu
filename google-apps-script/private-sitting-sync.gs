@@ -40,6 +40,9 @@ function doPost(e) {
     if (action === "fetchPhotos") {
       return jsonResponse(handleFetchPhotos(payload));
     }
+    if (action === "uploadPhotos") {
+      return jsonResponse(handleUploadPhotos(payload));
+    }
 
     return jsonResponse({ ok: false, error: "Unknown action" });
   } catch (error) {
@@ -105,7 +108,7 @@ function handleCheckIn(payload) {
 
   let pdfUrl = "";
   let pdfFileId = "";
-  if (payload.pdfBase64 && !photos.length) {
+  if (payload.pdfBase64) {
     const fileName = payload.pdfFileName || "session_" + sessionId + ".pdf";
     const pdfBlob = Utilities.newBlob(
       Utilities.base64Decode(payload.pdfBase64),
@@ -212,6 +215,25 @@ function handleFetchPdf(payload) {
   return {
     ok: true,
     pdfBase64: Utilities.base64Encode(bytes)
+  };
+}
+
+function handleUploadPhotos(payload) {
+  const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const dayFolder = ensureDayFolder_(dateKey);
+  const sessionId = String(payload.sessionId || Utilities.getUuid());
+  const photos = payload.photos || [];
+
+  if (!photos.length) {
+    return { ok: false, error: "No photos provided" };
+  }
+
+  const sessionFolder = getOrCreateFolder_(dayFolder, sessionId);
+  const photoFileIds = uploadSessionPhotos_(sessionFolder, sessionId, photos);
+
+  return {
+    ok: true,
+    photoFileIds: photoFileIds
   };
 }
 

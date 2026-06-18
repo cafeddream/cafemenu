@@ -48,6 +48,13 @@ export async function fetchSessionPhotos(fileIds = []) {
   return postAppsScript({ action: "fetchPhotos", fileIds: ids });
 }
 
+export async function uploadSittingPhotos(payload) {
+  if (!isAppsScriptConfigured()) {
+    return { skipped: true, reason: "Apps Script URL not configured" };
+  }
+  return postAppsScript({ action: "uploadPhotos", ...payload });
+}
+
 export async function syncSittingCheckout(payload) {
   if (!isAppsScriptConfigured()) {
     return { skipped: true, reason: "Apps Script URL not configured" };
