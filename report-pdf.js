@@ -4,6 +4,7 @@ import { getJsPdf } from "./private-sitting-pdf.js";
 const PAGE = { left: 14, right: 196, width: 182, bottom: 272, top: 18 };
 const ROW_H = 8;
 const HEADER_H = 9;
+const SECTION_GAP = 10;
 
 const C = {
   brand: [255, 107, 53],
@@ -237,7 +238,7 @@ function drawKeyValueTable(doc, rows, y) {
   rows.forEach(([label, value], index) => {
     y = drawTableRow(doc, cols, [label, value], y, index);
   });
-  return y + 4;
+  return y + SECTION_GAP;
 }
 
 const FOOD_COLS = [
@@ -326,7 +327,7 @@ export async function buildSalesReportPdf(report) {
       ], y, index, isVoid ? { ink: C.danger } : {});
     });
   }
-  y += 4;
+  y += SECTION_GAP;
 
   y = drawSectionTitle(doc, "Private Sittings", y);
   y = drawTableHeader(doc, SITTING_COLS, y);
@@ -350,7 +351,7 @@ export async function buildSalesReportPdf(report) {
       ], y, index, { noTruncateIndices: [2] });
     });
   }
-  y += 4;
+  y += SECTION_GAP;
 
   y = drawSectionTitle(doc, "Cancelled Orders", y);
   y = drawTableHeader(doc, CANCEL_COLS, y);
@@ -368,7 +369,7 @@ export async function buildSalesReportPdf(report) {
       ], y, index, { noTruncateIndices: [1] });
     });
   }
-  y += 4;
+  y += SECTION_GAP;
 
   if ((report.items || []).length) {
     y = drawSectionTitle(doc, "Menu Items Sold", y);

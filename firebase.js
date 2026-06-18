@@ -1294,19 +1294,104 @@ export function listenToTodaySummary(callback, onError) {
   }, onError);
 }
 
+function historySortTime(order) {
+  return toDate(order.savedAt)?.getTime()
+    || toDate(order.voidedAt)?.getTime()
+    || toDate(order.paidAt)?.getTime()
+    || 0;
+}
+
 // Loads recent paid order history for one table.
 export async function fetchTableHistory(tableId, maxRows = 20) {
-  const historyQuery = query(
-    collection(db, "tableHistory", tableId, "orders"),
-    orderBy("paidAt", "desc"),
-    limit(maxRows)
-  );
-  const snapshot = await getDocs(historyQuery);
-  return snapshot.docs.map((historyDoc) => ({ id: historyDoc.id, ...historyDoc.data() }));
+  const historyCollection = collection(db, "tableHistory", tableId, "orders");
+  const [paidSnapshot, voidSnapshot] = await Promise.all([
+    getDocs(query(historyCollection, orderBy("paidAt", "desc"), limit(maxRows))).catch(() => ({ docs: [] })),
+    getDocs(query(historyCollection, orderBy("voidedAt", "desc"), limit(maxRows))).catch(() => ({ docs: [] }))
+  ]);
+
+  const byOrderId = new Map();
+  [...paidSnapshot.docs, ...voidSnapshot.docs].forEach((historyDoc) => {
+    const data = { id: historyDoc.id, ...historyDoc.data() };
+    const key = data.orderId || historyDoc.id;
+    const existing = byOrderId.get(key);
+    if (!existing) {
+      byOrderId.set(key, data);
+      return;
+    }
+    byOrderId.set(key, { ...existing, ...data });
+  });
+
+  return [...byOrderId.values()].sort((a, b) => historySortTime(b) - historySortTime(a));
+}
+
+// Parses audit itemsSummary text into order item rows for reports.
+export function parseItemsSummary(text) {
+  const clean = String(text || "").trim();
+  if (!clean) return [];
+  return clean.split(",").map((part) => {
+    const trimmed = part.trim();
+    const match = trimmed.match(/^(.+?)\s+x(\d+)$/i);
+    if (!match) return { name: trimmed, qty: 1, price: 0 };
+    return { name: match[1].trim(), qty: Number(match[2]) || 1, price: 0 };
+  }).filter((item) => item.name);
+}
+
+function voidOrderGrossValue(order) {
+  return Number(order.grossTotal ?? order.voidAmount ?? order.amount ?? 0);
+}
+
+function resolveVoidOrderItems(order, auditRow) {
+  if (order.items?.length) return order.items;
+  if (auditRow?.items?.length) return auditRow.items;
+  return parseItemsSummary(auditRow?.itemsSummary);
+}
+
+function collectVoidOrders(foodOrders, auditDetails = []) {
+  const voidMap = new Map();
+
+  foodOrders
+    .filter((order) => order.paymentStatus === "voided")
+    .forEach((order) => {
+      if (order.orderId) voidMap.set(order.orderId, order);
+    });
+
+  auditDetails.forEach((row) => {
+    const orderId = row.orderId;
+    if (!orderId || orderId === "counter") return;
+
+    const existing = voidMap.get(orderId);
+    if (existing) {
+      voidMap.set(orderId, {
+        ...existing,
+        items: resolveVoidOrderItems(existing, row),
+        voidRemarks: existing.voidRemarks || row.voidRemarks || "",
+        voidedAt: existing.voidedAt || row.createdAt,
+        grossTotal: existing.grossTotal ?? row.grossTotal ?? row.amount,
+        voidAmount: existing.voidAmount ?? row.amount ?? existing.grossTotal
+      });
+      return;
+    }
+
+    voidMap.set(orderId, {
+      orderId,
+      tableId: row.tableId,
+      items: resolveVoidOrderItems({}, row),
+      paymentStatus: "voided",
+      voidRemarks: row.voidRemarks || "",
+      grossTotal: Number(row.grossTotal ?? row.amount ?? 0),
+      voidAmount: Number(row.amount ?? row.grossTotal ?? 0),
+      voidedAt: row.createdAt,
+      total: 0,
+      discountAmount: 0
+    });
+  });
+
+  return [...voidMap.values()];
 }
 
 // Aggregates paid orders into a sales report for one or more date keys (YYYY-MM-DD).
-export function buildReportFromOrders(paidOrders, startKey, endKey) {
+export function buildReportFromOrders(paidOrders, startKey, endKey, options = {}) {
+  const includeVoidedItems = Boolean(options.includeVoidedItems);
   const report = {
     startDate: startKey,
     endDate: endKey,
@@ -1322,8 +1407,21 @@ export function buildReportFromOrders(paidOrders, startKey, endKey) {
   };
   const itemMap = new Map();
 
+  function addOrderItems(order) {
+    (order.items || []).forEach((item) => {
+      const key = `${item.name}|${item.price}`;
+      const current = itemMap.get(key) || { name: item.name, price: Number(item.price || 0), qty: 0, total: 0 };
+      current.qty += Number(item.qty || 0);
+      current.total += Number(item.price || 0) * Number(item.qty || 0);
+      itemMap.set(key, current);
+    });
+  }
+
   paidOrders.forEach((order) => {
-    if (order.paymentStatus === "voided") return;
+    if (order.paymentStatus === "voided") {
+      if (includeVoidedItems) addOrderItems(order);
+      return;
+    }
 
     const total = Number(order.total || 0);
     const gross = Number(order.grossTotal ?? total);
@@ -1335,14 +1433,7 @@ export function buildReportFromOrders(paidOrders, startKey, endKey) {
     report[method] += total;
     if (order.placedBy === "counter") report.counter += 1;
     else report.customer += 1;
-
-    (order.items || []).forEach((item) => {
-      const key = `${item.name}|${item.price}`;
-      const current = itemMap.get(key) || { name: item.name, price: Number(item.price || 0), qty: 0, total: 0 };
-      current.qty += Number(item.qty || 0);
-      current.total += Number(item.price || 0) * Number(item.qty || 0);
-      itemMap.set(key, current);
-    });
+    addOrderItems(order);
   });
 
   report.items = [...itemMap.values()].sort((a, b) => b.total - a.total);
@@ -1492,10 +1583,13 @@ export async function fetchVoidedOrdersForDateRange(startKey, endKey) {
       summary.details.push({
         date: key,
         time: createdAt.toLocaleString(),
+        createdAt: data.createdAt,
         tableId: data.tableId || "",
         orderId: details.orderId || (isCounter ? "counter" : ""),
         amount,
+        grossTotal: amount,
         voidRemarks: details.voidRemarks || "",
+        itemsSummary: details.itemsSummary || "",
         type: isCounter ? "counter_pending" : "order"
       });
       summary.voidOrderCount += 1;
@@ -1548,12 +1642,14 @@ export async function fetchDayWiseReport(startKey, endKey) {
   ]);
 
   const salesFoodOrders = foodOrders.filter((order) => order.paymentStatus !== "voided");
-  const voidFoodOrders = foodOrders.filter((order) => order.paymentStatus === "voided");
-  const voidFoodGross = voidFoodOrders.reduce(
-    (sum, order) => sum + Number(order.grossTotal ?? order.voidAmount ?? 0),
-    0
+  const voidOrders = collectVoidOrders(foodOrders, voids.details);
+  const voidOrderGross = voidOrders.reduce((sum, order) => sum + voidOrderGrossValue(order), 0);
+  const itemsReport = buildReportFromOrders(
+    [...salesFoodOrders, ...voidOrders],
+    startKey,
+    endKey,
+    { includeVoidedItems: true }
   );
-  const itemsReport = buildReportFromOrders(salesFoodOrders, startKey, endKey);
   const foodSaleTotal = salesFoodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
   const foodGrossTotal = salesFoodOrders.reduce((sum, order) => sum + Number(order.grossTotal ?? order.total ?? 0), 0);
   const foodDiscountTotal = salesFoodOrders.reduce((sum, order) => sum + Number(order.discountAmount || 0), 0);
@@ -1577,38 +1673,31 @@ export async function fetchDayWiseReport(startKey, endKey) {
   const grossTotal = foodGrossTotal
     + sittingGrossTotal
     + cancellations.cancelledWithPaymentAmount
-    + voidFoodGross;
+    + voidOrderGross;
   const discountTotal = foodDiscountTotal + sittingDiscountTotal;
   const total = foodSaleTotal + sittingSaleTotal;
   const paidOrderCount = salesFoodOrders.length + sittings.length;
 
   const enrichedVoidDetails = voids.details.map((row) => {
-    const full = voidFoodOrders.find((order) => order.orderId === row.orderId);
-    if (!full) return row;
+    const full = voidOrders.find((order) => order.orderId === row.orderId);
+    if (!full) {
+      return {
+        ...row,
+        items: parseItemsSummary(row.itemsSummary)
+      };
+    }
     return {
       ...row,
-      items: full.items,
+      items: resolveVoidOrderItems(full, row),
       grossTotal: full.grossTotal ?? full.voidAmount ?? row.amount,
       voidRemarks: full.voidRemarks || row.voidRemarks,
-      tableId: full.tableId || row.tableId
+      tableId: full.tableId || row.tableId,
+      createdAt: full.voidedAt || row.createdAt
     };
   });
 
   const foodOrderIds = new Set(foodOrders.map((order) => order.orderId).filter(Boolean));
-  const missingVoidOrders = enrichedVoidDetails
-    .filter((row) => row.orderId && !foodOrderIds.has(row.orderId))
-    .map((row) => ({
-      orderId: row.orderId,
-      tableId: row.tableId,
-      items: row.items || [],
-      paymentStatus: "voided",
-      voidRemarks: row.voidRemarks || "",
-      grossTotal: Number(row.grossTotal ?? row.amount ?? 0),
-      voidAmount: Number(row.amount ?? row.grossTotal ?? 0),
-      voidedAt: row.time,
-      total: 0,
-      discountAmount: 0
-    }));
+  const missingVoidOrders = voidOrders.filter((order) => order.orderId && !foodOrderIds.has(order.orderId));
 
   return {
     startDate: startKey,
@@ -1628,9 +1717,9 @@ export async function fetchDayWiseReport(startKey, endKey) {
     cancelledWithPaymentAmount: cancellations.cancelledWithPaymentAmount,
     cancelledWithoutPaymentCount: cancellations.cancelledWithoutPaymentCount,
     cancelledWithoutPaymentAmount: cancellations.cancelledWithoutPaymentAmount,
-    voidOrderCount: voidFoodOrders.length,
-    voidOrderAmount: voidFoodGross,
-    voidOrderGross: voidFoodGross,
+    voidOrderCount: voidOrders.length,
+    voidOrderAmount: voidOrderGross,
+    voidOrderGross: voidOrderGross,
     items: itemsReport.items,
     foodOrderDetails: [...foodOrders, ...missingVoidOrders],
     sittingDetails: sittings,
