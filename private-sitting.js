@@ -262,6 +262,17 @@ async function runCheckInBackground(sessionId, draft, customers, checkInLabel, c
   }
 }
 
+function getSessionDateKey(session) {
+  const ms = session?.checkInAt?.toMillis?.();
+  if (ms) return getTodayKey(new Date(ms));
+  return getTodayKey();
+}
+
+function resolveSheetRowNumber(session) {
+  const row = Number(session?.sheetRowNumber || 0);
+  return row >= 2 ? row : 0;
+}
+
 function getLiveSession(sessionId) {
   return [...state.activeSessions.values()].find((session) => {
     const id = session.sessionId || session.id;
@@ -270,6 +281,7 @@ function getLiveSession(sessionId) {
 }
 
 async function buildCheckoutPdfForSync(liveSession, checkOutLabel) {
+  await preloadJsPdf();
   const sessionId = liveSession.sessionId || liveSession.id;
   const pdfFileName = liveSession.pdfFileName
     || buildSittingPdfFileName(liveSession.sittingId, sessionId);
@@ -996,8 +1008,12 @@ async function confirmCheckout(method) {
   try {
     const liveSession = getLiveSession(draft.sessionId) || draft.session;
     const checkOutLabel = new Date().toLocaleString();
+    const sheetRowNumber = resolveSheetRowNumber(liveSession) || resolveSheetRowNumber(draft.session);
+    const sessionDateKey = getSessionDateKey(liveSession);
+
     showToast("Generating session PDF...");
     const { pdfBase64, pdfFileName, photoFileIdsToDelete } = await buildCheckoutPdfForSync(liveSession, checkOutLabel);
+    const pdfValid = isValidPdfBase64(pdfBase64);
 
     await recordSittingPayment(draft.sessionId, draft.sittingAmount, method, {
       type: "amount",
@@ -1031,51 +1047,52 @@ async function confirmCheckout(method) {
     closeSessionModal();
     showToast(`${draft.session.sittingId} checked out — ${formatCurrency(discountInfo.finalTotal)}`);
 
-    if (liveSession?.sheetRowNumber) {
-      const pdfValid = isValidPdfBase64(pdfBase64);
-      if (!pdfValid) {
-        showToast("Checkout saved. PDF could not be built for Drive.");
-      }
-
+    if (sheetRowNumber) {
       const syncPdfBase64 = pdfValid ? pdfBase64 : "";
       const runCheckoutSync = async () => syncSittingCheckout({
         sessionId: draft.sessionId,
-        sheetRowNumber: liveSession.sheetRowNumber,
+        sheetRowNumber,
         checkOutLabel,
         durationMinutes: draft.sitting.durationMinutes,
         pdfBase64: syncPdfBase64,
         pdfFileName,
-        pdfFileId: liveSession.pdfFileId || "",
-        photoFileIdsToDelete,
-        dateKey: getTodayKey()
+        pdfFileId: liveSession.pdfFileId || draft.session?.pdfFileId || "",
+        photoFileIdsToDelete: pdfValid ? photoFileIdsToDelete : [],
+        dateKey: sessionDateKey
       });
 
       try {
-        if (!pdfValid) {
-          return;
-        }
-
         let syncResult = await runCheckoutSync();
         if (!syncResult?.ok) {
           await new Promise((resolve) => setTimeout(resolve, 3000));
           syncResult = await runCheckoutSync();
         }
 
-        if (syncResult?.ok && syncResult.pdfFileId && syncResult.pdfDriveUrl) {
+        if (!syncResult?.ok) {
+          showToast(`Checkout saved. Sheet sync failed: ${syncResult?.error || "unknown error"}`);
+          return;
+        }
+
+        if (syncResult.pdfUploaded && syncResult.pdfFileId && syncResult.pdfDriveUrl) {
           await updatePrivateSession(draft.sessionId, {
             pdfDriveUrl: syncResult.pdfDriveUrl,
             pdfFileId: syncResult.pdfFileId,
             pdfFileName
           });
-          showToast("Session PDF saved to Google Drive.");
-        } else if (!syncResult?.skipped) {
-          showToast("Checkout saved. Drive PDF upload failed.");
+          showToast("Checkout synced — sheet updated and PDF saved to Drive.");
+        } else if (syncResult.sheetUpdated) {
+          showToast(pdfValid
+            ? `Checkout synced to sheet. PDF upload failed: ${syncResult.pdfError || "unknown"}`
+            : "Checkout synced to sheet. PDF could not be built.");
         }
-      } catch {
+      } catch (error) {
+        console.warn("Checkout sync failed:", error);
         showToast("Checkout saved. Sheet/Drive update failed.");
       }
-    } else if (isValidPdfBase64(pdfBase64)) {
-      showToast("Checkout saved. Sheet row missing — PDF could not sync to Drive.");
+    } else {
+      showToast(pdfValid
+        ? "Checkout saved. No sheet row — redeploy Apps Script and check in again to sync."
+        : "Checkout saved. PDF and sheet sync skipped (no sheet row).");
     }
   } catch {
     showToast("Checkout failed. Please try again.");

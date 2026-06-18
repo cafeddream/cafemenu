@@ -79,12 +79,12 @@ function writePdfToDrive_(bytes, options) {
   if (existingFileId) {
     try {
       const existing = DriveApp.getFileById(existingFileId);
-      existing.setBlob(pdfBlob);
-      if (!String(existing.getName() || "").toLowerCase().endsWith(".pdf")) {
-        existing.setName(fileName);
-      }
-      pdfUrl = existing.getUrl();
-      pdfFileId = existing.getId();
+      const parents = existing.getParents();
+      const parentFolder = parents.hasNext() ? parents.next() : dayFolder;
+      existing.setTrashed(true);
+      const pdfFile = parentFolder.createFile(pdfBlob);
+      pdfUrl = pdfFile.getUrl();
+      pdfFileId = pdfFile.getId();
     } catch (replaceError) {
       const pdfFile = dayFolder.createFile(pdfBlob);
       pdfUrl = pdfFile.getUrl();
@@ -233,12 +233,22 @@ function handleCheckout(payload) {
 
   const pdfBase64 = String(payload.pdfBase64 || "");
   if (!pdfBase64 || pdfBase64.length <= 500) {
-    return { ok: false, error: "Missing checkout PDF" };
+    return {
+      ok: true,
+      sheetUpdated: true,
+      pdfUploaded: false,
+      pdfError: "Missing checkout PDF"
+    };
   }
 
   const bytes = Utilities.base64Decode(pdfBase64);
   if (!isValidPdfBytes_(bytes)) {
-    return { ok: false, error: "Invalid PDF" };
+    return {
+      ok: true,
+      sheetUpdated: true,
+      pdfUploaded: false,
+      pdfError: "Invalid PDF"
+    };
   }
 
   const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
@@ -253,13 +263,20 @@ function handleCheckout(payload) {
   });
 
   if (!saved.pdfFileId) {
-    return { ok: false, error: "PDF upload failed" };
+    return {
+      ok: true,
+      sheetUpdated: true,
+      pdfUploaded: false,
+      pdfError: "PDF upload failed"
+    };
   }
 
   trashDriveFiles_(payload.photoFileIdsToDelete || []);
 
   return {
     ok: true,
+    sheetUpdated: true,
+    pdfUploaded: true,
     pdfDriveUrl: saved.pdfUrl,
     pdfFileId: saved.pdfFileId,
     pdfBytes: saved.pdfBytes
