@@ -46,6 +46,7 @@ const state = {
   checkInDraft: null,
   checkInSubmitting: false,
   checkoutDraft: null,
+  checkoutSubmitting: false,
   foodOrderReturnSessionId: null,
   timerHandle: null
 };
@@ -82,6 +83,8 @@ const elements = {
 };
 
 const CHECK_IN_BTN_LABEL = "Confirm Check-in";
+const CHECKOUT_CASH_LABEL = "Cash";
+const CHECKOUT_ONLINE_LABEL = "Online";
 
 function setCheckInBusy(busy) {
   if (!elements.confirmCheckIn) return;
@@ -95,6 +98,26 @@ function setCheckInBusy(busy) {
   }
   elements.confirmCheckIn.disabled = false;
   elements.confirmCheckIn.textContent = elements.confirmCheckIn.dataset.originalLabel || CHECK_IN_BTN_LABEL;
+}
+
+function setCheckoutBusy(busy) {
+  const buttons = [elements.checkoutCashBtn, elements.checkoutOnlineBtn];
+  buttons.forEach((button) => {
+    if (!button) return;
+    if (busy) {
+      if (!button.dataset.originalLabel) {
+        button.dataset.originalLabel = button.textContent || button.id === "psCheckoutCash"
+          ? CHECKOUT_CASH_LABEL
+          : CHECKOUT_ONLINE_LABEL;
+      }
+      button.disabled = true;
+      button.textContent = "Processing...";
+      return;
+    }
+    button.disabled = false;
+    button.textContent = button.dataset.originalLabel
+      || (button.id === "psCheckoutCash" ? CHECKOUT_CASH_LABEL : CHECKOUT_ONLINE_LABEL);
+  });
 }
 
 function showCheckInError(message) {
@@ -986,15 +1009,98 @@ function closeCheckoutModal() {
   state.checkoutDraft = null;
 }
 
+function snapshotSessionForCheckout(session) {
+  if (!session) return null;
+  const sessionId = session.sessionId || session.id;
+  return {
+    sessionId,
+    sittingId: session.sittingId,
+    mobile: session.mobile,
+    customers: session.customers ? [...session.customers] : [],
+    customerPhotos: session.customerPhotos ? JSON.parse(JSON.stringify(session.customerPhotos)) : [],
+    photoDriveIds: session.photoDriveIds ? JSON.parse(JSON.stringify(session.photoDriveIds)) : [],
+    displayName: session.displayName,
+    checkInAt: session.checkInAt,
+    checkInLabel: session.checkInLabel,
+    pdfFileId: session.pdfFileId || "",
+    pdfFileName: session.pdfFileName || "",
+    sheetRowNumber: session.sheetRowNumber
+  };
+}
+
+async function runCheckoutBackground(sessionSnapshot, checkoutMeta) {
+  const {
+    sessionId,
+    checkOutLabel,
+    durationMinutes,
+    sheetRowNumber,
+    sessionDateKey
+  } = checkoutMeta;
+
+  showToast("Building session PDF...");
+
+  const { pdfBase64, pdfFileName, photoFileIdsToDelete } = await buildCheckoutPdfForSync(sessionSnapshot, checkOutLabel);
+  const pdfValid = isValidPdfBase64(pdfBase64);
+
+  if (!sheetRowNumber) {
+    showToast(pdfValid
+      ? "Checkout saved. No sheet row — check in again to enable Drive sync."
+      : "Checkout saved. PDF could not be built.");
+    return;
+  }
+
+  const syncPdfBase64 = pdfValid ? pdfBase64 : "";
+  const runCheckoutSync = () => syncSittingCheckout({
+    sessionId,
+    sheetRowNumber,
+    checkOutLabel,
+    durationMinutes,
+    pdfBase64: syncPdfBase64,
+    pdfFileName,
+    pdfFileId: sessionSnapshot.pdfFileId || "",
+    photoFileIdsToDelete: pdfValid ? photoFileIdsToDelete : [],
+    dateKey: sessionDateKey
+  });
+
+  try {
+    let syncResult = await runCheckoutSync();
+    if (!syncResult?.ok) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      syncResult = await runCheckoutSync();
+    }
+
+    if (!syncResult?.ok) {
+      showToast(`Checkout saved. Sheet sync failed: ${syncResult?.error || "unknown error"}`);
+      return;
+    }
+
+    if (syncResult.pdfUploaded && syncResult.pdfFileId && syncResult.pdfDriveUrl) {
+      await updatePrivateSession(sessionId, {
+        pdfDriveUrl: syncResult.pdfDriveUrl,
+        pdfFileId: syncResult.pdfFileId,
+        pdfFileName
+      });
+      showToast("Checkout synced — sheet updated, PDF saved, temp photos removed.");
+    } else if (syncResult.sheetUpdated) {
+      showToast(pdfValid
+        ? `Sheet updated. PDF upload failed: ${syncResult.pdfError || "unknown"}`
+        : "Sheet updated. PDF could not be built.");
+    }
+  } catch (error) {
+    console.warn("Checkout background sync failed:", error);
+    showToast("Checkout saved. Drive sync failed in background.");
+  }
+}
+
 async function confirmCheckout(method) {
+  if (state.checkoutSubmitting) return;
   const draft = state.checkoutDraft;
   if (!draft) return;
 
-  const buttons = [elements.checkoutCashBtn, elements.checkoutOnlineBtn];
-  buttons.forEach((button) => { if (button) button.disabled = true; });
+  state.checkoutSubmitting = true;
+  setCheckoutBusy(true);
 
   const discountInfo = computeDiscount(draft.grandTotal, readCheckoutDiscount());
-  // Apply the discount to the sitting charge first, then spill over onto food orders.
   let remainingDiscount = discountInfo.discountAmount;
   const sittingDiscount = Math.min(remainingDiscount, draft.sittingAmount);
   remainingDiscount -= sittingDiscount;
@@ -1007,13 +1113,10 @@ async function confirmCheckout(method) {
 
   try {
     const liveSession = getLiveSession(draft.sessionId) || draft.session;
+    const sessionSnapshot = snapshotSessionForCheckout(liveSession);
     const checkOutLabel = new Date().toLocaleString();
     const sheetRowNumber = resolveSheetRowNumber(liveSession) || resolveSheetRowNumber(draft.session);
     const sessionDateKey = getSessionDateKey(liveSession);
-
-    showToast("Generating session PDF...");
-    const { pdfBase64, pdfFileName, photoFileIdsToDelete } = await buildCheckoutPdfForSync(liveSession, checkOutLabel);
-    const pdfValid = isValidPdfBase64(pdfBase64);
 
     await recordSittingPayment(draft.sessionId, draft.sittingAmount, method, {
       type: "amount",
@@ -1047,57 +1150,20 @@ async function confirmCheckout(method) {
     closeSessionModal();
     showToast(`${draft.session.sittingId} checked out — ${formatCurrency(discountInfo.finalTotal)}`);
 
-    if (sheetRowNumber) {
-      const syncPdfBase64 = pdfValid ? pdfBase64 : "";
-      const runCheckoutSync = async () => syncSittingCheckout({
+    if (sessionSnapshot) {
+      runCheckoutBackground(sessionSnapshot, {
         sessionId: draft.sessionId,
-        sheetRowNumber,
         checkOutLabel,
         durationMinutes: draft.sitting.durationMinutes,
-        pdfBase64: syncPdfBase64,
-        pdfFileName,
-        pdfFileId: liveSession.pdfFileId || draft.session?.pdfFileId || "",
-        photoFileIdsToDelete: pdfValid ? photoFileIdsToDelete : [],
-        dateKey: sessionDateKey
+        sheetRowNumber,
+        sessionDateKey
       });
-
-      try {
-        let syncResult = await runCheckoutSync();
-        if (!syncResult?.ok) {
-          await new Promise((resolve) => setTimeout(resolve, 3000));
-          syncResult = await runCheckoutSync();
-        }
-
-        if (!syncResult?.ok) {
-          showToast(`Checkout saved. Sheet sync failed: ${syncResult?.error || "unknown error"}`);
-          return;
-        }
-
-        if (syncResult.pdfUploaded && syncResult.pdfFileId && syncResult.pdfDriveUrl) {
-          await updatePrivateSession(draft.sessionId, {
-            pdfDriveUrl: syncResult.pdfDriveUrl,
-            pdfFileId: syncResult.pdfFileId,
-            pdfFileName
-          });
-          showToast("Checkout synced — sheet updated and PDF saved to Drive.");
-        } else if (syncResult.sheetUpdated) {
-          showToast(pdfValid
-            ? `Checkout synced to sheet. PDF upload failed: ${syncResult.pdfError || "unknown"}`
-            : "Checkout synced to sheet. PDF could not be built.");
-        }
-      } catch (error) {
-        console.warn("Checkout sync failed:", error);
-        showToast("Checkout saved. Sheet/Drive update failed.");
-      }
-    } else {
-      showToast(pdfValid
-        ? "Checkout saved. No sheet row — redeploy Apps Script and check in again to sync."
-        : "Checkout saved. PDF and sheet sync skipped (no sheet row).");
     }
   } catch {
     showToast("Checkout failed. Please try again.");
   } finally {
-    buttons.forEach((button) => { if (button) button.disabled = false; });
+    state.checkoutSubmitting = false;
+    setCheckoutBusy(false);
   }
 }
 

@@ -150,6 +150,20 @@ function trashDriveFiles_(fileIds) {
   });
 }
 
+function trashSessionPhotoFolder_(dateKey, sessionId) {
+  const folderName = String(sessionId || "");
+  if (!folderName) return;
+  try {
+    const dayFolder = ensureDayFolder_(dateKey);
+    const folders = dayFolder.getFoldersByName(folderName);
+    while (folders.hasNext()) {
+      folders.next().setTrashed(true);
+    }
+  } catch (folderError) {
+    // Folder may already be removed.
+  }
+}
+
 function handleCheckIn(payload) {
   const sheet = ensureSheet_();
   const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
@@ -231,8 +245,12 @@ function handleCheckout(payload) {
   sheet.getRange(rowNumber, 9).setValue(payload.checkOutLabel || "");
   sheet.getRange(rowNumber, 10).setValue(payload.durationMinutes || "");
 
+  const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const sessionId = String(payload.sessionId || "");
+
   const pdfBase64 = String(payload.pdfBase64 || "");
   if (!pdfBase64 || pdfBase64.length <= 500) {
+    trashSessionPhotoFolder_(dateKey, sessionId);
     return {
       ok: true,
       sheetUpdated: true,
@@ -243,6 +261,7 @@ function handleCheckout(payload) {
 
   const bytes = Utilities.base64Decode(pdfBase64);
   if (!isValidPdfBytes_(bytes)) {
+    trashSessionPhotoFolder_(dateKey, sessionId);
     return {
       ok: true,
       sheetUpdated: true,
@@ -251,7 +270,6 @@ function handleCheckout(payload) {
     };
   }
 
-  const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
   const dayFolder = ensureDayFolder_(dateKey);
   const fileName = payload.pdfFileName || "session_checkout.pdf";
   const saved = writePdfToDrive_(bytes, {
@@ -263,6 +281,7 @@ function handleCheckout(payload) {
   });
 
   if (!saved.pdfFileId) {
+    trashSessionPhotoFolder_(dateKey, sessionId);
     return {
       ok: true,
       sheetUpdated: true,
@@ -272,6 +291,7 @@ function handleCheckout(payload) {
   }
 
   trashDriveFiles_(payload.photoFileIdsToDelete || []);
+  trashSessionPhotoFolder_(dateKey, sessionId);
 
   return {
     ok: true,

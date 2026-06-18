@@ -5,19 +5,27 @@ function isAppsScriptConfigured() {
   return url && !url.includes("PASTE_DEPLOYED_WEB_APP_URL");
 }
 
-async function postAppsScript(payload) {
-  const response = await fetch(CONFIG.APPS_SCRIPT_URL, {
-    method: "POST",
-    mode: "cors",
-    headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(payload)
-  });
+async function postAppsScript(payload, timeoutMs = 90000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!response.ok) {
-    throw new Error(`Apps Script failed (${response.status})`);
+  try {
+    const response = await fetch(CONFIG.APPS_SCRIPT_URL, {
+      method: "POST",
+      mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error(`Apps Script failed (${response.status})`);
+    }
+
+    return response.json();
+  } finally {
+    clearTimeout(timer);
   }
-
-  return response.json();
 }
 
 export async function syncSittingCheckIn(payload) {
