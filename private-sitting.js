@@ -22,8 +22,8 @@ import {
   verifyOrderPayment
 } from "./firebase.js";
 import { openAdminOrderModal } from "./admin-orders.js";
-import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, formatCheckInLabel, mergeCustomersWithPhotos, MIN_PDF_BASE64_LEN, preloadJsPdf, stampCheckoutTimeOnPdf, base64ToUint8Array, uint8ArrayToBase64, withTimeout } from "./private-sitting-pdf.js";
-import { fetchSessionPdf, fetchSessionPhotos, isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout, uploadSittingPhotos } from "./sitting-sync.js";
+import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, formatCheckInLabel, isValidPdfBase64, mergeCustomersWithPhotos, preloadJsPdf, withTimeout } from "./private-sitting-pdf.js";
+import { fetchSessionPhotos, isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout, uploadSittingPhotos } from "./sitting-sync.js";
 import {
   connectPrinter,
   disconnectPrinter,
@@ -200,11 +200,14 @@ async function runCheckInBackground(sessionId, draft, customers, checkInLabel, c
 
   try {
     let syncResult = await syncSittingCheckIn(syncPayload);
-    if (!syncResult?.ok || !pdfBase64) {
+    if (!syncResult?.ok || (!pdfBase64 && !syncResult.pdfFileId)) {
       await sleep(3000);
       if (!pdfBase64) {
         pdfBase64 = await buildPdfBase64();
         syncPayload.pdfBase64 = pdfBase64;
+      }
+      if (syncResult?.ok && syncResult.rowNumber) {
+        syncPayload.sheetRowNumber = syncResult.rowNumber;
       }
       syncResult = await syncSittingCheckIn(syncPayload);
     }
@@ -300,9 +303,8 @@ async function buildCheckoutPdfForSync(liveSession, checkOutLabel) {
   }
 
   const customersForPdf = mergeCustomersWithPhotos(customers, customerPhotos);
-  const hasPhotoData = customerPhotos.some((photo) => photo.photoFrontDataUrl || photo.photoBackDataUrl);
 
-  const buildFullPdf = async () => {
+  try {
     const pdfDataUrl = await withTimeout(
       buildSittingSessionPdf({
         sittingId: liveSession.sittingId,
@@ -318,40 +320,7 @@ async function buildCheckoutPdfForSync(liveSession, checkOutLabel) {
       null
     );
     const pdfBase64 = pdfDataUrl ? (pdfDataUrl.split(",")[1] || "") : "";
-    if (pdfBase64.length > MIN_PDF_BASE64_LEN) {
-      return pdfBase64;
-    }
-    return "";
-  };
-
-  try {
-    if (hasPhotoData) {
-      const pdfBase64 = await buildFullPdf();
-      if (pdfBase64) {
-        return { pdfBase64, pdfFileName, photoFileIdsToDelete };
-      }
-    }
-
-    if (liveSession.pdfFileId) {
-      const fetchResult = await fetchSessionPdf(liveSession.pdfFileId);
-      if (fetchResult?.ok && fetchResult.pdfBase64?.length > MIN_PDF_BASE64_LEN) {
-        const existingBytes = base64ToUint8Array(fetchResult.pdfBase64);
-        const stamped = await withTimeout(
-          stampCheckoutTimeOnPdf(existingBytes, checkOutLabel),
-          20000,
-          null
-        );
-        if (stamped) {
-          const pdfBase64 = uint8ArrayToBase64(stamped);
-          if (pdfBase64.length > MIN_PDF_BASE64_LEN) {
-            return { pdfBase64, pdfFileName, photoFileIdsToDelete };
-          }
-        }
-      }
-    }
-
-    const pdfBase64 = await buildFullPdf();
-    if (pdfBase64) {
+    if (isValidPdfBase64(pdfBase64)) {
       return { pdfBase64, pdfFileName, photoFileIdsToDelete };
     }
   } catch (error) {
@@ -603,7 +572,7 @@ function renderSettings() {
     </section>
     <section class="ps-settings-card">
       <h3>Google Sync</h3>
-      <p>${syncReady ? "Check-in PDF + ID photos go to Google Drive. Checkout updates the PDF with check-out time and removes temporary photo files." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
+      <p>${syncReady ? "Check-in PDF + ID photos go to Google Drive. Checkout rebuilds the full PDF with check-out time. Redeploy Apps Script after updating private-sitting-sync.gs." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
     </section>
     <section class="ps-settings-card">
       <h3>Sitting Rates</h3>
@@ -1063,7 +1032,12 @@ async function confirmCheckout(method) {
     showToast(`${draft.session.sittingId} checked out — ${formatCurrency(discountInfo.finalTotal)}`);
 
     if (liveSession?.sheetRowNumber) {
-      const syncPdfBase64 = pdfBase64.length > MIN_PDF_BASE64_LEN ? pdfBase64 : "";
+      const pdfValid = isValidPdfBase64(pdfBase64);
+      if (!pdfValid) {
+        showToast("Checkout saved. PDF could not be built for Drive.");
+      }
+
+      const syncPdfBase64 = pdfValid ? pdfBase64 : "";
       const runCheckoutSync = async () => syncSittingCheckout({
         sessionId: draft.sessionId,
         sheetRowNumber: liveSession.sheetRowNumber,
@@ -1077,20 +1051,20 @@ async function confirmCheckout(method) {
       });
 
       try {
+        if (!pdfValid) {
+          return;
+        }
+
         let syncResult = await runCheckoutSync();
-        if (!syncResult?.ok && syncPdfBase64) {
+        if (!syncResult?.ok) {
           await new Promise((resolve) => setTimeout(resolve, 3000));
           syncResult = await runCheckoutSync();
         }
 
-        if (!syncPdfBase64) {
-          showToast("Checkout saved. Session PDF was not created.");
-          return;
-        }
-        if (syncResult?.pdfDriveUrl || syncResult?.pdfFileId) {
+        if (syncResult?.ok && syncResult.pdfFileId && syncResult.pdfDriveUrl) {
           await updatePrivateSession(draft.sessionId, {
-            pdfDriveUrl: syncResult.pdfDriveUrl || "",
-            pdfFileId: syncResult.pdfFileId || liveSession.pdfFileId || "",
+            pdfDriveUrl: syncResult.pdfDriveUrl,
+            pdfFileId: syncResult.pdfFileId,
             pdfFileName
           });
           showToast("Session PDF saved to Google Drive.");
@@ -1100,7 +1074,7 @@ async function confirmCheckout(method) {
       } catch {
         showToast("Checkout saved. Sheet/Drive update failed.");
       }
-    } else if (pdfBase64.length > MIN_PDF_BASE64_LEN) {
+    } else if (isValidPdfBase64(pdfBase64)) {
       showToast("Checkout saved. Sheet row missing — PDF could not sync to Drive.");
     }
   } catch {

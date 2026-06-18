@@ -7,6 +7,16 @@ let logoLoadPromise = null;
 
 export const MIN_PDF_BASE64_LEN = 500;
 
+export function isValidPdfBase64(base64 = "") {
+  if (!base64 || base64.length < MIN_PDF_BASE64_LEN) return false;
+  try {
+    const head = atob(base64.slice(0, 8));
+    return head.startsWith("%PDF");
+  } catch {
+    return false;
+  }
+}
+
 const MM_TO_PT = 2.834645669;
 
 /** Check-out value position (mm from top-left) — matches drawSessionRecordPage card layout */

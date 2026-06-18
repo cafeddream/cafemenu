@@ -50,6 +50,63 @@ function doPost(e) {
   }
 }
 
+function isValidPdfBytes_(bytes) {
+  return bytes
+    && bytes.length > 500
+    && bytes[0] === 0x25
+    && bytes[1] === 0x50
+    && bytes[2] === 0x44
+    && bytes[3] === 0x46;
+}
+
+function buildPdfBlob_(bytes, fileName) {
+  const name = String(fileName || "session.pdf");
+  const safeName = name.toLowerCase().endsWith(".pdf") ? name : name + ".pdf";
+  return Utilities.newBlob(bytes, "application/pdf", safeName);
+}
+
+function writePdfToDrive_(bytes, options) {
+  const fileName = options.fileName || "session.pdf";
+  const pdfBlob = buildPdfBlob_(bytes, fileName);
+  const dayFolder = options.dayFolder;
+  const existingFileId = String(options.existingFileId || "");
+  const sheet = options.sheet;
+  const rowNumber = Number(options.rowNumber || 0);
+
+  let pdfUrl = "";
+  let pdfFileId = "";
+
+  if (existingFileId) {
+    try {
+      const existing = DriveApp.getFileById(existingFileId);
+      existing.setBlob(pdfBlob);
+      if (!String(existing.getName() || "").toLowerCase().endsWith(".pdf")) {
+        existing.setName(fileName);
+      }
+      pdfUrl = existing.getUrl();
+      pdfFileId = existing.getId();
+    } catch (replaceError) {
+      const pdfFile = dayFolder.createFile(pdfBlob);
+      pdfUrl = pdfFile.getUrl();
+      pdfFileId = pdfFile.getId();
+    }
+  } else {
+    const pdfFile = dayFolder.createFile(pdfBlob);
+    pdfUrl = pdfFile.getUrl();
+    pdfFileId = pdfFile.getId();
+  }
+
+  if (sheet && rowNumber >= 2 && pdfUrl) {
+    sheet.getRange(rowNumber, 11).setValue(pdfUrl);
+  }
+
+  return {
+    pdfUrl: pdfUrl,
+    pdfFileId: pdfFileId,
+    pdfBytes: bytes.length
+  };
+}
+
 function uploadSessionPhotos_(sessionFolder, sessionId, photos) {
   const photoFileIds = [];
   const items = photos || [];
@@ -108,42 +165,59 @@ function handleCheckIn(payload) {
 
   let pdfUrl = "";
   let pdfFileId = "";
-  if (payload.pdfBase64) {
-    const fileName = payload.pdfFileName || "session_" + sessionId + ".pdf";
-    const pdfBlob = Utilities.newBlob(
-      Utilities.base64Decode(payload.pdfBase64),
-      "application/pdf",
-      fileName
-    );
-    const pdfFile = dayFolder.createFile(pdfBlob);
-    pdfUrl = pdfFile.getUrl();
-    pdfFileId = pdfFile.getId();
+  let pdfError = "";
+  const pdfBase64 = String(payload.pdfBase64 || "");
+  if (pdfBase64.length > 500) {
+    const bytes = Utilities.base64Decode(pdfBase64);
+    if (isValidPdfBytes_(bytes)) {
+      const fileName = payload.pdfFileName || "session_" + sessionId + ".pdf";
+      const saved = writePdfToDrive_(bytes, {
+        dayFolder: dayFolder,
+        fileName: fileName,
+        existingFileId: "",
+        sheet: null,
+        rowNumber: 0
+      });
+      pdfUrl = saved.pdfUrl;
+      pdfFileId = saved.pdfFileId;
+    } else {
+      pdfError = "Invalid PDF";
+    }
   }
 
   const customers = payload.customers || [];
-  const row = [
-    dateKey,
-    payload.sittingId || "",
-    payload.mobile || "",
-    customers[0]?.name || "",
-    customers[0]?.dob || "",
-    customers[1]?.name || "",
-    customers[1]?.dob || "",
-    payload.checkInLabel || "",
-    "",
-    "",
-    pdfUrl
-  ];
+  const existingRow = Number(payload.sheetRowNumber || 0);
+  let rowNumber = existingRow;
 
-  sheet.appendRow(row);
-  const rowNumber = sheet.getLastRow();
+  if (existingRow >= 2) {
+    if (pdfUrl) {
+      sheet.getRange(existingRow, 11).setValue(pdfUrl);
+    }
+  } else {
+    const row = [
+      dateKey,
+      payload.sittingId || "",
+      payload.mobile || "",
+      customers[0]?.name || "",
+      customers[0]?.dob || "",
+      customers[1]?.name || "",
+      customers[1]?.dob || "",
+      payload.checkInLabel || "",
+      "",
+      "",
+      pdfUrl
+    ];
+    sheet.appendRow(row);
+    rowNumber = sheet.getLastRow();
+  }
 
   return {
     ok: true,
     rowNumber: rowNumber,
     photoFileIds: photoFileIds,
     pdfDriveUrl: pdfUrl,
-    pdfFileId: pdfFileId
+    pdfFileId: pdfFileId,
+    pdfError: pdfError
   };
 }
 
@@ -157,46 +231,38 @@ function handleCheckout(payload) {
   sheet.getRange(rowNumber, 9).setValue(payload.checkOutLabel || "");
   sheet.getRange(rowNumber, 10).setValue(payload.durationMinutes || "");
 
-  let pdfUrl = "";
-  let pdfFileId = "";
   const pdfBase64 = String(payload.pdfBase64 || "");
-  if (pdfBase64.length > 500) {
-    const bytes = Utilities.base64Decode(pdfBase64);
-    if (bytes && bytes.length > 500) {
-      const fileName = payload.pdfFileName || "session_checkout.pdf";
-      const pdfBlob = Utilities.newBlob(bytes, "application/pdf", fileName);
+  if (!pdfBase64 || pdfBase64.length <= 500) {
+    return { ok: false, error: "Missing checkout PDF" };
+  }
 
-      if (payload.pdfFileId) {
-        try {
-          const existing = DriveApp.getFileById(payload.pdfFileId);
-          existing.setContent(pdfBlob);
-          pdfUrl = existing.getUrl();
-          pdfFileId = existing.getId();
-        } catch (replaceError) {
-          const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
-          const dayFolder = ensureDayFolder_(dateKey);
-          const pdfFile = dayFolder.createFile(pdfBlob);
-          pdfUrl = pdfFile.getUrl();
-          pdfFileId = pdfFile.getId();
-          sheet.getRange(rowNumber, 11).setValue(pdfUrl);
-        }
-      } else {
-        const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
-        const dayFolder = ensureDayFolder_(dateKey);
-        const pdfFile = dayFolder.createFile(pdfBlob);
-        pdfUrl = pdfFile.getUrl();
-        pdfFileId = pdfFile.getId();
-        sheet.getRange(rowNumber, 11).setValue(pdfUrl);
-      }
-    }
+  const bytes = Utilities.base64Decode(pdfBase64);
+  if (!isValidPdfBytes_(bytes)) {
+    return { ok: false, error: "Invalid PDF" };
+  }
+
+  const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const dayFolder = ensureDayFolder_(dateKey);
+  const fileName = payload.pdfFileName || "session_checkout.pdf";
+  const saved = writePdfToDrive_(bytes, {
+    dayFolder: dayFolder,
+    fileName: fileName,
+    existingFileId: payload.pdfFileId || "",
+    sheet: sheet,
+    rowNumber: rowNumber
+  });
+
+  if (!saved.pdfFileId) {
+    return { ok: false, error: "PDF upload failed" };
   }
 
   trashDriveFiles_(payload.photoFileIdsToDelete || []);
 
   return {
     ok: true,
-    pdfDriveUrl: pdfUrl,
-    pdfFileId: pdfFileId
+    pdfDriveUrl: saved.pdfUrl,
+    pdfFileId: saved.pdfFileId,
+    pdfBytes: saved.pdfBytes
   };
 }
 
@@ -208,8 +274,8 @@ function handleFetchPdf(payload) {
 
   const file = DriveApp.getFileById(fileId);
   const bytes = file.getBlob().getBytes();
-  if (!bytes || bytes.length < 500) {
-    return { ok: false, error: "PDF file too small or empty" };
+  if (!isValidPdfBytes_(bytes)) {
+    return { ok: false, error: "PDF file too small or invalid" };
   }
 
   return {
