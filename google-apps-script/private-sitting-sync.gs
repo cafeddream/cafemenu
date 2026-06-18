@@ -37,6 +37,9 @@ function doPost(e) {
     if (action === "fetchPdf") {
       return jsonResponse(handleFetchPdf(payload));
     }
+    if (action === "fetchPhotos") {
+      return jsonResponse(handleFetchPhotos(payload));
+    }
 
     return jsonResponse({ ok: false, error: "Unknown action" });
   } catch (error) {
@@ -44,15 +47,66 @@ function doPost(e) {
   }
 }
 
+function uploadSessionPhotos_(sessionFolder, sessionId, photos) {
+  const photoFileIds = [];
+  const items = photos || [];
+  items.forEach(function(photo, index) {
+    const prefix = String(photo.prefix || "C" + (index + 1));
+    let frontId = "";
+    let backId = "";
+    const frontBase64 = String(photo.frontBase64 || "");
+    if (frontBase64.length > 100) {
+      const frontBlob = Utilities.newBlob(
+        Utilities.base64Decode(frontBase64),
+        "image/jpeg",
+        sessionId + "_" + prefix + "_front.jpg"
+      );
+      frontId = sessionFolder.createFile(frontBlob).getId();
+    }
+    const backBase64 = String(photo.backBase64 || "");
+    if (backBase64.length > 100) {
+      const backBlob = Utilities.newBlob(
+        Utilities.base64Decode(backBase64),
+        "image/jpeg",
+        sessionId + "_" + prefix + "_back.jpg"
+      );
+      backId = sessionFolder.createFile(backBlob).getId();
+    }
+    photoFileIds.push({ frontId: frontId, backId: backId });
+  });
+  return photoFileIds;
+}
+
+function trashDriveFiles_(fileIds) {
+  const ids = fileIds || [];
+  ids.forEach(function(id) {
+    const fileId = String(id || "");
+    if (!fileId) return;
+    try {
+      DriveApp.getFileById(fileId).setTrashed(true);
+    } catch (trashError) {
+      // File may already be removed.
+    }
+  });
+}
+
 function handleCheckIn(payload) {
   const sheet = ensureSheet_();
   const dateKey = payload.dateKey || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
   const dayFolder = ensureDayFolder_(dateKey);
+  const sessionId = String(payload.sessionId || Utilities.getUuid());
+  const photos = payload.photos || [];
+
+  let photoFileIds = [];
+  if (photos.length) {
+    const sessionFolder = getOrCreateFolder_(dayFolder, sessionId);
+    photoFileIds = uploadSessionPhotos_(sessionFolder, sessionId, photos);
+  }
 
   let pdfUrl = "";
   let pdfFileId = "";
-  if (payload.pdfBase64) {
-    const fileName = payload.pdfFileName || `session_${payload.sessionId || Utilities.getUuid()}.pdf`;
+  if (payload.pdfBase64 && !photos.length) {
+    const fileName = payload.pdfFileName || "session_" + sessionId + ".pdf";
     const pdfBlob = Utilities.newBlob(
       Utilities.base64Decode(payload.pdfBase64),
       "application/pdf",
@@ -84,6 +138,7 @@ function handleCheckIn(payload) {
   return {
     ok: true,
     rowNumber: rowNumber,
+    photoFileIds: photoFileIds,
     pdfDriveUrl: pdfUrl,
     pdfFileId: pdfFileId
   };
@@ -133,6 +188,8 @@ function handleCheckout(payload) {
     }
   }
 
+  trashDriveFiles_(payload.photoFileIdsToDelete || []);
+
   return {
     ok: true,
     pdfDriveUrl: pdfUrl,
@@ -155,6 +212,29 @@ function handleFetchPdf(payload) {
   return {
     ok: true,
     pdfBase64: Utilities.base64Encode(bytes)
+  };
+}
+
+function handleFetchPhotos(payload) {
+  const ids = payload.fileIds || [];
+  const photos = {};
+  ids.forEach(function(id) {
+    const fileId = String(id || "");
+    if (!fileId) return;
+    try {
+      const file = DriveApp.getFileById(fileId);
+      const bytes = file.getBlob().getBytes();
+      if (bytes && bytes.length > 100) {
+        photos[fileId] = Utilities.base64Encode(bytes);
+      }
+    } catch (fetchError) {
+      // Skip missing or inaccessible files.
+    }
+  });
+
+  return {
+    ok: true,
+    photos: photos
   };
 }
 

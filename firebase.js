@@ -302,6 +302,7 @@ export async function completePrivateSession(sessionId, checkoutData) {
   await updateDoc(privateSessionRef(sessionId), {
     ...checkoutData,
     customerPhotos: deleteField(),
+    photoDriveIds: deleteField(),
     status: "completed",
     checkOutAt: serverTimestamp(),
     updatedAt: serverTimestamp()

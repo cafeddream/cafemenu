@@ -37,6 +37,17 @@ export async function fetchSessionPdf(pdfFileId) {
   return postAppsScript({ action: "fetchPdf", pdfFileId });
 }
 
+export async function fetchSessionPhotos(fileIds = []) {
+  if (!isAppsScriptConfigured()) {
+    return { skipped: true, reason: "Apps Script URL not configured" };
+  }
+  const ids = (fileIds || []).filter(Boolean);
+  if (!ids.length) {
+    return { ok: false, error: "No photo file ids" };
+  }
+  return postAppsScript({ action: "fetchPhotos", fileIds: ids });
+}
+
 export async function syncSittingCheckout(payload) {
   if (!isAppsScriptConfigured()) {
     return { skipped: true, reason: "Apps Script URL not configured" };
