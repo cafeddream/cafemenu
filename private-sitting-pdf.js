@@ -1,10 +1,74 @@
 import { CONFIG, buildCustomerDisplayName, escapeHtml, formatTableDisplayName, toDate } from "./firebase.js";
 
 let jsPdfModule = null;
+let pdfLibModule = null;
 let logoDataUrl = null;
 let logoLoadPromise = null;
 
 export const MIN_PDF_BASE64_LEN = 500;
+
+const MM_TO_PT = 2.834645669;
+
+/** Check-out value position (mm from top-left) — matches drawSessionRecordPage card layout */
+const CHECKOUT_STAMP = { xMm: 132, yMm: 61, widthMm: 54, heightMm: 6 };
+
+export function base64ToUint8Array(base64 = "") {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+export function uint8ArrayToBase64(bytes) {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+export async function getPdfLib() {
+  if (!pdfLibModule) {
+    pdfLibModule = await withTimeout(
+      import("https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm"),
+      15000
+    );
+  }
+  return pdfLibModule;
+}
+
+export async function stampCheckoutTimeOnPdf(existingPdfBytes, checkOutLabel) {
+  const { PDFDocument, rgb } = await getPdfLib();
+  const pdfDoc = await PDFDocument.load(existingPdfBytes);
+  const page = pdfDoc.getPages()[0];
+  const pageH = page.getHeight();
+  const x = CHECKOUT_STAMP.xMm * MM_TO_PT;
+  const boxH = CHECKOUT_STAMP.heightMm * MM_TO_PT;
+  const yTop = CHECKOUT_STAMP.yMm * MM_TO_PT;
+  const w = CHECKOUT_STAMP.widthMm * MM_TO_PT;
+  const boxY = pageH - yTop - boxH;
+
+  page.drawRectangle({
+    x,
+    y: boxY,
+    width: w,
+    height: boxH,
+    color: rgb(1, 1, 1),
+    borderWidth: 0
+  });
+  page.drawText(String(checkOutLabel || ""), {
+    x,
+    y: boxY + boxH * 0.28,
+    size: 8,
+    color: rgb(0.11, 0.11, 0.11),
+    maxWidth: w
+  });
+
+  return pdfDoc.save();
+}
 
 const PAGE = { left: 14, right: 196, width: 182, bottom: 272, top: 18 };
 

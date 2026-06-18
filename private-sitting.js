@@ -21,8 +21,8 @@ import {
   verifyOrderPayment
 } from "./firebase.js";
 import { openAdminOrderModal } from "./admin-orders.js";
-import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, formatCheckInLabel, mergeCustomersWithPhotos, MIN_PDF_BASE64_LEN, preloadJsPdf, withTimeout } from "./private-sitting-pdf.js";
-import { isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout } from "./sitting-sync.js";
+import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, mergeCustomersWithPhotos, MIN_PDF_BASE64_LEN, preloadJsPdf, stampCheckoutTimeOnPdf, base64ToUint8Array, uint8ArrayToBase64, withTimeout } from "./private-sitting-pdf.js";
+import { fetchSessionPdf, isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout } from "./sitting-sync.js";
 import {
   connectPrinter,
   disconnectPrinter,
@@ -134,14 +134,37 @@ function formatCheckInError(error) {
   return message || "Check-in failed. Please try again.";
 }
 
-async function runCheckInBackground(sessionId, draft, customers, checkInLabel) {
+async function runCheckInBackground(sessionId, draft, customers, checkInLabel, customerPhotos) {
+  const pdfFileName = buildSittingPdfFileName(draft.sittingId, sessionId);
+  const customersForPdf = mergeCustomersWithPhotos(customers, customerPhotos);
+  let pdfBase64 = "";
+
+  try {
+    const pdfDataUrl = await withTimeout(
+      buildSittingSessionPdf({
+        sittingId: draft.sittingId,
+        mobile: draft.mobile,
+        sessionId,
+        displayName: buildCustomerDisplayName(customers),
+        customers: customersForPdf,
+        checkInLabel,
+        checkOutLabel: "—"
+      }),
+      30000,
+      null
+    );
+    pdfBase64 = pdfDataUrl ? (pdfDataUrl.split(",")[1] || "") : "";
+  } catch (error) {
+    console.warn("Check-in PDF skipped:", error);
+  }
+
   const syncPayload = {
     sessionId,
     sittingId: draft.sittingId,
     mobile: draft.mobile,
     customers: customers.map(({ name, dob }) => ({ name, dob })),
-    pdfBase64: "",
-    pdfFileName: "",
+    pdfBase64,
+    pdfFileName,
     checkInLabel,
     dateKey: getTodayKey()
   };
@@ -151,7 +174,10 @@ async function runCheckInBackground(sessionId, draft, customers, checkInLabel) {
     if (syncResult?.ok) {
       await updatePrivateSession(sessionId, {
         sheetSynced: true,
-        sheetRowNumber: syncResult.rowNumber
+        sheetRowNumber: syncResult.rowNumber,
+        pdfDriveUrl: syncResult.pdfDriveUrl || "",
+        pdfFileId: syncResult.pdfFileId || "",
+        pdfFileName
       });
       return;
     }
@@ -171,38 +197,34 @@ function getLiveSession(sessionId) {
   }) || null;
 }
 
-async function buildCheckoutPdfForSync(liveSession, draft, checkInLabel, checkOutLabel) {
-  const session = draft.session;
-  const pdfFileName = liveSession.pdfFileName || buildSittingPdfFileName(session.sittingId, draft.sessionId);
-  const storedPhotos = loadSessionPhotosLocal(draft.sessionId);
-  const customersWithPhotos = mergeCustomersWithPhotos(
-    session.customers || [],
-    session.customerPhotos?.length ? session.customerPhotos : storedPhotos
-  );
+async function buildCheckoutPdfForSync(liveSession, checkOutLabel) {
+  const pdfFileName = liveSession.pdfFileName
+    || buildSittingPdfFileName(liveSession.sittingId, liveSession.sessionId || liveSession.id);
+
+  if (!liveSession.pdfFileId) {
+    return { pdfBase64: "", pdfFileName };
+  }
 
   try {
-    const pdfDataUrl = await withTimeout(
-      buildSittingSessionPdf({
-        sittingId: session.sittingId,
-        mobile: session.mobile,
-        sessionId: draft.sessionId,
-        displayName: session.displayName || buildCustomerDisplayName(session.customers || []),
-        customers: customersWithPhotos,
-        checkInAt: session.checkInAt,
-        checkInLabel,
-        checkOutLabel
-      }),
-      30000,
+    const fetchResult = await fetchSessionPdf(liveSession.pdfFileId);
+    if (!fetchResult?.ok || fetchResult.pdfBase64?.length <= MIN_PDF_BASE64_LEN) {
+      return { pdfBase64: "", pdfFileName };
+    }
+
+    const existingBytes = base64ToUint8Array(fetchResult.pdfBase64);
+    const stamped = await withTimeout(
+      stampCheckoutTimeOnPdf(existingBytes, checkOutLabel),
+      20000,
       null
     );
-    if (pdfDataUrl) {
-      const pdfBase64 = pdfDataUrl.split(",")[1] || "";
+    if (stamped) {
+      const pdfBase64 = uint8ArrayToBase64(stamped);
       if (pdfBase64.length > MIN_PDF_BASE64_LEN) {
         return { pdfBase64, pdfFileName };
       }
     }
   } catch (error) {
-    console.warn("Session PDF failed:", error);
+    console.warn("Checkout PDF stamp failed:", error);
   }
 
   return { pdfBase64: "", pdfFileName };
@@ -450,7 +472,7 @@ function renderSettings() {
     </section>
     <section class="ps-settings-card">
       <h3>Google Sync</h3>
-      <p>${syncReady ? "One-page session PDF on checkout (photos + check-in/out). Sheet: 11 columns. Redeploy Apps Script after update." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
+      <p>${syncReady ? "PDF with photos at check-in; checkout time stamped on same file. Redeploy Apps Script after update." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
     </section>
     <section class="ps-settings-card">
       <h3>Sitting Rates</h3>
@@ -638,33 +660,6 @@ function validateCheckInDraft(draft) {
   return true;
 }
 
-const PS_PHOTOS_STORAGE_PREFIX = "cafe_ps_photos_";
-
-function saveSessionPhotosLocal(sessionId, photos) {
-  try {
-    sessionStorage.setItem(`${PS_PHOTOS_STORAGE_PREFIX}${sessionId}`, JSON.stringify(photos));
-  } catch (error) {
-    console.warn("Could not cache session photos locally:", error);
-  }
-}
-
-function loadSessionPhotosLocal(sessionId) {
-  try {
-    const raw = sessionStorage.getItem(`${PS_PHOTOS_STORAGE_PREFIX}${sessionId}`);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function clearSessionPhotosLocal(sessionId) {
-  try {
-    sessionStorage.removeItem(`${PS_PHOTOS_STORAGE_PREFIX}${sessionId}`);
-  } catch {
-    // Ignore storage cleanup errors.
-  }
-}
-
 async function submitCheckIn() {
   if (state.checkInSubmitting) return;
   syncDraftFromForm();
@@ -701,11 +696,11 @@ async function submitCheckIn() {
       "Could not save session. Check internet and try again."
     );
 
-    saveSessionPhotosLocal(sessionId, buildRawCustomerPhotos(draft.customers));
+    const customerPhotos = buildRawCustomerPhotos(draft.customers);
 
     closeCheckInModal();
     showToast(`${draft.sittingId} checked in`);
-    runCheckInBackground(sessionId, backgroundDraft, customers, checkInLabel);
+    runCheckInBackground(sessionId, backgroundDraft, customers, checkInLabel, customerPhotos);
   } catch (error) {
     console.error("Check-in failed:", error);
     const message = formatCheckInError(error);
@@ -928,15 +923,8 @@ async function confirmCheckout(method) {
     });
 
     const liveSession = getLiveSession(draft.sessionId) || draft.session;
-    const session = draft.session;
     const checkOutLabel = new Date().toLocaleString();
-    const checkInLabel = formatCheckInLabel(session.checkInAt);
-    const { pdfBase64, pdfFileName } = await buildCheckoutPdfForSync(
-      liveSession,
-      draft,
-      checkInLabel,
-      checkOutLabel
-    );
+    const { pdfBase64, pdfFileName } = await buildCheckoutPdfForSync(liveSession, checkOutLabel);
 
     closeCheckoutModal();
     closeSessionModal();
@@ -954,7 +942,6 @@ async function confirmCheckout(method) {
         pdfFileId: liveSession.pdfFileId || "",
         dateKey: getTodayKey()
       }).then((syncResult) => {
-        clearSessionPhotosLocal(draft.sessionId);
         if (!syncPdfBase64) {
           showToast("Checkout saved. Drive PDF was not updated.");
           return;
