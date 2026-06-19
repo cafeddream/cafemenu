@@ -694,6 +694,9 @@ async function captureIdPhotoForCustomer(side, index) {
     `[data-photo-side="${side}"][data-photo-index="${index}"]`
   );
   const originalText = photoButton?.textContent || "";
+  // #region agent log
+  fetch('http://127.0.0.1:7354/ingest/595e4a5f-c7de-4f63-b7f6-dfbd5f6735ce',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5de831'},body:JSON.stringify({sessionId:'5de831',location:'private-sitting.js:captureIdPhotoForCustomer:entry',message:'capture started',data:{side,index,originalText,buttonDisabled:photoButton?.disabled??null},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
   if (photoButton) {
     photoButton.disabled = true;
     photoButton.textContent = "Opening camera...";
@@ -708,16 +711,34 @@ async function captureIdPhotoForCustomer(side, index) {
       showToast("Camera unavailable — pick from gallery");
       dataUrl = await openGalleryPhotoPicker();
     }
-    if (!dataUrl) return;
+    // #region agent log
+    fetch('http://127.0.0.1:7354/ingest/595e4a5f-c7de-4f63-b7f6-dfbd5f6735ce',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5de831'},body:JSON.stringify({sessionId:'5de831',location:'private-sitting.js:captureIdPhotoForCustomer:afterCamera',message:'camera closed',data:{hasDataUrl:Boolean(dataUrl),buttonText:photoButton?.textContent??null,buttonDisabled:photoButton?.disabled??null},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    if (!dataUrl) {
+      // #region agent log
+      fetch('http://127.0.0.1:7354/ingest/595e4a5f-c7de-4f63-b7f6-dfbd5f6735ce',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5de831'},body:JSON.stringify({sessionId:'5de831',runId:'post-fix',location:'private-sitting.js:captureIdPhotoForCustomer:earlyReturnNoData',message:'early return no dataUrl',data:{buttonText:photoButton?.textContent??null,buttonDisabled:photoButton?.disabled??null,willReset:true},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      renderCheckInForm();
+      return;
+    }
 
     if (photoButton) photoButton.textContent = "Compressing...";
     const compressed = await processIdPhotoDataUrl(dataUrl);
-    if (!compressed) return;
+    if (!compressed) {
+      // #region agent log
+      fetch('http://127.0.0.1:7354/ingest/595e4a5f-c7de-4f63-b7f6-dfbd5f6735ce',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5de831'},body:JSON.stringify({sessionId:'5de831',runId:'post-fix',location:'private-sitting.js:captureIdPhotoForCustomer:earlyReturnNoCompress',message:'early return compress failed',data:{buttonText:photoButton?.textContent??null,buttonDisabled:photoButton?.disabled??null,willReset:true},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
+      renderCheckInForm();
+      return;
+    }
 
     if (side === "front") draft.customers[idx].photoFrontDataUrl = compressed;
     else draft.customers[idx].photoBackDataUrl = compressed;
     renderCheckInForm();
     updateCheckInPreview();
+    // #region agent log
+    fetch('http://127.0.0.1:7354/ingest/595e4a5f-c7de-4f63-b7f6-dfbd5f6735ce',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5de831'},body:JSON.stringify({sessionId:'5de831',location:'private-sitting.js:captureIdPhotoForCustomer:success',message:'capture success form rerendered',data:{side},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
   } catch (error) {
     console.warn("Photo capture failed:", error);
     showToast("Could not process photo. Try again.");
