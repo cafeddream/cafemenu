@@ -1,10 +1,11 @@
 import { showToast } from "./firebase.js";
 
-const PORTRAIT_TOLERANCE = 1.05;
+export const ID_CARD_ASPECT = 1.586;
 
 const elements = {
   modal: null,
   video: null,
+  crop: null,
   captureBtn: null,
   cancelBtn: null,
   galleryBtn: null,
@@ -13,31 +14,17 @@ const elements = {
 
 let activeStream = null;
 let pendingResolve = null;
-let portraitRejectHandler = null;
+let capturing = false;
+let uiBound = false;
 
 function bindElements() {
   elements.modal = document.querySelector("#psCameraModal");
   elements.video = document.querySelector("#psCameraVideo");
+  elements.crop = document.querySelector("#psCameraCrop");
   elements.captureBtn = document.querySelector("#psCameraCapture");
   elements.cancelBtn = document.querySelector("#psCameraCancel");
   elements.galleryBtn = document.querySelector("#psCameraGallery");
   elements.galleryInput = document.querySelector("#psCameraGalleryInput");
-}
-
-async function lockLandscapeOrientation() {
-  try {
-    await screen.orientation?.lock?.("landscape");
-  } catch {
-    // iOS and some browsers ignore orientation lock.
-  }
-}
-
-function unlockLandscapeOrientation() {
-  try {
-    screen.orientation?.unlock?.();
-  } catch {
-    // Ignore unlock errors.
-  }
 }
 
 function stopCameraStream() {
@@ -50,19 +37,167 @@ function stopCameraStream() {
   }
 }
 
-function isLandscapeDimensions(width, height) {
-  return width > 0 && height > 0 && height <= width * PORTRAIT_TOLERANCE;
+function setCaptureReady(ready) {
+  if (!elements.captureBtn) return;
+  elements.captureBtn.disabled = !ready;
+  elements.captureBtn.textContent = ready ? "Capture" : "Camera loading...";
 }
 
-function isLandscapeDataUrl(dataUrl) {
+function waitForVideoReady(video, timeoutMs = 10000) {
+  if (video.videoWidth > 0 && video.videoHeight > 0) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Camera not ready"));
+    }, timeoutMs);
+    const onReady = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        cleanup();
+        resolve();
+      }
+    };
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      video.removeEventListener("loadedmetadata", onReady);
+      video.removeEventListener("playing", onReady);
+      video.removeEventListener("resize", onReady);
+    };
+    video.addEventListener("loadedmetadata", onReady);
+    video.addEventListener("playing", onReady);
+    video.addEventListener("resize", onReady);
+    onReady();
+  });
+}
+
+function getVideoCoverMapping(video) {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  const dw = video.clientWidth;
+  const dh = video.clientHeight;
+  if (!vw || !vh || !dw || !dh) {
+    throw new Error("Camera not ready");
+  }
+
+  const videoAspect = vw / vh;
+  const displayAspect = dw / dh;
+  let sx;
+  let sy;
+  let sw;
+  let sh;
+
+  if (videoAspect > displayAspect) {
+    sh = vh;
+    sw = vh * displayAspect;
+    sx = (vw - sw) / 2;
+    sy = 0;
+  } else {
+    sw = vw;
+    sh = vw / displayAspect;
+    sx = 0;
+    sy = (vh - sh) / 2;
+  }
+
+  return { sx, sy, sw, sh, dw, dh };
+}
+
+function getCropRectOnScreen() {
+  const video = elements.video;
+  const crop = elements.crop;
+  if (!video || !crop) {
+    throw new Error("Camera UI missing");
+  }
+
+  const videoRect = video.getBoundingClientRect();
+  const cropRect = crop.getBoundingClientRect();
+  return {
+    x: cropRect.left - videoRect.left,
+    y: cropRect.top - videoRect.top,
+    width: cropRect.width,
+    height: cropRect.height
+  };
+}
+
+function captureCroppedFrame() {
+  const video = elements.video;
+  const { sx, sy, sw, sh, dw, dh } = getVideoCoverMapping(video);
+  const crop = getCropRectOnScreen();
+
+  const sourceX = sx + (crop.x / dw) * sw;
+  const sourceY = sy + (crop.y / dh) * sh;
+  const sourceW = (crop.width / dw) * sw;
+  const sourceH = (crop.height / dh) * sh;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(sourceW));
+  canvas.height = Math.max(1, Math.round(sourceH));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Could not capture photo");
+  }
+
+  ctx.drawImage(
+    video,
+    sourceX,
+    sourceY,
+    sourceW,
+    sourceH,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  return canvas.toDataURL("image/jpeg", 0.92);
+}
+
+export function cropDataUrlToIdAspect(dataUrl, aspect = ID_CARD_ASPECT) {
   return new Promise((resolve) => {
     if (!dataUrl) {
-      resolve(false);
+      resolve("");
       return;
     }
     const img = new Image();
-    img.onload = () => resolve(isLandscapeDimensions(img.width, img.height));
-    img.onerror = () => resolve(false);
+    img.onload = () => {
+      const imgW = img.width;
+      const imgH = img.height;
+      if (!imgW || !imgH) {
+        resolve("");
+        return;
+      }
+
+      const imageAspect = imgW / imgH;
+      let sourceX = 0;
+      let sourceY = 0;
+      let sourceW = imgW;
+      let sourceH = imgH;
+
+      if (imageAspect > aspect) {
+        sourceW = imgH * aspect;
+        sourceX = (imgW - sourceW) / 2;
+      } else if (imageAspect < aspect) {
+        sourceH = imgW / aspect;
+        sourceY = (imgH - sourceH) / 2;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(sourceW));
+      canvas.height = Math.max(1, Math.round(sourceH));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+
+      ctx.drawImage(img, sourceX, sourceY, sourceW, sourceH, 0, 0, canvas.width, canvas.height);
+      try {
+        resolve(canvas.toDataURL("image/jpeg", 0.92));
+      } catch {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve("");
     img.src = dataUrl;
   });
 }
@@ -72,6 +207,7 @@ async function startCameraStream() {
     throw new Error("Camera not supported on this device");
   }
   stopCameraStream();
+  setCaptureReady(false);
   activeStream = await navigator.mediaDevices.getUserMedia({
     video: {
       facingMode: { ideal: "environment" },
@@ -81,33 +217,23 @@ async function startCameraStream() {
     audio: false
   });
   elements.video.srcObject = activeStream;
+  elements.video.setAttribute("playsinline", "");
+  elements.video.setAttribute("webkit-playsinline", "");
   await elements.video.play();
-}
-
-function captureVideoFrame() {
-  const video = elements.video;
-  const width = video.videoWidth;
-  const height = video.videoHeight;
-  if (!width || !height) {
-    throw new Error("Camera not ready");
-  }
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    throw new Error("Could not capture photo");
-  }
-  ctx.drawImage(video, 0, 0, width, height);
-  return canvas.toDataURL("image/jpeg", 0.92);
+  await waitForVideoReady(elements.video);
+  setCaptureReady(true);
 }
 
 function finishCapture(dataUrl) {
   const resolve = pendingResolve;
   pendingResolve = null;
+  capturing = false;
   stopCameraStream();
-  unlockLandscapeOrientation();
-  if (elements.modal) elements.modal.hidden = true;
+  setCaptureReady(true);
+  if (elements.modal) {
+    elements.modal.hidden = true;
+    elements.modal.classList.remove("modal-front");
+  }
   resolve?.(dataUrl);
 }
 
@@ -115,20 +241,32 @@ function cancelCapture() {
   finishCapture(null);
 }
 
-async function handleCaptureClick() {
-  if (!pendingResolve) return;
+async function handleCaptureClick(event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  if (!pendingResolve || capturing) return;
+  if (elements.captureBtn?.disabled) {
+    showToast("Camera abhi load ho raha hai — thodi der ruko");
+    return;
+  }
+
+  capturing = true;
+  if (elements.captureBtn) {
+    elements.captureBtn.disabled = true;
+    elements.captureBtn.textContent = "Capturing...";
+  }
+
   try {
-    const dataUrl = captureVideoFrame();
-    const landscape = await isLandscapeDataUrl(dataUrl);
-    if (!landscape) {
-      showToast("Landscape mein photo lo (phone sideways)");
-      portraitRejectHandler?.();
-      return;
-    }
+    const dataUrl = captureCroppedFrame();
     finishCapture(dataUrl);
   } catch (error) {
     console.warn("Camera capture failed:", error);
     showToast("Could not capture photo. Try again.");
+  } finally {
+    capturing = false;
+    if (pendingResolve && elements.captureBtn) {
+      setCaptureReady(true);
+    }
   }
 }
 
@@ -138,13 +276,13 @@ function handleGallerySelected() {
   const reader = new FileReader();
   reader.onload = async () => {
     const dataUrl = String(reader.result || "");
-    const landscape = await isLandscapeDataUrl(dataUrl);
-    if (!landscape) {
-      showToast("Landscape mein photo lo (phone sideways)");
+    const cropped = await cropDataUrlToIdAspect(dataUrl);
+    if (!cropped) {
+      showToast("Could not read photo. Try again.");
       if (elements.galleryInput) elements.galleryInput.value = "";
       return;
     }
-    finishCapture(dataUrl);
+    finishCapture(cropped);
   };
   reader.onerror = () => {
     showToast("Could not read photo. Try again.");
@@ -153,23 +291,44 @@ function handleGallerySelected() {
   reader.readAsDataURL(file);
 }
 
-export function initLandscapeIdCamera() {
-  bindElements();
-  if (!elements.modal) return;
-
-  elements.captureBtn?.addEventListener("click", handleCaptureClick);
-  elements.cancelBtn?.addEventListener("click", cancelCapture);
-  elements.galleryBtn?.addEventListener("click", () => elements.galleryInput?.click());
-  elements.galleryInput?.addEventListener("change", handleGallerySelected);
-  elements.modal.addEventListener("click", (event) => {
-    if (event.target === elements.modal) cancelCapture();
-  });
+function handleModalClick(event) {
+  const target = event.target;
+  if (target === elements.modal) {
+    cancelCapture();
+    return;
+  }
+  if (target.closest("#psCameraCapture")) {
+    void handleCaptureClick(event);
+    return;
+  }
+  if (target.closest("#psCameraCancel")) {
+    event.preventDefault();
+    event.stopPropagation();
+    cancelCapture();
+    return;
+  }
+  if (target.closest("#psCameraGallery")) {
+    event.preventDefault();
+    event.stopPropagation();
+    elements.galleryInput?.click();
+  }
 }
 
-export function openLandscapeIdCamera({ onPortraitReject } = {}) {
-  return new Promise(async (resolve, reject) => {
+export function initIdCropCamera() {
+  bindElements();
+  if (!elements.modal || uiBound) return;
+  uiBound = true;
+
+  elements.modal.addEventListener("click", handleModalClick);
+  elements.galleryInput?.addEventListener("change", handleGallerySelected);
+}
+
+export const initLandscapeIdCamera = initIdCropCamera;
+
+export function openIdCropCamera() {
+  return new Promise((resolve, reject) => {
     bindElements();
-    if (!elements.modal || !elements.video) {
+    if (!elements.modal || !elements.video || !elements.crop) {
       reject(new Error("Camera UI missing"));
       return;
     }
@@ -179,22 +338,29 @@ export function openLandscapeIdCamera({ onPortraitReject } = {}) {
     }
 
     pendingResolve = resolve;
-    portraitRejectHandler = onPortraitReject || null;
+    capturing = false;
     if (elements.galleryInput) elements.galleryInput.value = "";
     elements.modal.hidden = false;
+    elements.modal.classList.add("modal-front");
+    setCaptureReady(false);
 
-    try {
-      await lockLandscapeOrientation();
-      await startCameraStream();
-    } catch (error) {
-      pendingResolve = null;
-      stopCameraStream();
-      unlockLandscapeOrientation();
-      elements.modal.hidden = true;
-      reject(error);
-    }
+    void (async () => {
+      try {
+        await startCameraStream();
+      } catch (error) {
+        pendingResolve = null;
+        capturing = false;
+        stopCameraStream();
+        setCaptureReady(true);
+        elements.modal.hidden = true;
+        elements.modal.classList.remove("modal-front");
+        reject(error);
+      }
+    })();
   });
 }
+
+export const openLandscapeIdCamera = openIdCropCamera;
 
 export function openGalleryPhotoPicker() {
   bindElements();
@@ -214,13 +380,8 @@ export function openGalleryPhotoPicker() {
       const reader = new FileReader();
       reader.onload = async () => {
         const dataUrl = String(reader.result || "");
-        const landscape = await isLandscapeDataUrl(dataUrl);
-        if (!landscape) {
-          showToast("Landscape mein photo lo (phone sideways)");
-          resolve(null);
-          return;
-        }
-        resolve(dataUrl);
+        const cropped = await cropDataUrlToIdAspect(dataUrl);
+        resolve(cropped || null);
       };
       reader.onerror = () => resolve(null);
       reader.readAsDataURL(file);

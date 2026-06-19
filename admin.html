@@ -107,10 +107,13 @@
 
   <div class="modal-backdrop ps-camera-modal" id="psCameraModal" hidden>
     <section class="ps-camera-panel" role="dialog" aria-modal="true" aria-labelledby="psCameraTitle">
-      <h2 id="psCameraTitle" class="ps-camera-title">Capture ID (Landscape)</h2>
-      <p class="ps-camera-guide">Phone ko sideways rakho — ID card landscape mein</p>
-      <div class="ps-camera-frame">
+      <h2 id="psCameraTitle" class="ps-camera-title">Capture ID</h2>
+      <p class="ps-camera-guide">ID card ko frame ke andar align karo, phir Capture dabao</p>
+      <div class="ps-camera-viewport">
         <video id="psCameraVideo" playsinline autoplay muted></video>
+        <div class="ps-camera-mask" aria-hidden="true">
+          <div class="ps-camera-crop" id="psCameraCrop"></div>
+        </div>
       </div>
       <div class="ps-camera-actions">
         <button class="secondary-btn" type="button" id="psCameraGallery">Use gallery</button>

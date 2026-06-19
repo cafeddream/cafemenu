@@ -22,8 +22,8 @@ import {
   verifyOrderPayment
 } from "./firebase.js";
 import { openAdminOrderModal } from "./admin-orders.js";
-import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, ensureLandscapeDataUrl, formatCheckInLabel, isValidPdfBase64, mergeCustomersWithPhotos, preloadJsPdf, withTimeout } from "./private-sitting-pdf.js";
-import { initLandscapeIdCamera, openGalleryPhotoPicker, openLandscapeIdCamera } from "./private-sitting-camera.js";
+import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, formatCheckInLabel, isValidPdfBase64, mergeCustomersWithPhotos, preloadJsPdf, withTimeout } from "./private-sitting-pdf.js";
+import { initIdCropCamera, openGalleryPhotoPicker, openIdCropCamera } from "./private-sitting-camera.js";
 import { fetchSessionPhotos, isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout, uploadSittingPhotos } from "./sitting-sync.js";
 import {
   connectPrinter,
@@ -677,12 +677,7 @@ function syncDraftFromForm() {
 }
 
 async function processIdPhotoDataUrl(dataUrl) {
-  const landscape = await ensureLandscapeDataUrl(dataUrl);
-  if (!landscape) {
-    showToast("Landscape mein photo lo (phone sideways)");
-    return "";
-  }
-  const compressed = await compressPhotoDataUrl(landscape);
+  const compressed = await compressPhotoDataUrl(dataUrl);
   if (!compressed) {
     showToast("Could not process photo. Try again.");
     return "";
@@ -707,7 +702,7 @@ async function captureIdPhotoForCustomer(side, index) {
   try {
     let dataUrl = null;
     try {
-      dataUrl = await openLandscapeIdCamera();
+      dataUrl = await openIdCropCamera();
     } catch (error) {
       console.warn("Camera unavailable:", error);
       showToast("Camera unavailable — pick from gallery");
@@ -1315,7 +1310,7 @@ function subscribePrivateSitting() {
 }
 
 export function initPrivateSitting() {
-  initLandscapeIdCamera();
+  initIdCropCamera();
   bindPrivateSittingUi();
   subscribePrivateSitting();
   if (state.timerHandle) clearInterval(state.timerHandle);

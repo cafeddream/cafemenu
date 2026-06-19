@@ -349,28 +349,6 @@ export async function buildSittingRecordPdf(data) {
   return buildSittingSessionPdf(data);
 }
 
-const LANDSCAPE_PORTRAIT_TOLERANCE = 1.05;
-
-export function ensureLandscapeDataUrl(dataUrl) {
-  const work = new Promise((resolve) => {
-    if (!dataUrl) {
-      resolve(null);
-      return;
-    }
-    const img = new Image();
-    img.onload = () => {
-      if (img.height > img.width * LANDSCAPE_PORTRAIT_TOLERANCE) {
-        resolve(null);
-        return;
-      }
-      resolve(dataUrl);
-    };
-    img.onerror = () => resolve(null);
-    img.src = dataUrl;
-  });
-  return withTimeout(work, 8000, null);
-}
-
 export function compressPhotoDataUrl(dataUrl, maxWidth = 520, quality = 0.62) {
   const work = new Promise((resolve) => {
     if (!dataUrl) {

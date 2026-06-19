@@ -757,7 +757,13 @@ body[data-active-tab="orders"] .ps-manager-main {
     max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 
+.ps-camera-modal.modal-front {
+  z-index: 1300;
+}
+
 .ps-camera-panel {
+  position: relative;
+  z-index: 1;
   width: min(100%, 720px);
   display: grid;
   gap: 12px;
@@ -783,20 +789,66 @@ body[data-active-tab="orders"] .ps-manager-main {
   text-align: center;
 }
 
-.ps-camera-frame {
+.ps-camera-viewport {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  min-height: 52vh;
+  max-height: 70vh;
   border-radius: 12px;
   overflow: hidden;
   border: 2px solid rgba(255, 255, 255, 0.2);
   background: #000;
 }
 
-.ps-camera-frame video {
+.ps-camera-viewport video {
+  display: block;
   width: 100%;
   height: 100%;
+  min-height: 52vh;
+  max-height: 70vh;
   object-fit: cover;
+}
+
+.ps-camera-mask {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.ps-camera-crop {
+  position: relative;
+  width: min(92%, calc((70vh - 32px) * 1.586));
+  max-width: 100%;
+  aspect-ratio: 1.586 / 1;
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+}
+
+.ps-camera-crop::before,
+.ps-camera-crop::after {
+  content: "";
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-color: #ffffff;
+  border-style: solid;
+}
+
+.ps-camera-crop::before {
+  top: -2px;
+  left: -2px;
+  border-width: 4px 0 0 4px;
+  border-radius: 8px 0 0 0;
+}
+
+.ps-camera-crop::after {
+  right: -2px;
+  bottom: -2px;
+  border-width: 0 4px 4px 0;
+  border-radius: 0 0 8px 0;
 }
 
 .ps-camera-actions {
@@ -804,6 +856,10 @@ body[data-active-tab="orders"] .ps-manager-main {
   grid-template-columns: 1fr auto auto;
   gap: 8px;
   align-items: center;
+}
+
+.ps-camera-actions button {
+  touch-action: manipulation;
 }
 
 .ps-pdf-preview {
