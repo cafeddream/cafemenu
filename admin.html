@@ -105,6 +105,22 @@
     </section>
   </div>
 
+  <div class="modal-backdrop ps-camera-modal" id="psCameraModal" hidden>
+    <section class="ps-camera-panel" role="dialog" aria-modal="true" aria-labelledby="psCameraTitle">
+      <h2 id="psCameraTitle" class="ps-camera-title">Capture ID (Landscape)</h2>
+      <p class="ps-camera-guide">Phone ko sideways rakho — ID card landscape mein</p>
+      <div class="ps-camera-frame">
+        <video id="psCameraVideo" playsinline autoplay muted></video>
+      </div>
+      <div class="ps-camera-actions">
+        <button class="secondary-btn" type="button" id="psCameraGallery">Use gallery</button>
+        <button class="ghost-btn" type="button" id="psCameraCancel">Cancel</button>
+        <button class="primary-btn" type="button" id="psCameraCapture">Capture</button>
+      </div>
+      <input type="file" id="psCameraGalleryInput" accept="image/*" hidden>
+    </section>
+  </div>
+
   <div class="modal-backdrop" id="psSessionModal" hidden>
     <section class="history-modal ps-session-modal" role="dialog" aria-modal="true" aria-labelledby="psSessionTitle">
       <div class="modal-head">

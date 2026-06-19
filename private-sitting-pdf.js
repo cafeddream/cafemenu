@@ -229,34 +229,48 @@ function drawMetaLine(doc, label, value, y) {
   return y + 5;
 }
 
+function addImageFitBox(doc, dataUrl, x, y, boxW, boxH) {
+  if (!dataUrl) return;
+  try {
+    const stripped = stripDataUrl(dataUrl);
+    const props = doc.getImageProperties(stripped);
+    const imgW = Math.max(props.width, 1);
+    const imgH = Math.max(props.height, 1);
+    const scale = Math.min(boxW / imgW, boxH / imgH);
+    const drawW = imgW * scale;
+    const drawH = imgH * scale;
+    const drawX = x + (boxW - drawW) / 2;
+    const drawY = y + (boxH - drawH) / 2;
+    doc.setFillColor(248, 248, 248);
+    doc.rect(x, y, boxW, boxH, "F");
+    doc.addImage(stripped, "JPEG", drawX, drawY, drawW, drawH);
+  } catch {
+    doc.setFillColor(248, 248, 248);
+    doc.rect(x, y, boxW, boxH, "F");
+  }
+}
+
 function addPhotoPair(doc, frontUrl, backUrl, y) {
   const PHOTO_GAP = 6;
   const photoW = (PAGE.width - PHOTO_GAP) / 2;
-  const photoH = 42;
+  const photoH = 48;
   const leftX = PAGE.left + 2;
   const rightX = leftX + photoW + PHOTO_GAP;
+  const imageY = y + 1.5;
   doc.setFontSize(7);
   setText(doc, C.muted);
 
-  try {
-    if (frontUrl) {
-      doc.text("ID Front", leftX, y);
-      doc.addImage(stripDataUrl(frontUrl), "JPEG", leftX, y + 1.5, photoW, photoH);
-    } else {
-      doc.text("ID Front unavailable", leftX, y);
-    }
-  } catch {
+  if (frontUrl) {
+    doc.text("ID Front", leftX, y);
+    addImageFitBox(doc, frontUrl, leftX, imageY, photoW, photoH);
+  } else {
     doc.text("ID Front unavailable", leftX, y);
   }
 
-  try {
-    if (backUrl) {
-      doc.text("ID Back", rightX, y);
-      doc.addImage(stripDataUrl(backUrl), "JPEG", rightX, y + 1.5, photoW, photoH);
-    } else {
-      doc.text("ID Back unavailable", rightX, y);
-    }
-  } catch {
+  if (backUrl) {
+    doc.text("ID Back", rightX, y);
+    addImageFitBox(doc, backUrl, rightX, imageY, photoW, photoH);
+  } else {
     doc.text("ID Back unavailable", rightX, y);
   }
 
@@ -333,6 +347,28 @@ export async function buildSittingSessionPdf(data) {
 /** @deprecated Use buildSittingSessionPdf */
 export async function buildSittingRecordPdf(data) {
   return buildSittingSessionPdf(data);
+}
+
+const LANDSCAPE_PORTRAIT_TOLERANCE = 1.05;
+
+export function ensureLandscapeDataUrl(dataUrl) {
+  const work = new Promise((resolve) => {
+    if (!dataUrl) {
+      resolve(null);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      if (img.height > img.width * LANDSCAPE_PORTRAIT_TOLERANCE) {
+        resolve(null);
+        return;
+      }
+      resolve(dataUrl);
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+  return withTimeout(work, 8000, null);
 }
 
 export function compressPhotoDataUrl(dataUrl, maxWidth = 520, quality = 0.62) {

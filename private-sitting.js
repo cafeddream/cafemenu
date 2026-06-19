@@ -22,7 +22,8 @@ import {
   verifyOrderPayment
 } from "./firebase.js";
 import { openAdminOrderModal } from "./admin-orders.js";
-import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, formatCheckInLabel, isValidPdfBase64, mergeCustomersWithPhotos, preloadJsPdf, withTimeout } from "./private-sitting-pdf.js";
+import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, ensureLandscapeDataUrl, formatCheckInLabel, isValidPdfBase64, mergeCustomersWithPhotos, preloadJsPdf, withTimeout } from "./private-sitting-pdf.js";
+import { initLandscapeIdCamera, openGalleryPhotoPicker, openLandscapeIdCamera } from "./private-sitting-camera.js";
 import { fetchSessionPhotos, isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout, uploadSittingPhotos } from "./sitting-sync.js";
 import {
   connectPrinter,
@@ -652,9 +653,7 @@ function customerBlockHtml(customer, index) {
       <div class="ps-photo-row">
         <div class="ps-photo-actions">
           <button class="secondary-btn ps-photo-btn" type="button" data-photo-side="front" data-photo-index="${index}">Capture ID Front</button>
-          <input type="file" accept="image/*" capture="environment" hidden data-photo-input="front" data-photo-index="${index}">
           <button class="secondary-btn ps-photo-btn" type="button" data-photo-side="back" data-photo-index="${index}">Capture ID Back</button>
-          <input type="file" accept="image/*" capture="environment" hidden data-photo-input="back" data-photo-index="${index}">
         </div>
         <div class="ps-photo-grid">
           ${photoPreviewHtml(customer.photoFrontDataUrl, "Front pending")}
@@ -677,6 +676,60 @@ function syncDraftFromForm() {
   }));
 }
 
+async function processIdPhotoDataUrl(dataUrl) {
+  const landscape = await ensureLandscapeDataUrl(dataUrl);
+  if (!landscape) {
+    showToast("Landscape mein photo lo (phone sideways)");
+    return "";
+  }
+  const compressed = await compressPhotoDataUrl(landscape);
+  if (!compressed) {
+    showToast("Could not process photo. Try again.");
+    return "";
+  }
+  return compressed;
+}
+
+async function captureIdPhotoForCustomer(side, index) {
+  const draft = state.checkInDraft;
+  if (!draft) return;
+
+  const idx = Number(index);
+  const photoButton = elements.checkInForm?.querySelector(
+    `[data-photo-side="${side}"][data-photo-index="${index}"]`
+  );
+  const originalText = photoButton?.textContent || "";
+  if (photoButton) {
+    photoButton.disabled = true;
+    photoButton.textContent = "Opening camera...";
+  }
+
+  try {
+    let dataUrl = null;
+    try {
+      dataUrl = await openLandscapeIdCamera();
+    } catch (error) {
+      console.warn("Camera unavailable:", error);
+      showToast("Camera unavailable — pick from gallery");
+      dataUrl = await openGalleryPhotoPicker();
+    }
+    if (!dataUrl) return;
+
+    if (photoButton) photoButton.textContent = "Compressing...";
+    const compressed = await processIdPhotoDataUrl(dataUrl);
+    if (!compressed) return;
+
+    if (side === "front") draft.customers[idx].photoFrontDataUrl = compressed;
+    else draft.customers[idx].photoBackDataUrl = compressed;
+    renderCheckInForm();
+    updateCheckInPreview();
+  } catch (error) {
+    console.warn("Photo capture failed:", error);
+    showToast("Could not process photo. Try again.");
+    renderCheckInForm();
+  }
+}
+
 function renderCheckInForm() {
   if (!elements.checkInForm || !state.checkInDraft) return;
   const draft = state.checkInDraft;
@@ -691,36 +744,7 @@ function renderCheckInForm() {
   elements.checkInForm.querySelectorAll("[data-photo-side]").forEach((button) => {
     const side = button.dataset.photoSide;
     const index = button.dataset.photoIndex;
-    const input = elements.checkInForm.querySelector(`[data-photo-input="${side}"][data-photo-index="${index}"]`);
-    button.onclick = () => input?.click();
-    input.onchange = async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const idx = Number(index);
-      const photoButton = elements.checkInForm.querySelector(
-        `[data-photo-side="${side}"][data-photo-index="${index}"]`
-      );
-      if (photoButton) {
-        photoButton.disabled = true;
-        photoButton.textContent = "Compressing...";
-      }
-      try {
-        const dataUrl = await readFileAsDataUrl(file);
-        const compressed = await compressPhotoDataUrl(dataUrl);
-        if (!compressed) {
-          showToast("Could not process photo. Try again.");
-          return;
-        }
-        if (side === "front") draft.customers[idx].photoFrontDataUrl = compressed;
-        else draft.customers[idx].photoBackDataUrl = compressed;
-        renderCheckInForm();
-        updateCheckInPreview();
-      } catch (error) {
-        console.warn("Photo capture failed:", error);
-        showToast("Could not process photo. Try again.");
-        renderCheckInForm();
-      }
-    };
+    button.onclick = () => captureIdPhotoForCustomer(side, index);
   });
 
   const handleFormChange = () => {
@@ -729,15 +753,6 @@ function renderCheckInForm() {
   };
   elements.checkInForm.oninput = handleFormChange;
   elements.checkInForm.onchange = handleFormChange;
-}
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 async function updateCheckInPreview() {
@@ -1300,6 +1315,7 @@ function subscribePrivateSitting() {
 }
 
 export function initPrivateSitting() {
+  initLandscapeIdCamera();
   bindPrivateSittingUi();
   subscribePrivateSitting();
   if (state.timerHandle) clearInterval(state.timerHandle);
