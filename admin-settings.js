@@ -25,7 +25,9 @@ const SITTING_THEMES = ["ps-green", "ps-gold", "ps-purple", "ps-pink", "ps-ruby"
 const state = {
   menuItems: [],
   securityConfig: null,
-  pinModalMode: "unlock"
+  pinModalMode: "unlock",
+  activeTab: "menu",
+  menuSearch: ""
 };
 
 let mountNode = null;
@@ -217,84 +219,134 @@ function errorCardHtml() {
   `;
 }
 
-function menuRowHtml(item) {
+function getFilteredMenuItems() {
+  const query = state.menuSearch.trim().toLowerCase();
+  if (!query) return state.menuItems;
+  return state.menuItems.filter((item) => (
+    String(item.name).toLowerCase().includes(query)
+    || String(item.category).toLowerCase().includes(query)
+  ));
+}
+
+function groupMenuByCategory(items = []) {
+  const groups = new Map();
+  items.forEach((item) => {
+    const category = String(item.category || "Other");
+    if (!groups.has(category)) groups.set(category, []);
+    groups.get(category).push(item);
+  });
+  return [...groups.entries()].sort((left, right) => left[0].localeCompare(right[0]));
+}
+
+function compactMenuRowHtml(item) {
   return `
-    <div class="admin-edit-row" data-menu-id="${escapeHtml(item.itemId)}">
-      <div class="admin-edit-meta">
-        <strong>${escapeHtml(item.name)}</strong>
-        <span>${escapeHtml(item.category)}</span>
-      </div>
-      <div class="admin-edit-controls">
-        <input type="number" min="0" step="1" value="${Number(item.price)}" data-menu-price="${escapeHtml(item.itemId)}">
-        <button class="secondary-btn" type="button" data-menu-save="${escapeHtml(item.itemId)}">Save</button>
-        <button class="danger-btn admin-danger-btn" type="button" data-menu-delete="${escapeHtml(item.itemId)}">Delete</button>
-      </div>
+    <div class="admin-compact-row" data-menu-id="${escapeHtml(item.itemId)}">
+      <span class="admin-compact-label" title="${escapeHtml(item.category)}">${escapeHtml(item.name)}</span>
+      <input class="admin-compact-price" type="number" min="0" step="1" value="${Number(item.price)}" data-menu-price="${escapeHtml(item.itemId)}" aria-label="Price for ${escapeHtml(item.name)}">
+      <button class="admin-icon-btn" type="button" data-menu-save="${escapeHtml(item.itemId)}" title="Save price">✓</button>
+      <button class="admin-icon-btn admin-icon-danger" type="button" data-menu-delete="${escapeHtml(item.itemId)}" title="Delete">×</button>
     </div>
   `;
 }
 
-function sittingRowHtml(sitting) {
+function menuCategoryGroupHtml(category, items) {
   return `
-    <div class="admin-edit-row" data-sitting-id="${escapeHtml(sitting.id)}">
-      <div class="admin-edit-meta">
-        <strong>${escapeHtml(sitting.id)}</strong>
-        <span>${escapeHtml(sitting.theme || "ps-green")}${sitting.wide ? " · wide" : ""}</span>
+    <details class="admin-category-group" open>
+      <summary class="admin-category-head">${escapeHtml(category)} <span>${items.length}</span></summary>
+      <div class="admin-compact-table">
+        ${items.map(compactMenuRowHtml).join("")}
       </div>
-      <div class="admin-edit-controls">
-        <input type="number" min="0" step="10" value="${Number(sitting.ratePerHour)}" data-sitting-rate="${escapeHtml(sitting.id)}">
-        <button class="secondary-btn" type="button" data-sitting-save="${escapeHtml(sitting.id)}">Save</button>
-        <button class="danger-btn admin-danger-btn" type="button" data-sitting-delete="${escapeHtml(sitting.id)}">Delete</button>
+    </details>
+  `;
+}
+
+function menuTabHtml() {
+  const filtered = getFilteredMenuItems();
+  const groups = groupMenuByCategory(filtered);
+  const showImportBanner = state.menuItems.length < 5;
+
+  return `
+    <div class="admin-tab-panel" data-admin-panel="menu">
+      <p class="admin-help-note">Customer menu = Google Sheet + your Firestore price edits</p>
+      ${showImportBanner ? `
+        <div class="admin-import-banner">
+          <span>Purana menu restore karo — sheet se saare items Firestore mein lao.</span>
+          <button class="secondary-btn" type="button" data-admin-action="import-menu">Import Full Menu</button>
+        </div>
+      ` : ""}
+      <div class="admin-toolbar">
+        <input type="search" class="admin-search" placeholder="Search item or category" value="${escapeHtml(state.menuSearch)}" data-admin-search>
+        <button class="secondary-btn" type="button" data-admin-action="import-menu">Import Full Menu</button>
       </div>
+      <div class="admin-menu-groups">
+        ${groups.length
+    ? groups.map(([category, items]) => menuCategoryGroupHtml(category, items)).join("")
+    : "<p class=\"admin-empty-note\">No Firestore items yet. Import full menu or add below.</p>"}
+      </div>
+      <form class="admin-inline-add" id="adminAddMenuForm">
+        <input type="text" name="category" placeholder="Category" required maxlength="40">
+        <input type="text" name="name" placeholder="Item" required maxlength="80">
+        <input type="number" name="price" placeholder="₹" min="0" step="1" required>
+        <button class="primary-btn" type="submit">Add</button>
+      </form>
+    </div>
+  `;
+}
+
+function compactSittingRowHtml(sitting) {
+  return `
+    <div class="admin-compact-row" data-sitting-id="${escapeHtml(sitting.id)}">
+      <span class="admin-compact-label">${escapeHtml(sitting.id)} <small>${escapeHtml(sitting.theme || "ps-green")}</small></span>
+      <input class="admin-compact-price" type="number" min="0" step="10" value="${Number(sitting.ratePerHour)}" data-sitting-rate="${escapeHtml(sitting.id)}" aria-label="Rate for ${escapeHtml(sitting.id)}">
+      <button class="admin-icon-btn" type="button" data-sitting-save="${escapeHtml(sitting.id)}" title="Save rate">✓</button>
+      <button class="admin-icon-btn admin-icon-danger" type="button" data-sitting-delete="${escapeHtml(sitting.id)}" title="Delete">×</button>
+    </div>
+  `;
+}
+
+function sittingsTabHtml() {
+  return `
+    <div class="admin-tab-panel" data-admin-panel="sittings">
+      <div class="admin-compact-table">
+        ${getPrivateSittings().map(compactSittingRowHtml).join("")}
+      </div>
+      <form class="admin-inline-add" id="adminAddSittingForm">
+        <input type="text" name="id" placeholder="PS 11" required maxlength="12">
+        <input type="number" name="ratePerHour" placeholder="₹/hr" min="0" step="10" required>
+        <select name="theme">
+          ${SITTING_THEMES.map((theme) => `<option value="${theme}">${theme}</option>`).join("")}
+        </select>
+        <label class="admin-checkbox">
+          <input type="checkbox" name="wide">
+          <span>Wide</span>
+        </label>
+        <button class="primary-btn" type="submit">Add</button>
+      </form>
     </div>
   `;
 }
 
 function unlockedCardHtml() {
   return `
-    <section class="ps-settings-card admin-settings-card" id="adminSettingsMount">
+    <section class="ps-settings-card admin-settings-card admin-compact" id="adminSettingsMount">
       <div class="admin-settings-head">
         <h3>Admin Configuration</h3>
         <div class="admin-settings-actions">
-          <button class="ghost-btn" type="button" data-admin-action="change-pin">Change PIN</button>
+          <button class="ghost-btn" type="button" data-admin-action="change-pin">PIN</button>
           <button class="secondary-btn" type="button" data-admin-action="lock">Lock</button>
         </div>
       </div>
 
-      <div class="admin-section">
-        <div class="admin-section-head">
-          <h4>Menu Management</h4>
-          <button class="secondary-btn" type="button" data-admin-action="import-menu">Import from Google Sheet</button>
-        </div>
-        <div class="admin-edit-list">
-          ${state.menuItems.length
-    ? state.menuItems.map(menuRowHtml).join("")
-    : "<p class=\"admin-empty-note\">No Firestore menu items yet. Import from sheet or add one below.</p>"}
-        </div>
-        <form class="admin-add-form" id="adminAddMenuForm">
-          <input type="text" name="category" placeholder="Category" required maxlength="40">
-          <input type="text" name="name" placeholder="Item name" required maxlength="80">
-          <input type="number" name="price" placeholder="Price" min="0" step="1" required>
-          <button class="primary-btn" type="submit">Add Item</button>
-        </form>
+      <div class="admin-tabs" role="tablist">
+        <button class="admin-tab ${state.activeTab === "menu" ? "active" : ""}" type="button" data-admin-tab="menu" role="tab">Menu</button>
+        <button class="admin-tab ${state.activeTab === "sittings" ? "active" : ""}" type="button" data-admin-tab="sittings" role="tab">Sittings</button>
       </div>
 
-      <div class="admin-section">
-        <h4>Private Sitting Management</h4>
-        <div class="admin-edit-list">
-          ${getPrivateSittings().map(sittingRowHtml).join("")}
-        </div>
-        <form class="admin-add-form" id="adminAddSittingForm">
-          <input type="text" name="id" placeholder="Sitting ID (e.g. PS 11)" required maxlength="12">
-          <input type="number" name="ratePerHour" placeholder="Rate/hr" min="0" step="10" required>
-          <select name="theme">
-            ${SITTING_THEMES.map((theme) => `<option value="${theme}">${theme}</option>`).join("")}
-          </select>
-          <label class="admin-checkbox">
-            <input type="checkbox" name="wide">
-            <span>Wide card</span>
-          </label>
-          <button class="primary-btn" type="submit">Add Sitting</button>
-        </form>
+      <div class="${state.activeTab === "menu" ? "" : "hidden"}" data-admin-panel-wrap="menu">
+        ${menuTabHtml()}
+      </div>
+      <div class="${state.activeTab === "sittings" ? "" : "hidden"}" data-admin-panel-wrap="sittings">
+        ${sittingsTabHtml()}
       </div>
     </section>
   `;
@@ -340,6 +392,13 @@ function bindAdminSettingsEvents(container) {
   container.dataset.adminBound = "true";
 
   container.addEventListener("click", async (event) => {
+    const tabBtn = event.target.closest("[data-admin-tab]");
+    if (tabBtn) {
+      state.activeTab = tabBtn.dataset.adminTab || "menu";
+      await renderAdminSettings(container);
+      return;
+    }
+
     const target = event.target.closest("[data-admin-action],[data-menu-save],[data-menu-delete],[data-sitting-save],[data-sitting-delete]");
     if (!target) return;
 
@@ -360,7 +419,7 @@ function bindAdminSettingsEvents(container) {
       return;
     }
     if (action === "import-menu") {
-      if (!window.confirm("Import menu from Google Sheet into Firestore? This overwrites Firestore menu items.")) return;
+      if (!window.confirm("Import full menu from Google Sheet into Firestore? Existing Firestore items with same name will be updated.")) return;
       try {
         const count = await importMenuFromSheet();
         showToast(`Imported ${count} menu items`);
@@ -410,6 +469,12 @@ function bindAdminSettingsEvents(container) {
         showToast(error.message || "Sitting update failed");
       }
     }
+  });
+
+  container.addEventListener("input", (event) => {
+    if (!event.target.matches("[data-admin-search]")) return;
+    state.menuSearch = event.target.value || "";
+    void renderAdminSettings(container);
   });
 
   container.addEventListener("submit", async (event) => {

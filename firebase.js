@@ -317,7 +317,7 @@ export async function verifySecurityPin(pin) {
 
 async function fetchMenuFromFirestore() {
   const snapshot = await getDocs(collection(db, "menuItems"));
-  return snapshot.docs
+  return sortMenuItems(snapshot.docs
     .map((entry) => {
       const data = entry.data();
       return {
@@ -329,12 +329,61 @@ async function fetchMenuFromFirestore() {
         sortOrder: Number(data.sortOrder || 0)
       };
     })
-    .filter((item) => item.category && item.name && Number.isFinite(item.price) && item.available !== "no")
-    .sort((left, right) => {
-      const categoryCompare = String(left.category).localeCompare(String(right.category));
-      if (categoryCompare !== 0) return categoryCompare;
-      return left.sortOrder - right.sortOrder;
+    .filter((item) => item.category && item.name && Number.isFinite(item.price) && item.available !== "no"));
+}
+
+function sortMenuItems(items = []) {
+  return [...items].sort((left, right) => {
+    const categoryCompare = String(left.category).localeCompare(String(right.category));
+    if (categoryCompare !== 0) return categoryCompare;
+    return Number(left.sortOrder || 0) - Number(right.sortOrder || 0);
+  });
+}
+
+export function mergeMenuSources(sheetItems = [], firestoreItems = []) {
+  const merged = new Map();
+
+  sheetItems.forEach((item, index) => {
+    const category = String(item.category || "").trim();
+    const name = String(item.name || "").trim();
+    const price = Number(item.price);
+    if (!category || !name || !Number.isFinite(price)) return;
+    if (String(item.available || "yes").toLowerCase() === "no") return;
+
+    const itemId = item.itemId || menuItemSlug(category, name);
+    merged.set(itemId, {
+      itemId,
+      category,
+      name,
+      price,
+      available: "yes",
+      sortOrder: Number(item.sortOrder ?? index)
     });
+  });
+
+  firestoreItems.forEach((item) => {
+    if (!item?.itemId) return;
+    merged.set(item.itemId, { ...item });
+  });
+
+  return sortMenuItems([...merged.values()]);
+}
+
+export async function fetchSheetMenu() {
+  const url = CONFIG.GOOGLE_SHEET_CSV_URL;
+  const isPlaceholder = !url || url.includes("PASTE_YOUR_SHEET_CSV_URL_HERE");
+  const fetchUrl = isPlaceholder ? "./sample-menu.csv" : url;
+  const response = await fetch(fetchUrl, { cache: "no-store" });
+  if (!response.ok) throw new Error("Menu request failed");
+  const items = parseMenuCsv(await response.text());
+  return items.map((item, index) => ({
+    itemId: menuItemSlug(item.category, item.name),
+    category: item.category,
+    name: item.name,
+    price: Number(item.price),
+    available: item.available !== "no" ? "yes" : "no",
+    sortOrder: index
+  }));
 }
 
 export async function listMenuItems() {
@@ -380,16 +429,10 @@ export async function deleteMenuItem(itemId) {
 }
 
 export async function importMenuFromSheet() {
-  const url = CONFIG.GOOGLE_SHEET_CSV_URL;
-  const isPlaceholder = !url || url.includes("PASTE_YOUR_SHEET_CSV_URL_HERE");
-  const fetchUrl = isPlaceholder ? "./sample-menu.csv" : url;
-  const response = await fetch(fetchUrl, { cache: "no-store" });
-  if (!response.ok) throw new Error("Menu import failed");
-  const items = parseMenuCsv(await response.text());
+  const items = await fetchSheetMenu();
   const batch = writeBatch(db);
   items.forEach((item, index) => {
-    const id = menuItemSlug(item.category, item.name);
-    batch.set(doc(db, "menuItems", id), {
+    batch.set(doc(db, "menuItems", item.itemId), {
       category: item.category,
       name: item.name,
       price: Number(item.price),
@@ -399,11 +442,7 @@ export async function importMenuFromSheet() {
     });
   });
   await batch.commit();
-  writeMenuCache(items.map((item, index) => ({
-    itemId: menuItemSlug(item.category, item.name),
-    ...item,
-    sortOrder: index
-  })));
+  writeMenuCache(items);
   window.dispatchEvent(new CustomEvent("menu-updated"));
   return items.length;
 }
@@ -929,33 +968,36 @@ export function getMenuCacheSavedAt() {
   return readMenuCache()?.savedAt || null;
 }
 
-// Fetches menu data from Firestore first, then Google Sheets / cache fallback.
+// Fetches menu by merging Google Sheet base with Firestore admin edits.
 export async function fetchMenu() {
+  let sheetItems = [];
+  let firestoreItems = [];
+
   try {
-    const firestoreItems = await fetchMenuFromFirestore();
-    if (firestoreItems.length) {
-      writeMenuCache(firestoreItems);
-      return firestoreItems;
+    sheetItems = await fetchSheetMenu();
+  } catch (error) {
+    console.warn("Sheet menu fetch failed:", error);
+    const cached = readMenuCache();
+    if (cached?.items?.length) {
+      sheetItems = cached.items;
     }
+  }
+
+  try {
+    firestoreItems = await fetchMenuFromFirestore();
   } catch (error) {
     console.warn("Firestore menu fetch failed:", error);
   }
 
-  const url = CONFIG.GOOGLE_SHEET_CSV_URL;
-  const isPlaceholder = !url || url.includes("PASTE_YOUR_SHEET_CSV_URL_HERE");
-  const fetchUrl = isPlaceholder ? "./sample-menu.csv" : url;
-
-  try {
-    const response = await fetch(fetchUrl, { cache: "no-store" });
-    if (!response.ok) throw new Error("Menu request failed");
-    const items = parseMenuCsv(await response.text());
-    writeMenuCache(items);
-    return items;
-  } catch (error) {
-    const cached = readMenuCache();
-    if (cached?.items?.length) return cached.items;
-    throw error;
+  const merged = mergeMenuSources(sheetItems, firestoreItems);
+  if (merged.length) {
+    writeMenuCache(merged);
+    return merged;
   }
+
+  const cached = readMenuCache();
+  if (cached?.items?.length) return cached.items;
+  throw new Error("Menu unavailable");
 }
 
 // Groups menu items by category while preserving sheet order.
