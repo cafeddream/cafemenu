@@ -124,6 +124,9 @@ function startAdminApp() {
   subscribeToTables();
   subscribeToSummary();
   preloadMenu();
+  window.addEventListener("menu-updated", () => {
+    void preloadMenu();
+  });
   window.addEventListener("hashchange", syncDetailFromHash);
   syncDetailFromHash();
 }

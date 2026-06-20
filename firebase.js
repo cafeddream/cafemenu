@@ -99,6 +99,379 @@ export const CONFIG = {
 CONFIG.TABLES = CONFIG.TABLE_SECTIONS.flatMap((section) => section.tables);
 CONFIG.ORDER_SECTIONS = CONFIG.TABLE_SECTIONS.filter((section) => section.id !== "private-sitting");
 
+const DEFAULT_PRIVATE_SITTINGS = JSON.parse(JSON.stringify(CONFIG.PRIVATE_SITTINGS));
+const DEFAULT_TABLE_SECTIONS = JSON.parse(JSON.stringify(CONFIG.TABLE_SECTIONS));
+const DEFAULT_ALLOWED_TABLES = CONFIG.TABLES.slice();
+
+const ADMIN_UNLOCK_KEY = "cafe_admin_unlock_until";
+const ADMIN_UNLOCK_MS = 30 * 60 * 1000;
+const ADMIN_COOLDOWN_KEY = "cafe_admin_pin_cooldown_until";
+const ADMIN_FAILURES_KEY = "cafe_admin_pin_failures";
+const ADMIN_MAX_PIN_FAILURES = 5;
+const ADMIN_COOLDOWN_MS = 2 * 60 * 1000;
+
+let runtimeConfigData = null;
+let runtimeUnsubscribe = null;
+const runtimeConfigListeners = new Set();
+
+function notifyRuntimeConfigListeners() {
+  runtimeConfigListeners.forEach((listener) => {
+    try {
+      listener(runtimeConfigData);
+    } catch (error) {
+      console.warn("Runtime config listener failed:", error);
+    }
+  });
+}
+
+function rebuildConfigTables() {
+  const sections = getTableSections();
+  CONFIG.TABLE_SECTIONS = sections.map((section) => ({
+    ...section,
+    tables: [...(section.tables || [])]
+  }));
+  CONFIG.TABLES = CONFIG.TABLE_SECTIONS.flatMap((section) => section.tables);
+  CONFIG.ORDER_SECTIONS = CONFIG.TABLE_SECTIONS.filter((section) => section.id !== "private-sitting");
+}
+
+export function getPrivateSittings() {
+  return runtimeConfigData?.privateSittings?.length
+    ? runtimeConfigData.privateSittings
+    : DEFAULT_PRIVATE_SITTINGS;
+}
+
+export function getTableSections() {
+  return runtimeConfigData?.tableSections?.length
+    ? runtimeConfigData.tableSections
+    : DEFAULT_TABLE_SECTIONS;
+}
+
+export function getAllowedTables() {
+  if (Array.isArray(runtimeConfigData?.allowedTables) && runtimeConfigData.allowedTables.length) {
+    return runtimeConfigData.allowedTables;
+  }
+  return getTableSections().flatMap((section) => section.tables);
+}
+
+async function seedRuntimeConfig() {
+  await setDoc(doc(db, "appConfig", "runtime"), {
+    privateSittings: DEFAULT_PRIVATE_SITTINGS,
+    tableSections: DEFAULT_TABLE_SECTIONS,
+    allowedTables: DEFAULT_ALLOWED_TABLES,
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.email || ""
+  }, { merge: true });
+}
+
+export async function loadRuntimeConfig() {
+  const runtimeRef = doc(db, "appConfig", "runtime");
+  const snapshot = await getDoc(runtimeRef);
+  if (!snapshot.exists()) {
+    if (auth.currentUser) {
+      await seedRuntimeConfig();
+      const seeded = await getDoc(runtimeRef);
+      runtimeConfigData = seeded.exists() ? seeded.data() : null;
+    } else {
+      runtimeConfigData = null;
+    }
+  } else {
+    runtimeConfigData = snapshot.data();
+  }
+  rebuildConfigTables();
+  notifyRuntimeConfigListeners();
+  return runtimeConfigData;
+}
+
+export function subscribeRuntimeConfig(listener) {
+  if (typeof listener === "function") {
+    runtimeConfigListeners.add(listener);
+    if (runtimeConfigData) listener(runtimeConfigData);
+  }
+
+  if (!runtimeUnsubscribe) {
+    runtimeUnsubscribe = onSnapshot(doc(db, "appConfig", "runtime"), (snapshot) => {
+      runtimeConfigData = snapshot.exists() ? snapshot.data() : null;
+      rebuildConfigTables();
+      notifyRuntimeConfigListeners();
+    }, (error) => {
+      console.warn("Runtime config subscription failed:", error);
+    });
+  }
+
+  return () => {
+    if (typeof listener === "function") {
+      runtimeConfigListeners.delete(listener);
+    }
+  };
+}
+
+async function saveRuntimeConfig(payload) {
+  await setDoc(doc(db, "appConfig", "runtime"), {
+    ...payload,
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.email || ""
+  }, { merge: true });
+}
+
+function menuItemSlug(category, name) {
+  const base = `${category}-${name}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return base || `item-${Date.now()}`;
+}
+
+async function hashSecurityPin(pin) {
+  const bytes = new TextEncoder().encode(String(pin));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function getPinFailureCount() {
+  return Number(sessionStorage.getItem(ADMIN_FAILURES_KEY) || 0);
+}
+
+function recordPinFailure() {
+  const failures = getPinFailureCount() + 1;
+  sessionStorage.setItem(ADMIN_FAILURES_KEY, String(failures));
+  if (failures >= ADMIN_MAX_PIN_FAILURES) {
+    sessionStorage.setItem(ADMIN_COOLDOWN_KEY, String(Date.now() + ADMIN_COOLDOWN_MS));
+    sessionStorage.setItem(ADMIN_FAILURES_KEY, "0");
+  }
+}
+
+function clearPinFailures() {
+  sessionStorage.removeItem(ADMIN_FAILURES_KEY);
+  sessionStorage.removeItem(ADMIN_COOLDOWN_KEY);
+}
+
+export function isPinCooldownActive() {
+  const until = Number(sessionStorage.getItem(ADMIN_COOLDOWN_KEY) || 0);
+  if (!until) return false;
+  if (Date.now() < until) return true;
+  sessionStorage.removeItem(ADMIN_COOLDOWN_KEY);
+  return false;
+}
+
+export function getPinCooldownRemainingMs() {
+  const until = Number(sessionStorage.getItem(ADMIN_COOLDOWN_KEY) || 0);
+  return Math.max(0, until - Date.now());
+}
+
+export function isAdminSettingsUnlocked() {
+  const until = Number(sessionStorage.getItem(ADMIN_UNLOCK_KEY) || 0);
+  if (!until) return false;
+  if (Date.now() < until) return true;
+  sessionStorage.removeItem(ADMIN_UNLOCK_KEY);
+  return false;
+}
+
+export function unlockAdminSettings() {
+  sessionStorage.setItem(ADMIN_UNLOCK_KEY, String(Date.now() + ADMIN_UNLOCK_MS));
+}
+
+export function lockAdminSettings() {
+  sessionStorage.removeItem(ADMIN_UNLOCK_KEY);
+}
+
+export async function getSecurityConfig() {
+  const snapshot = await getDoc(doc(db, "appConfig", "security"));
+  return snapshot.exists() ? snapshot.data() : null;
+}
+
+export async function setSecurityPin(pin) {
+  const normalized = String(pin || "").trim();
+  if (!/^\d{4,8}$/.test(normalized)) {
+    throw new Error("PIN must be 4 to 8 digits");
+  }
+  await setDoc(doc(db, "appConfig", "security"), {
+    pinHash: await hashSecurityPin(normalized),
+    updatedAt: serverTimestamp(),
+    updatedBy: auth.currentUser?.email || ""
+  }, { merge: true });
+}
+
+export async function verifySecurityPin(pin) {
+  if (isPinCooldownActive()) {
+    return { ok: false, reason: "cooldown" };
+  }
+  const config = await getSecurityConfig();
+  if (!config?.pinHash) {
+    return { ok: false, reason: "not_set" };
+  }
+  const pinHash = await hashSecurityPin(String(pin || "").trim());
+  if (pinHash === config.pinHash) {
+    clearPinFailures();
+    unlockAdminSettings();
+    return { ok: true };
+  }
+  recordPinFailure();
+  return { ok: false, reason: "wrong" };
+}
+
+async function fetchMenuFromFirestore() {
+  const snapshot = await getDocs(collection(db, "menuItems"));
+  return snapshot.docs
+    .map((entry) => {
+      const data = entry.data();
+      return {
+        itemId: entry.id,
+        category: data.category,
+        name: data.name,
+        price: Number(data.price),
+        available: data.available === false ? "no" : "yes",
+        sortOrder: Number(data.sortOrder || 0)
+      };
+    })
+    .filter((item) => item.category && item.name && Number.isFinite(item.price) && item.available !== "no")
+    .sort((left, right) => {
+      const categoryCompare = String(left.category).localeCompare(String(right.category));
+      if (categoryCompare !== 0) return categoryCompare;
+      return left.sortOrder - right.sortOrder;
+    });
+}
+
+export async function listMenuItems() {
+  return fetchMenuFromFirestore();
+}
+
+export async function upsertMenuItem({ itemId, category, name, price, available = true, sortOrder = 0 }) {
+  const cleanCategory = String(category || "").trim();
+  const cleanName = String(name || "").trim();
+  const cleanPrice = Number(price);
+  if (!cleanCategory || !cleanName || !Number.isFinite(cleanPrice)) {
+    throw new Error("Category, name, and price are required");
+  }
+  const id = itemId || menuItemSlug(cleanCategory, cleanName);
+  await setDoc(doc(db, "menuItems", id), {
+    category: cleanCategory,
+    name: cleanName,
+    price: cleanPrice,
+    available: available !== false,
+    sortOrder: Number(sortOrder || 0),
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+  window.dispatchEvent(new CustomEvent("menu-updated"));
+  return id;
+}
+
+export async function updateMenuPrice(itemId, price) {
+  const cleanPrice = Number(price);
+  if (!itemId || !Number.isFinite(cleanPrice)) {
+    throw new Error("Valid item and price required");
+  }
+  await updateDoc(doc(db, "menuItems", itemId), {
+    price: cleanPrice,
+    updatedAt: serverTimestamp()
+  });
+  window.dispatchEvent(new CustomEvent("menu-updated"));
+}
+
+export async function deleteMenuItem(itemId) {
+  if (!itemId) throw new Error("Item ID required");
+  await deleteDoc(doc(db, "menuItems", itemId));
+  window.dispatchEvent(new CustomEvent("menu-updated"));
+}
+
+export async function importMenuFromSheet() {
+  const url = CONFIG.GOOGLE_SHEET_CSV_URL;
+  const isPlaceholder = !url || url.includes("PASTE_YOUR_SHEET_CSV_URL_HERE");
+  const fetchUrl = isPlaceholder ? "./sample-menu.csv" : url;
+  const response = await fetch(fetchUrl, { cache: "no-store" });
+  if (!response.ok) throw new Error("Menu import failed");
+  const items = parseMenuCsv(await response.text());
+  const batch = writeBatch(db);
+  items.forEach((item, index) => {
+    const id = menuItemSlug(item.category, item.name);
+    batch.set(doc(db, "menuItems", id), {
+      category: item.category,
+      name: item.name,
+      price: Number(item.price),
+      available: true,
+      sortOrder: index,
+      updatedAt: serverTimestamp()
+    });
+  });
+  await batch.commit();
+  writeMenuCache(items.map((item, index) => ({
+    itemId: menuItemSlug(item.category, item.name),
+    ...item,
+    sortOrder: index
+  })));
+  window.dispatchEvent(new CustomEvent("menu-updated"));
+  return items.length;
+}
+
+export async function upsertPrivateSitting({ id, ratePerHour, theme = "ps-green", wide = false }) {
+  const sittingId = String(id || "").trim();
+  const rate = Number(ratePerHour);
+  if (!sittingId || !Number.isFinite(rate)) {
+    throw new Error("Sitting ID and rate are required");
+  }
+
+  const sittings = getPrivateSittings().map((sitting) => ({ ...sitting }));
+  const existingIndex = sittings.findIndex((sitting) => sitting.id === sittingId);
+  const entry = { id: sittingId, ratePerHour: rate, theme: theme || "ps-green" };
+  if (wide) entry.wide = true;
+
+  if (existingIndex >= 0) {
+    sittings[existingIndex] = { ...sittings[existingIndex], ...entry };
+  } else {
+    sittings.push(entry);
+  }
+
+  const sections = getTableSections().map((section) => ({
+    ...section,
+    tables: [...(section.tables || [])]
+  }));
+  const privateSection = sections.find((section) => section.id === "private-sitting");
+  if (privateSection && !privateSection.tables.includes(sittingId)) {
+    privateSection.tables.push(sittingId);
+  }
+
+  await saveRuntimeConfig({
+    privateSittings: sittings,
+    tableSections: sections,
+    allowedTables: sections.flatMap((section) => section.tables)
+  });
+}
+
+export async function updateSittingRate(sittingId, ratePerHour) {
+  const existing = getPrivateSittingConfig(sittingId);
+  if (!existing) throw new Error("Sitting not found");
+  await upsertPrivateSitting({
+    id: sittingId,
+    ratePerHour,
+    theme: existing.theme,
+    wide: Boolean(existing.wide)
+  });
+}
+
+export async function deletePrivateSitting(sittingId) {
+  const cleanId = String(sittingId || "").trim();
+  if (!cleanId) throw new Error("Sitting ID required");
+
+  const activeSessions = await getDocs(query(
+    collection(db, "privateSessions"),
+    where("sittingId", "==", cleanId),
+    where("status", "==", "active")
+  ));
+  if (!activeSessions.empty) {
+    throw new Error("Cannot delete sitting with an active session");
+  }
+
+  const sittings = getPrivateSittings().filter((sitting) => sitting.id !== cleanId);
+  const sections = getTableSections().map((section) => ({
+    ...section,
+    tables: section.id === "private-sitting"
+      ? section.tables.filter((tableId) => tableId !== cleanId)
+      : [...section.tables]
+  }));
+
+  await saveRuntimeConfig({
+    privateSittings: sittings,
+    tableSections: sections,
+    allowedTables: sections.flatMap((section) => section.tables)
+  });
+}
+
 const app = initializeApp(CONFIG.FIREBASE);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
@@ -156,7 +529,7 @@ function createPrivateSessionId() {
 }
 
 export function getPrivateSittingConfig(sittingId) {
-  return CONFIG.PRIVATE_SITTINGS.find((sitting) => sitting.id === sittingId) || null;
+  return getPrivateSittings().find((sitting) => sitting.id === sittingId) || null;
 }
 
 export function buildCustomerDisplayName(customers = []) {
@@ -547,8 +920,18 @@ export function getMenuCacheSavedAt() {
   return readMenuCache()?.savedAt || null;
 }
 
-// Fetches menu data from Google Sheets, with localStorage fallback when offline.
+// Fetches menu data from Firestore first, then Google Sheets / cache fallback.
 export async function fetchMenu() {
+  try {
+    const firestoreItems = await fetchMenuFromFirestore();
+    if (firestoreItems.length) {
+      writeMenuCache(firestoreItems);
+      return firestoreItems;
+    }
+  } catch (error) {
+    console.warn("Firestore menu fetch failed:", error);
+  }
+
   const url = CONFIG.GOOGLE_SHEET_CSV_URL;
   const isPlaceholder = !url || url.includes("PASTE_YOUR_SHEET_CSV_URL_HERE");
   const fetchUrl = isPlaceholder ? "./sample-menu.csv" : url;

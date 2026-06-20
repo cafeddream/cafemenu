@@ -10,14 +10,17 @@ import {
   formatCurrency,
   formatTime,
   getPrivateSittingConfig,
+  getPrivateSittings,
   getTodayKey,
   listenToActiveOrders,
   listenToActivePrivateSessions,
   listenToPrivateSessions,
+  loadRuntimeConfig,
   maskMobile,
   recordSittingPayment,
   serverTimestamp,
   showToast,
+  subscribeRuntimeConfig,
   updatePrivateSession,
   verifyOrderPayment
 } from "./firebase.js";
@@ -35,8 +38,11 @@ import {
   setBaudRate
 } from "./printer-serial.js";
 import { printTestReceipt } from "./thermal-print.js";
+import { renderAdminSettings } from "./admin-settings.js";
 
-const PS_TABLE_IDS = new Set(CONFIG.PRIVATE_SITTINGS.map((sitting) => sitting.id));
+function getPsTableIds() {
+  return new Set(getPrivateSittings().map((sitting) => sitting.id));
+}
 
 const state = {
   activeSessions: new Map(),
@@ -440,7 +446,7 @@ function getTodaySittingRevenue() {
 }
 
 function renderStats() {
-  const total = CONFIG.PRIVATE_SITTINGS.length;
+  const total = getPrivateSittings().length;
   const occupied = state.activeSessions.size;
   const available = Math.max(0, total - occupied);
   if (elements.statsTotal) elements.statsTotal.textContent = String(total);
@@ -493,7 +499,7 @@ function sittingCardHtml(sitting) {
 
 function renderSittingGrid() {
   if (!elements.sittingGrid) return;
-  elements.sittingGrid.innerHTML = CONFIG.PRIVATE_SITTINGS.map(sittingCardHtml).join("");
+  elements.sittingGrid.innerHTML = getPrivateSittings().map(sittingCardHtml).join("");
   elements.sittingGrid.querySelectorAll("[data-sitting]").forEach((button) => {
     button.onclick = () => {
       const sittingId = button.dataset.sitting;
@@ -610,16 +616,9 @@ function renderSettings() {
       <h3>Google Sync</h3>
       <p>${syncReady ? "Check-in PDF + ID photos go to Google Drive. Checkout rebuilds the full PDF with check-out time. Redeploy Apps Script after updating private-sitting-sync.gs." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
     </section>
-    <section class="ps-settings-card">
-      <h3>Sitting Rates</h3>
-      <ul class="ps-rate-list">
-        ${CONFIG.PRIVATE_SITTINGS.map((sitting) => `
-          <li><span>${escapeHtml(sitting.id)}</span><strong>₹${sitting.ratePerHour}/hr</strong></li>
-        `).join("")}
-      </ul>
-    </section>
   `;
   refreshPrinterStatusUi();
+  void renderAdminSettings(elements.settingsPanel);
 }
 
 function renderPrivateSitting() {
@@ -693,10 +692,6 @@ async function captureIdPhotoForCustomer(side, index) {
   const photoButton = elements.checkInForm?.querySelector(
     `[data-photo-side="${side}"][data-photo-index="${index}"]`
   );
-  const originalText = photoButton?.textContent || "";
-  // #region agent log
-  fetch('http://127.0.0.1:7354/ingest/595e4a5f-c7de-4f63-b7f6-dfbd5f6735ce',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5de831'},body:JSON.stringify({sessionId:'5de831',location:'private-sitting.js:captureIdPhotoForCustomer:entry',message:'capture started',data:{side,index,originalText,buttonDisabled:photoButton?.disabled??null},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
   if (photoButton) {
     photoButton.disabled = true;
     photoButton.textContent = "Opening camera...";
@@ -711,13 +706,7 @@ async function captureIdPhotoForCustomer(side, index) {
       showToast("Camera unavailable — pick from gallery");
       dataUrl = await openGalleryPhotoPicker();
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7354/ingest/595e4a5f-c7de-4f63-b7f6-dfbd5f6735ce',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5de831'},body:JSON.stringify({sessionId:'5de831',location:'private-sitting.js:captureIdPhotoForCustomer:afterCamera',message:'camera closed',data:{hasDataUrl:Boolean(dataUrl),buttonText:photoButton?.textContent??null,buttonDisabled:photoButton?.disabled??null},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     if (!dataUrl) {
-      // #region agent log
-      fetch('http://127.0.0.1:7354/ingest/595e4a5f-c7de-4f63-b7f6-dfbd5f6735ce',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5de831'},body:JSON.stringify({sessionId:'5de831',runId:'post-fix',location:'private-sitting.js:captureIdPhotoForCustomer:earlyReturnNoData',message:'early return no dataUrl',data:{buttonText:photoButton?.textContent??null,buttonDisabled:photoButton?.disabled??null,willReset:true},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       renderCheckInForm();
       return;
     }
@@ -725,9 +714,6 @@ async function captureIdPhotoForCustomer(side, index) {
     if (photoButton) photoButton.textContent = "Compressing...";
     const compressed = await processIdPhotoDataUrl(dataUrl);
     if (!compressed) {
-      // #region agent log
-      fetch('http://127.0.0.1:7354/ingest/595e4a5f-c7de-4f63-b7f6-dfbd5f6735ce',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5de831'},body:JSON.stringify({sessionId:'5de831',runId:'post-fix',location:'private-sitting.js:captureIdPhotoForCustomer:earlyReturnNoCompress',message:'early return compress failed',data:{buttonText:photoButton?.textContent??null,buttonDisabled:photoButton?.disabled??null,willReset:true},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
       renderCheckInForm();
       return;
     }
@@ -736,9 +722,6 @@ async function captureIdPhotoForCustomer(side, index) {
     else draft.customers[idx].photoBackDataUrl = compressed;
     renderCheckInForm();
     updateCheckInPreview();
-    // #region agent log
-    fetch('http://127.0.0.1:7354/ingest/595e4a5f-c7de-4f63-b7f6-dfbd5f6735ce',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5de831'},body:JSON.stringify({sessionId:'5de831',location:'private-sitting.js:captureIdPhotoForCustomer:success',message:'capture success form rerendered',data:{side},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
-    // #endregion
   } catch (error) {
     console.warn("Photo capture failed:", error);
     showToast("Could not process photo. Try again.");
@@ -1323,15 +1306,31 @@ function subscribePrivateSitting() {
   }, () => {});
 
   listenToActiveOrders((orders) => {
-    state.tableOrders = orders.filter((order) => PS_TABLE_IDS.has(order.tableId));
+    state.tableOrders = orders.filter((order) => getPsTableIds().has(order.tableId));
     if (state.selectedSessionId && state.activeSessions.has(state.selectedSessionId)) {
       renderSessionBody(state.activeSessions.get(state.selectedSessionId));
     }
   }, () => {});
 }
 
-export function initPrivateSitting() {
+export async function initPrivateSitting() {
   initIdCropCamera();
+  try {
+    await loadRuntimeConfig();
+  } catch (error) {
+    console.warn("Runtime config load failed:", error);
+  }
+  subscribeRuntimeConfig(() => {
+    renderStats();
+    renderSittingGrid();
+    if (elements.settingsPanel?.querySelector(".admin-settings-card")) {
+      void renderAdminSettings(elements.settingsPanel);
+    }
+  });
+  window.addEventListener("runtime-config-updated", () => {
+    renderStats();
+    renderSittingGrid();
+  });
   bindPrivateSittingUi();
   subscribePrivateSitting();
   if (state.timerHandle) clearInterval(state.timerHandle);

@@ -7,7 +7,11 @@ service cloud.firestore {
     }
 
     function validTable(tableId) {
-      return tableId in [
+      let runtimePath = /databases/$(database)/documents/appConfig/runtime;
+      return (exists(runtimePath)
+        && get(runtimePath).data.allowedTables is list
+        && tableId in get(runtimePath).data.allowedTables)
+        || tableId in [
         'PS 1', 'PS 2', 'PS 3', 'PS 4', 'PS 5', 'PS 6', 'PS 7', 'PS 8', 'PS 9', 'PS 10',
         'COUNTER', 'H 1', 'H 2', 'H 3', 'H 4', 'HUT',
         'T 1', 'T 2', 'T 3', 'T 4',
@@ -130,6 +134,20 @@ service cloud.firestore {
 
     match /privateSessions/{sessionId} {
       allow read, create, update, delete: if isStaff();
+    }
+
+    match /appConfig/security {
+      allow read, write: if isStaff();
+    }
+
+    match /appConfig/runtime {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    match /menuItems/{itemId} {
+      allow read: if true;
+      allow create, update, delete: if isStaff();
     }
   }
 }

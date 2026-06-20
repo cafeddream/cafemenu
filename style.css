@@ -2603,3 +2603,173 @@ body.staff-login-active .ps-splash {
   width: 100%;
   min-height: 44px;
 }
+
+.admin-settings-card {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-settings-head h3,
+.admin-section h4 {
+  margin: 0;
+}
+
+.admin-settings-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-lock-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.16);
+  color: #fecaca;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-section {
+  display: grid;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.admin-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-edit-list {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-edit-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.admin-edit-meta {
+  display: grid;
+  gap: 2px;
+}
+
+.admin-edit-meta span {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+}
+
+.admin-edit-controls {
+  display: grid;
+  grid-template-columns: minmax(80px, 120px) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-edit-controls input,
+.admin-add-form input,
+.admin-add-form select {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: #10141c;
+  color: #f5f7fb;
+}
+
+.admin-add-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-add-form button {
+  grid-column: 1 / -1;
+}
+
+.admin-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+}
+
+.admin-danger-btn {
+  min-height: 40px;
+  padding: 8px 12px;
+}
+
+.admin-empty-note {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.admin-pin-modal {
+  z-index: 1400;
+}
+
+.admin-pin-panel {
+  width: min(100%, 420px);
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 12px;
+  background: #171b24;
+  color: #f5f7fb;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.admin-pin-help {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.admin-pin-field {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-pin-field input {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: #10141c;
+  color: #f5f7fb;
+}
+
+.admin-pin-error {
+  margin: 0;
+  color: #fecaca;
+}
+
+.admin-pin-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .admin-edit-controls,
+  .admin-add-form {
+    grid-template-columns: 1fr;
+  }
+}

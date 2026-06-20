@@ -234,9 +234,6 @@ function finishCapture(dataUrl) {
     elements.modal.hidden = true;
     elements.modal.classList.remove("modal-front");
   }
-  // #region agent log
-  fetch('http://127.0.0.1:7354/ingest/595e4a5f-c7de-4f63-b7f6-dfbd5f6735ce',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'5de831'},body:JSON.stringify({sessionId:'5de831',location:'private-sitting-camera.js:finishCapture',message:'finishCapture called',data:{hasDataUrl:Boolean(dataUrl),hasResolver:Boolean(resolve)},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
-  // #endregion
   resolve?.(dataUrl);
 }
 

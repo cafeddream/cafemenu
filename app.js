@@ -11,6 +11,7 @@ import {
   findActiveOrdersByMobile,
   formatCurrency,
   getFirebaseErrorMessage,
+  loadRuntimeConfig,
   listenToActiveOrder,
   maskMobile,
   normalizeIndianMobile,
@@ -113,6 +114,12 @@ async function init() {
   registerServiceWorker();
   elements.restaurantName.textContent = CONFIG.RESTAURANT_NAME;
 
+  try {
+    await loadRuntimeConfig();
+  } catch (error) {
+    console.warn("Runtime config load failed:", error);
+  }
+
   const params = new URLSearchParams(window.location.search);
   const tableId = params.get("table");
 
@@ -124,6 +131,9 @@ async function init() {
   state.tableId = tableId;
   elements.tableLabel.textContent = `Table ${tableId}`;
   bindEvents();
+  window.addEventListener("menu-updated", () => {
+    void loadMenu();
+  });
   state.customerProfile = readCustomerProfile();
   if (state.customerProfile) {
     fillCustomerForm(state.customerProfile);
