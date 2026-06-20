@@ -27,17 +27,7 @@ import {
 import { openAdminOrderModal } from "./admin-orders.js";
 import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, formatCheckInLabel, isValidPdfBase64, mergeCustomersWithPhotos, preloadJsPdf, withTimeout } from "./private-sitting-pdf.js";
 import { initIdCropCamera, openGalleryPhotoPicker, openIdCropCamera } from "./private-sitting-camera.js";
-import { fetchSessionPhotos, isSittingSyncConfigured, syncSittingCheckIn, syncSittingCheckout, uploadSittingPhotos } from "./sitting-sync.js";
-import {
-  connectPrinter,
-  disconnectPrinter,
-  getBaudRate,
-  getPrinterStatus,
-  isSerialSupported,
-  reconnectSavedPrinter,
-  setBaudRate
-} from "./printer-serial.js";
-import { printTestReceipt } from "./thermal-print.js";
+import { fetchSessionPhotos, syncSittingCheckIn, syncSittingCheckout, uploadSittingPhotos } from "./sitting-sync.js";
 import { renderAdminSettings } from "./admin-settings.js";
 
 function getPsTableIds() {
@@ -533,89 +523,9 @@ function renderReports() {
   `).join("");
 }
 
-function getPrinterStatusLabel(status) {
-  if (!status.supported) return "Web Serial not supported";
-  if (status.connected) {
-    const parts = [`Connected — ${status.deviceName}`, `Baud ${status.baudRate}`];
-    if (status.portInfoLabel) parts.push(status.portInfoLabel);
-    return parts.join(" · ");
-  }
-  if (status.lastError) return `Disconnected — ${status.lastError}`;
-  return "Disconnected";
-}
-
-function refreshPrinterStatusUi() {
-  const statusNode = document.querySelector("#psPrinterStatus");
-  const badgeNode = document.querySelector("#psPrinterStatusBadge");
-  const connectBtn = document.querySelector("#psPrinterConnect");
-  const reconnectBtn = document.querySelector("#psPrinterReconnect");
-  const disconnectBtn = document.querySelector("#psPrinterDisconnect");
-  const testBtn = document.querySelector("#psPrinterTest");
-  const baudSelect = document.querySelector("#psPrinterBaud");
-  const status = getPrinterStatus();
-
-  if (statusNode) {
-    statusNode.textContent = getPrinterStatusLabel(status);
-  }
-  if (badgeNode) {
-    badgeNode.classList.toggle("connected", status.connected);
-    badgeNode.classList.toggle("disconnected", !status.connected);
-    badgeNode.textContent = status.connected ? "Connected" : "Disconnected";
-  }
-  if (connectBtn) {
-    connectBtn.disabled = !status.supported || status.connected;
-  }
-  if (reconnectBtn) {
-    reconnectBtn.disabled = !status.supported || status.connected;
-  }
-  if (disconnectBtn) {
-    disconnectBtn.disabled = !status.connected;
-  }
-  if (testBtn) {
-    testBtn.disabled = !status.connected;
-  }
-  if (baudSelect && !status.connected) {
-    baudSelect.value = String(status.baudRate);
-    baudSelect.disabled = false;
-  }
-  if (baudSelect && status.connected) {
-    baudSelect.disabled = true;
-  }
-}
-
 function renderSettings() {
   if (!elements.settingsPanel) return;
-  const syncReady = isSittingSyncConfigured();
-  const serialReady = isSerialSupported();
-  const currentBaud = getBaudRate();
   elements.settingsPanel.innerHTML = `
-    <section class="ps-settings-card ps-printer-card">
-      <div class="ps-printer-head">
-        <h3>Printer (MPT-II)</h3>
-        <span class="ps-printer-badge disconnected" id="psPrinterStatusBadge">Disconnected</span>
-      </div>
-      <p class="ps-printer-help">Pair MPT-II in Bluetooth settings first (PIN 0000). Keep printer ON and in range. Use Chrome browser, not WebView.</p>
-      <p class="ps-printer-help">If connected but blank, change baud rate and reconnect.</p>
-      <label class="ps-printer-baud-field">
-        <span>Baud rate</span>
-        <select id="psPrinterBaud" ${serialReady ? "" : "disabled"}>
-          <option value="9600" ${currentBaud === 9600 ? "selected" : ""}>9600</option>
-          <option value="115200" ${currentBaud === 115200 ? "selected" : ""}>115200</option>
-          <option value="19200" ${currentBaud === 19200 ? "selected" : ""}>19200</option>
-        </select>
-      </label>
-      <p class="ps-printer-status" id="psPrinterStatus">${serialReady ? "Disconnected" : "Web Serial not supported"}</p>
-      <div class="ps-printer-actions">
-        <button class="primary-btn" id="psPrinterConnect" type="button" ${serialReady ? "" : "disabled"}>Connect Printer</button>
-        <button class="secondary-btn" id="psPrinterReconnect" type="button" ${serialReady ? "" : "disabled"}>Reconnect Saved Printer</button>
-        <button class="secondary-btn" id="psPrinterDisconnect" type="button" disabled>Disconnect</button>
-        <button class="secondary-btn" id="psPrinterTest" type="button" disabled>Test Print</button>
-      </div>
-    </section>
-    <section class="ps-settings-card">
-      <h3>Google Sync</h3>
-      <p>${syncReady ? "Check-in PDF + ID photos go to Google Drive. Checkout rebuilds the full PDF with check-out time. Redeploy Apps Script after updating private-sitting-sync.gs." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
-    </section>
     <section class="ps-settings-card admin-settings-card admin-locked" id="adminSettingsMount">
       <div class="admin-settings-head">
         <h3>Admin Configuration</h3>
@@ -624,7 +534,6 @@ function renderSettings() {
       <p>Loading admin settings...</p>
     </section>
   `;
-  refreshPrinterStatusUi();
   void renderAdminSettings(elements.settingsPanel);
 }
 
@@ -1217,82 +1126,6 @@ function bindPrivateSittingUi() {
   elements.checkoutDiscountType?.addEventListener("change", updateCheckoutDiscountDisplay);
   elements.checkoutDiscountValue?.addEventListener("input", updateCheckoutDiscountDisplay);
   window.addEventListener("ps-food-order-modal-closed", handleFoodOrderModalClosed);
-  bindPrinterSettingsUi();
-}
-
-function bindPrinterSettingsUi() {
-  if (!elements.settingsPanel) return;
-
-  elements.settingsPanel.addEventListener("change", (event) => {
-    const baudSelect = event.target.closest("#psPrinterBaud");
-    if (!baudSelect) return;
-    setBaudRate(baudSelect.value);
-    refreshPrinterStatusUi();
-  });
-
-  elements.settingsPanel.addEventListener("click", async (event) => {
-    const connectBtn = event.target.closest("#psPrinterConnect");
-    const reconnectBtn = event.target.closest("#psPrinterReconnect");
-    const disconnectBtn = event.target.closest("#psPrinterDisconnect");
-    const testBtn = event.target.closest("#psPrinterTest");
-
-    if (connectBtn) {
-      connectBtn.disabled = true;
-      try {
-        await connectPrinter({ prompt: true });
-        showToast("Printer connected.");
-      } catch (error) {
-        if (error?.name === "NotFoundError") {
-          showToast("No printer found. Pair MPT-II in Bluetooth, power ON, then try again.");
-        } else {
-          showToast(error?.message || "Could not connect printer.");
-        }
-      } finally {
-        refreshPrinterStatusUi();
-      }
-      return;
-    }
-
-    if (reconnectBtn) {
-      reconnectBtn.disabled = true;
-      try {
-        await reconnectSavedPrinter();
-        showToast("Printer reconnected.");
-      } catch (error) {
-        showToast(error?.message || "Could not reconnect printer.");
-      } finally {
-        refreshPrinterStatusUi();
-      }
-      return;
-    }
-
-    if (disconnectBtn) {
-      disconnectBtn.disabled = true;
-      try {
-        await disconnectPrinter();
-        showToast("Printer disconnected.");
-      } catch (error) {
-        showToast(error?.message || "Could not disconnect printer.");
-      } finally {
-        refreshPrinterStatusUi();
-      }
-      return;
-    }
-
-    if (testBtn) {
-      testBtn.disabled = true;
-      try {
-        await printTestReceipt();
-        showToast("Test print sent.");
-      } catch (error) {
-        showToast(error?.message || "Test print failed.");
-      } finally {
-        refreshPrinterStatusUi();
-      }
-    }
-  });
-
-  window.addEventListener("printer-status-change", refreshPrinterStatusUi);
 }
 
 function subscribePrivateSitting() {
