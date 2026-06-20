@@ -616,6 +616,13 @@ function renderSettings() {
       <h3>Google Sync</h3>
       <p>${syncReady ? "Check-in PDF + ID photos go to Google Drive. Checkout rebuilds the full PDF with check-out time. Redeploy Apps Script after updating private-sitting-sync.gs." : "Add CONFIG.APPS_SCRIPT_URL in firebase.js after deploying google-apps-script/private-sitting-sync.gs."}</p>
     </section>
+    <section class="ps-settings-card admin-settings-card admin-locked" id="adminSettingsMount">
+      <div class="admin-settings-head">
+        <h3>Admin Configuration</h3>
+        <span class="admin-lock-badge">Loading</span>
+      </div>
+      <p>Loading admin settings...</p>
+    </section>
   `;
   refreshPrinterStatusUi();
   void renderAdminSettings(elements.settingsPanel);
@@ -1323,7 +1330,7 @@ export async function initPrivateSitting() {
   subscribeRuntimeConfig(() => {
     renderStats();
     renderSittingGrid();
-    if (elements.settingsPanel?.querySelector(".admin-settings-card")) {
+    if (elements.settingsPanel?.querySelector("#adminSettingsMount")) {
       void renderAdminSettings(elements.settingsPanel);
     }
   });

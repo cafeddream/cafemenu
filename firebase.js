@@ -272,8 +272,17 @@ export function lockAdminSettings() {
 }
 
 export async function getSecurityConfig() {
-  const snapshot = await getDoc(doc(db, "appConfig", "security"));
-  return snapshot.exists() ? snapshot.data() : null;
+  try {
+    const snapshot = await getDoc(doc(db, "appConfig", "security"));
+    return snapshot.exists() ? snapshot.data() : null;
+  } catch (error) {
+    const code = String(error?.code || "");
+    if (code === "permission-denied" || code === "unavailable") {
+      console.warn("Security config unavailable:", code);
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function setSecurityPin(pin) {

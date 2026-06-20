@@ -192,7 +192,7 @@ async function submitPinModal() {
 function lockedCardHtml() {
   const cooldown = isPinCooldownActive();
   return `
-    <section class="ps-settings-card admin-settings-card admin-locked">
+    <section class="ps-settings-card admin-settings-card admin-locked" id="adminSettingsMount">
       <div class="admin-settings-head">
         <h3>Admin Configuration</h3>
         <span class="admin-lock-badge">Locked</span>
@@ -201,6 +201,18 @@ function lockedCardHtml() {
       <button class="primary-btn" type="button" data-admin-action="unlock" ${cooldown ? "disabled" : ""}>
         ${cooldown ? "PIN Cooldown Active" : "Unlock Admin Settings"}
       </button>
+    </section>
+  `;
+}
+
+function errorCardHtml() {
+  return `
+    <section class="ps-settings-card admin-settings-card admin-locked" id="adminSettingsMount">
+      <div class="admin-settings-head">
+        <h3>Admin Configuration</h3>
+        <span class="admin-lock-badge">Error</span>
+      </div>
+      <p>Could not connect to Firestore. Deploy updated firestore.rules and hard-refresh admin.</p>
     </section>
   `;
 }
@@ -239,7 +251,7 @@ function sittingRowHtml(sitting) {
 
 function unlockedCardHtml() {
   return `
-    <section class="ps-settings-card admin-settings-card">
+    <section class="ps-settings-card admin-settings-card" id="adminSettingsMount">
       <div class="admin-settings-head">
         <h3>Admin Configuration</h3>
         <div class="admin-settings-actions">
@@ -291,22 +303,36 @@ function unlockedCardHtml() {
 async function refreshAdminData() {
   state.securityConfig = await getSecurityConfig();
   if (isAdminSettingsUnlocked()) {
-    state.menuItems = await listMenuItems();
+    try {
+      state.menuItems = await listMenuItems();
+    } catch (error) {
+      console.warn("Menu items load failed:", error?.code || error?.message || error);
+      state.menuItems = [];
+    }
   }
 }
 
+function resolveSettingsPanel(container) {
+  if (!container) return document.querySelector("#psSettingsPanel");
+  if (container.id === "psSettingsPanel") return container;
+  return container.closest("#psSettingsPanel") || document.querySelector("#psSettingsPanel");
+}
+
 export async function renderAdminSettings(container) {
-  if (!container) return;
-  mountNode = container;
+  const panel = resolveSettingsPanel(container);
+  if (!panel) return;
+  mountNode = panel;
 
-  const existing = container.querySelector(".admin-settings-card");
-  if (existing) existing.remove();
+  const mount = panel.querySelector("#adminSettingsMount");
+  if (!mount) return;
 
-  await refreshAdminData();
-
-  const wrapper = document.createElement("div");
-  wrapper.innerHTML = isAdminSettingsUnlocked() ? unlockedCardHtml() : lockedCardHtml();
-  container.appendChild(wrapper.firstElementChild);
+  try {
+    await refreshAdminData();
+    mount.outerHTML = isAdminSettingsUnlocked() ? unlockedCardHtml() : lockedCardHtml();
+  } catch (error) {
+    console.warn("Admin settings render failed:", error?.code || error?.message || error);
+    mount.outerHTML = errorCardHtml();
+  }
 }
 
 function bindAdminSettingsEvents(container) {
