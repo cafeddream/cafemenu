@@ -1,6 +1,6 @@
 {
   "name": "Cafe D Dream Manager",
-  "short_name": "Manager",
+  "short_name": "Cafe D Dream",
   "start_url": "./admin.html",
   "scope": "./",
   "display": "standalone",
