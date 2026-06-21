@@ -567,6 +567,38 @@ export function tableHistoryOrderRef(tableId, orderId) {
   return doc(db, "tableHistory", tableId, "orders", orderId);
 }
 
+export function reportArchiveRef(dateKey) {
+  return doc(db, "reportArchive", dateKey);
+}
+
+export async function getReportArchiveStatus(dateKey) {
+  const snapshot = await getDoc(reportArchiveRef(dateKey));
+  if (!snapshot.exists()) {
+    return { uploaded: false, purged: false };
+  }
+  const data = snapshot.data();
+  return {
+    uploaded: Boolean(data.uploadedAt),
+    purged: Boolean(data.purgedAt),
+    driveFileId: data.driveFileId || null,
+    summary: data.summary || null
+  };
+}
+
+export async function markReportArchived(dateKey, { driveFileId, summary } = {}) {
+  await setDoc(reportArchiveRef(dateKey), {
+    uploadedAt: serverTimestamp(),
+    driveFileId: driveFileId || null,
+    summary: summary || null
+  }, { merge: true });
+}
+
+export async function markReportPurged(dateKey) {
+  await setDoc(reportArchiveRef(dateKey), {
+    purgedAt: serverTimestamp()
+  }, { merge: true });
+}
+
 export function privateSessionRef(sessionId) {
   return doc(db, "privateSessions", sessionId);
 }

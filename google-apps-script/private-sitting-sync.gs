@@ -398,8 +398,14 @@ function handleSaveSalesReport(payload) {
   const dayFolder = getOrCreateFolder_(reportsRoot, dateKey);
   const fileName = "sales-report-" + dateKey + ".pdf";
   const existing = dayFolder.getFilesByName(fileName);
-  while (existing.hasNext()) {
-    existing.next().setTrashed(true);
+  if (existing.hasNext()) {
+    const pdfFile = existing.next();
+    return {
+      ok: true,
+      skipped: true,
+      pdfUrl: pdfFile.getUrl(),
+      pdfFileId: pdfFile.getId()
+    };
   }
 
   const pdfFile = dayFolder.createFile(buildPdfBlob_(bytes, fileName));

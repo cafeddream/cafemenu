@@ -1,7 +1,10 @@
 import {
   fetchDayWiseReport,
+  getReportArchiveStatus,
   getTodayKey,
   getYesterdayKey,
+  markReportArchived,
+  markReportPurged,
   purgeReportDataForDate
 } from "./firebase.js";
 import { buildSalesReportPdfBase64 } from "./report-pdf.js";
@@ -24,23 +27,60 @@ function saveReportState(state) {
   localStorage.setItem(REPORT_STATE_KEY, JSON.stringify(state));
 }
 
-function isUploadedAndPurged(dateKey) {
-  const state = loadReportState();
-  return Boolean(state.uploaded?.[dateKey] && state.purged?.[dateKey]);
-}
-
-function markUploaded(dateKey) {
+function markUploadedLocal(dateKey) {
   const state = loadReportState();
   state.uploaded = state.uploaded || {};
   state.uploaded[dateKey] = true;
   saveReportState(state);
 }
 
-function markPurged(dateKey) {
+function markPurgedLocal(dateKey) {
   const state = loadReportState();
   state.purged = state.purged || {};
   state.purged[dateKey] = true;
   saveReportState(state);
+}
+
+async function getArchiveStatus(dateKey) {
+  try {
+    return await getReportArchiveStatus(dateKey);
+  } catch (error) {
+    console.warn("[report] Firestore archive check failed for", dateKey, error);
+    return null;
+  }
+}
+
+async function isUploadedAndPurged(dateKey) {
+  const archive = await getArchiveStatus(dateKey);
+  if (archive?.uploaded && archive?.purged) {
+    markUploadedLocal(dateKey);
+    markPurgedLocal(dateKey);
+    return true;
+  }
+
+  const state = loadReportState();
+  return Boolean(state.uploaded?.[dateKey] && state.purged?.[dateKey]);
+}
+
+async function isAlreadyUploaded(dateKey) {
+  const archive = await getArchiveStatus(dateKey);
+  if (archive?.uploaded) {
+    markUploadedLocal(dateKey);
+    if (archive.purged) markPurgedLocal(dateKey);
+    return true;
+  }
+
+  return Boolean(loadReportState().uploaded?.[dateKey]);
+}
+
+async function isAlreadyPurged(dateKey) {
+  const archive = await getArchiveStatus(dateKey);
+  if (archive?.purged) {
+    markPurgedLocal(dateKey);
+    return true;
+  }
+
+  return Boolean(loadReportState().purged?.[dateKey]);
 }
 
 function pickSummary(report) {
@@ -51,6 +91,11 @@ function pickSummary(report) {
     voidOrderCount: report.voidOrderCount || 0,
     voidOrderGross: report.voidOrderGross ?? report.voidOrderAmount ?? 0
   };
+}
+
+function isReportEmpty(report) {
+  const paidOrderCount = report.paidOrderCount ?? report.totalOrders ?? 0;
+  return paidOrderCount === 0 && Number(report.total || 0) === 0;
 }
 
 function msUntilNextMidnight() {
@@ -67,17 +112,43 @@ function scheduleNextMidnight(callback) {
   }, msUntilNextMidnight());
 }
 
+async function recordSuccessfulUpload(dateKey, result, summary) {
+  await markReportArchived(dateKey, {
+    driveFileId: result.pdfFileId || null,
+    summary
+  });
+  markUploadedLocal(dateKey);
+}
+
+async function uploadReportToDrive(dateKey, report) {
+  const summary = pickSummary(report);
+  const pdfBase64 = await buildSalesReportPdfBase64(report);
+  const result = await syncSalesReportToDrive({ dateKey, pdfBase64, summary });
+  if (!result?.ok) {
+    throw new Error(result?.error || "Drive upload failed");
+  }
+  await recordSuccessfulUpload(dateKey, result, summary);
+  if (result.skipped) {
+    console.info("[report] Drive already has sales report for", dateKey);
+  } else {
+    console.info("[report] Uploaded sales report to Drive for", dateKey);
+  }
+  return result;
+}
+
 async function retryPendingPurges() {
   const state = loadReportState();
   const uploaded = state.uploaded || {};
-  const purged = state.purged || {};
   const todayKey = getTodayKey();
 
   for (const dateKey of Object.keys(uploaded)) {
-    if (purged[dateKey] || dateKey >= todayKey) continue;
+    if (dateKey >= todayKey) continue;
+    if (await isAlreadyPurged(dateKey)) continue;
+
     try {
       await purgeReportDataForDate(dateKey);
-      markPurged(dateKey);
+      await markReportPurged(dateKey);
+      markPurgedLocal(dateKey);
       console.info("[report] Purged Firebase data for", dateKey);
     } catch (error) {
       console.warn("[report] Purge retry failed for", dateKey, error);
@@ -87,34 +158,30 @@ async function retryPendingPurges() {
 
 export async function runDailyReportForDate(dateKey) {
   if (!dateKey || dateKey >= getTodayKey()) return;
-  if (isUploadedAndPurged(dateKey)) return;
+  if (await isUploadedAndPurged(dateKey)) return;
   if (!isReportSyncConfigured()) return;
   if (runningDateKey === dateKey) return;
 
   runningDateKey = dateKey;
   try {
-    const state = loadReportState();
-    const alreadyUploaded = Boolean(state.uploaded?.[dateKey]);
+    const alreadyUploaded = await isAlreadyUploaded(dateKey);
 
     if (!alreadyUploaded) {
       preloadJsPdf();
       const report = await fetchDayWiseReport(dateKey, dateKey);
-      const pdfBase64 = await buildSalesReportPdfBase64(report);
-      const result = await syncSalesReportToDrive({
-        dateKey,
-        pdfBase64,
-        summary: pickSummary(report)
-      });
-      if (!result?.ok) {
-        throw new Error(result?.error || "Drive upload failed");
+
+      if (isReportEmpty(report)) {
+        console.warn("[report] Skipping empty report for", dateKey, "— data may already be archived");
+        return;
       }
-      markUploaded(dateKey);
-      console.info("[report] Uploaded sales report to Drive for", dateKey);
+
+      await uploadReportToDrive(dateKey, report);
     }
 
-    if (!loadReportState().purged?.[dateKey]) {
+    if (!(await isAlreadyPurged(dateKey))) {
       await purgeReportDataForDate(dateKey);
-      markPurged(dateKey);
+      await markReportPurged(dateKey);
+      markPurgedLocal(dateKey);
       console.info("[report] Purged Firebase data for", dateKey);
     }
   } finally {

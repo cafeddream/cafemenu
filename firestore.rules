@@ -149,5 +149,9 @@ service cloud.firestore {
       allow read: if true;
       allow create, update, delete: if isStaff();
     }
+
+    match /reportArchive/{dateKey} {
+      allow read, write: if isStaff();
+    }
   }
 }
