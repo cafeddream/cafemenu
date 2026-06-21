@@ -49,7 +49,7 @@ function setActiveTab(tabId) {
   closeManagerMenu();
 
   if (tabId === "dashboard" || tabId === "sittings" || tabId === "reports" || tabId === "settings") {
-    refreshPrivateSittingView();
+    refreshPrivateSittingView(tabId);
   }
 }
 
@@ -109,7 +109,7 @@ function startManagerApp() {
     }
     bindShellUi();
     const sittingRoute = /^#\/sitting\/[^/]+$/i.test(location.hash);
-    setActiveTab(sittingRoute ? "orders" : "orders");
+    setActiveTab(sittingRoute ? "sittings" : "orders");
     initPrivateSitting();
     initAdminOrders();
     initExpenses();

@@ -779,6 +779,22 @@ export function listenToPrivateSessions(callback, onError) {
   }, onError);
 }
 
+export function listenToRecentCompletedPrivateSessions(limitCount = 40, callback, onError) {
+  const capped = Math.max(1, Math.min(limitCount, 100));
+  const sessionsQuery = query(
+    collection(db, "privateSessions"),
+    where("status", "==", "completed"),
+    limit(capped)
+  );
+  return onSnapshot(sessionsQuery, (snapshot) => {
+    const sessions = snapshot.docs
+      .map((sessionDoc) => ({ id: sessionDoc.id, ...sessionDoc.data() }))
+      .sort((a, b) => (b.checkOutAt?.toMillis?.() || 0) - (a.checkOutAt?.toMillis?.() || 0))
+      .slice(0, capped);
+    callback(sessions);
+  }, onError);
+}
+
 // Generates a stable order id for paid history and daily collection records.
 function createOrderId(tableId) {
   if (crypto.randomUUID) return crypto.randomUUID();
@@ -1799,10 +1815,59 @@ export function listenToActiveOrder(orderId, callback, onError) {
   }, onError);
 }
 
+let activeOrdersSnapshot = [];
+let activeOrdersUnsubscribe = null;
+const activeOrdersListeners = new Set();
+const activeOrdersErrorHandlers = new Set();
+
+function notifyActiveOrdersListeners() {
+  activeOrdersListeners.forEach((listener) => {
+    try {
+      listener(activeOrdersSnapshot);
+    } catch (error) {
+      console.warn("Active orders listener failed:", error);
+    }
+  });
+}
+
+export function subscribeActiveOrders(listener, onError) {
+  if (typeof listener === "function") {
+    activeOrdersListeners.add(listener);
+    if (activeOrdersUnsubscribe) {
+      listener(activeOrdersSnapshot);
+    }
+  }
+  if (typeof onError === "function") {
+    activeOrdersErrorHandlers.add(onError);
+  }
+
+  if (!activeOrdersUnsubscribe) {
+    activeOrdersUnsubscribe = onSnapshot(collection(db, "activeOrders"), (snapshot) => {
+      activeOrdersSnapshot = snapshot.docs.map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() }));
+      notifyActiveOrdersListeners();
+    }, (error) => {
+      activeOrdersErrorHandlers.forEach((handler) => {
+        try {
+          handler(error);
+        } catch {
+          // Ignore handler failures.
+        }
+      });
+    });
+  }
+
+  return () => {
+    if (typeof listener === "function") {
+      activeOrdersListeners.delete(listener);
+    }
+    if (typeof onError === "function") {
+      activeOrdersErrorHandlers.delete(onError);
+    }
+  };
+}
+
 export function listenToActiveOrders(callback, onError) {
-  return onSnapshot(collection(db, "activeOrders"), (snapshot) => {
-    callback(snapshot.docs.map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() })));
-  }, onError);
+  return subscribeActiveOrders(callback, onError);
 }
 
 // Updates one order status in Firestore.

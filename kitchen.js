@@ -3,7 +3,7 @@ import {
   escapeHtml,
   formatKitchenTimer,
   getKitchenTimerState,
-  listenToActiveOrders,
+  subscribeActiveOrders,
   markOrderItemsServed,
   registerServiceWorker,
   showToast,
@@ -387,7 +387,7 @@ function bindKitchenItemDetails(card) {
 
 // Listens to every table and keeps only cooking-relevant orders.
 function subscribeToActiveOrders() {
-  listenToActiveOrders((orders) => {
+  subscribeActiveOrders((orders) => {
     const previousVisible = new Set(state.visibleIds);
     state.orders.clear();
     state.visibleIds.clear();

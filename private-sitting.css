@@ -119,7 +119,7 @@
 }
 
 .ps-manager-main {
-  padding: 0 0 78px;
+  padding: 0 0 calc(78px + env(safe-area-inset-bottom));
 }
 
 body[data-active-tab="orders"] .ps-manager-main {
@@ -133,9 +133,9 @@ body[data-active-tab="orders"] .ps-manager-main {
   bottom: 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 4px;
-  padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   background: rgba(10, 12, 17, 0.98);
   border-top: 1px solid var(--ps-line);
 }
@@ -144,11 +144,11 @@ body[data-active-tab="orders"] .ps-manager-main {
   display: grid;
   gap: 2px;
   justify-items: center;
-  padding: 6px 4px;
+  padding: 6px 2px;
   border-radius: 12px;
   background: transparent;
   color: var(--ps-muted);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 800;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -1549,4 +1549,82 @@ body[data-active-tab="orders"] .ps-manager-main {
   color: #8ce8b8;
   font-weight: 700;
   text-decoration: none;
+}
+
+.ps-manager-page .payment-method-modal,
+.ps-manager-page .share-receipt-modal,
+.ps-manager-page .staff-login-modal {
+  width: min(100%, 520px);
+  max-height: 90vh;
+  overflow: auto;
+  background: #171b24;
+  color: var(--ps-text);
+}
+
+.ps-manager-page .payment-method-modal .modal-head,
+.ps-manager-page .share-receipt-modal .modal-head,
+.ps-manager-page .staff-login-modal .modal-head {
+  border-bottom-color: var(--ps-line);
+}
+
+.ps-manager-page .payment-method-modal .modal-head h2,
+.ps-manager-page .share-receipt-modal .modal-head h2,
+.ps-manager-page .staff-login-modal .modal-head h2 {
+  color: var(--ps-text);
+}
+
+.ps-manager-page .payment-method-body,
+.ps-manager-page .share-receipt-body,
+.ps-manager-page .staff-login-form {
+  color: var(--ps-text);
+}
+
+.ps-manager-page .payment-method-body p,
+.ps-manager-page .payment-method-body .select-label,
+.ps-manager-page .share-receipt-phone-field span,
+.ps-manager-page .staff-login-form .subtle,
+.ps-manager-page .staff-login-form .select-label {
+  color: var(--ps-muted);
+}
+
+.ps-manager-page .payment-method-body p strong,
+.ps-manager-page .discount-final {
+  color: var(--ps-text);
+}
+
+.ps-manager-page .payment-method-body .table-select,
+.ps-manager-page .share-receipt-phone-row input,
+.ps-manager-page .staff-login-input,
+.ps-manager-page .void-order-remarks {
+  background: var(--ps-panel-soft);
+  border-color: var(--ps-line);
+  color: var(--ps-text);
+}
+
+.ps-manager-page .share-receipt-country {
+  background: var(--ps-panel-soft);
+  border: 1px solid var(--ps-line);
+  color: var(--ps-text);
+}
+
+.ps-manager-page .share-receipt-preview {
+  border-color: var(--ps-line);
+  background: var(--ps-panel-soft);
+}
+
+.ps-manager-page .share-receipt-help {
+  color: var(--ps-muted);
+}
+
+.ps-manager-page .pending-customer-panel {
+  border-top-color: var(--ps-line);
+}
+
+.ps-manager-page .staff-login-error {
+  color: #ff8f8f;
+}
+
+.ps-manager-page .staff-auth-boot {
+  background: #10141c;
+  color: #f5f7fb;
 }

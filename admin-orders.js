@@ -9,8 +9,7 @@ import {
   formatCurrency,
   formatTableDisplayName,
   formatTime,
-  listenToActiveOrders,
-  listenToTodaySummary,
+  subscribeActiveOrders,
   markOrderCreditPending,
   maskMobile,
   normalizeCreditCustomer,
@@ -77,7 +76,6 @@ const elements = {
   restaurant: document.querySelector("#adminRestaurant"),
   clock: document.querySelector("#managerClock") || document.querySelector("#clock"),
   activeTables: document.querySelector("#activeTables"),
-  todayCollection: document.querySelector("#todayCollection"),
   tableGrid: document.querySelector("#psOrdersGrid"),
   tableDetail: document.querySelector("#psTableDetail"),
   categoryTabs: document.querySelector("#adminCategoryTabs"),
@@ -103,7 +101,6 @@ const elements = {
   voidOrderRemarks: document.querySelector("#voidOrderRemarks"),
   voidOrderBackBtn: document.querySelector("#voidOrderBackBtn"),
   voidOrderConfirmBtn: document.querySelector("#voidOrderConfirmBtn"),
-  paymentMethodActions: document.querySelector("#paymentMethodActions"),
   adminOrderModal: document.querySelector("#adminOrderModal"),
   closeAdminOrder: document.querySelector("#closeAdminOrder"),
   adminOrderTitle: document.querySelector("#adminOrderTitle"),
@@ -137,7 +134,6 @@ function startAdminApp() {
   renderEmptyCards();
   startClock();
   subscribeToTables();
-  subscribeToSummary();
   preloadMenu();
   window.addEventListener("menu-updated", () => {
     void preloadMenu();
@@ -211,7 +207,7 @@ function renderEmptyCards() {
 }
 
 function subscribeToTables() {
-  listenToActiveOrders((orders) => {
+  subscribeActiveOrders((orders) => {
     const previousOrderIds = new Set(state.previousOrderIds);
     const previousPendingItemKeys = new Set(state.previousPendingItemKeys);
     const notifications = [];
@@ -241,12 +237,6 @@ function subscribeToTables() {
     const flashedTable = flashedOrder?.tableId || null;
     notifications.forEach(({ order, isNewOrder }) => notifyAdminOrder(order, isNewOrder));
     renderTables(flashedTable);
-  }, () => showToast("Connection error, please refresh"));
-}
-
-function subscribeToSummary() {
-  listenToTodaySummary((summary) => {
-    elements.todayCollection.textContent = `Today's Collection: ${formatCurrency(summary.total || 0)}`;
   }, () => showToast("Connection error, please refresh"));
 }
 

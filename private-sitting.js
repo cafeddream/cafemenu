@@ -12,14 +12,14 @@ import {
   getPrivateSittingConfig,
   getPrivateSittings,
   getTodayKey,
-  listenToActiveOrders,
   listenToActivePrivateSessions,
-  listenToPrivateSessions,
+  listenToRecentCompletedPrivateSessions,
   loadRuntimeConfig,
   maskMobile,
   recordSittingPayment,
   serverTimestamp,
   showToast,
+  subscribeActiveOrders,
   subscribeRuntimeConfig,
   updatePrivateSession,
   verifyOrderPayment
@@ -45,7 +45,9 @@ const state = {
   checkoutDraft: null,
   checkoutSubmitting: false,
   foodOrderReturnSessionId: null,
-  timerHandle: null
+  timerHandle: null,
+  completedSessionsUnsubscribe: null,
+  settingsMounted: false
 };
 
 const elements = {
@@ -398,6 +400,40 @@ function formatDobLabel(value = "") {
   return date.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function isManagerTabActive(tabId) {
+  return document.body.dataset.activeTab === tabId;
+}
+
+function ensureCompletedSessionsListener() {
+  if (state.completedSessionsUnsubscribe) return;
+  state.completedSessionsUnsubscribe = listenToRecentCompletedPrivateSessions(80, (sessions) => {
+    state.allSessions = sessions;
+    if (isManagerTabActive("dashboard")) {
+      renderStats();
+    }
+    if (isManagerTabActive("reports")) {
+      renderReports();
+    }
+  }, () => showToast("Sitting reports connection error"));
+}
+
+function onActiveSessionsChanged() {
+  renderSittingGrid();
+  if (isManagerTabActive("dashboard")) {
+    renderStats();
+    renderActiveCustomers();
+  }
+  if (state.selectedSessionId && state.activeSessions.has(state.selectedSessionId)) {
+    renderSessionBody(state.activeSessions.get(state.selectedSessionId));
+  }
+}
+
+function onPsTableOrdersChanged() {
+  if (state.selectedSessionId && state.activeSessions.has(state.selectedSessionId)) {
+    renderSessionBody(state.activeSessions.get(state.selectedSessionId));
+  }
+}
+
 function getCheckInMs(session) {
   return session?.checkInAt?.toMillis?.() || Date.now();
 }
@@ -525,24 +561,47 @@ function renderReports() {
 
 function renderSettings() {
   if (!elements.settingsPanel) return;
-  elements.settingsPanel.innerHTML = `
-    <section class="ps-settings-card admin-settings-card admin-locked" id="adminSettingsMount">
-      <div class="admin-settings-head">
-        <h3>Admin Configuration</h3>
-        <span class="admin-lock-badge">Loading</span>
-      </div>
-      <p>Loading admin settings...</p>
-    </section>
-  `;
+  if (!state.settingsMounted) {
+    elements.settingsPanel.innerHTML = `
+      <section class="ps-settings-card admin-settings-card admin-locked" id="adminSettingsMount">
+        <div class="admin-settings-head">
+          <h3>Admin Configuration</h3>
+          <span class="admin-lock-badge">Loading</span>
+        </div>
+        <p>Loading admin settings...</p>
+      </section>
+    `;
+    state.settingsMounted = true;
+  }
   void renderAdminSettings(elements.settingsPanel);
 }
 
 function renderPrivateSitting() {
-  renderStats();
-  renderActiveCustomers();
   renderSittingGrid();
-  renderReports();
-  renderSettings();
+  if (isManagerTabActive("dashboard")) {
+    renderStats();
+    renderActiveCustomers();
+  }
+  if (isManagerTabActive("reports")) {
+    renderReports();
+  }
+  if (isManagerTabActive("settings")) {
+    renderSettings();
+  }
+}
+
+function subscribePrivateSitting() {
+  listenToActivePrivateSessions((sessions) => {
+    state.activeSessions = new Map(
+      sessions.map((session) => [session.sessionId || session.id, session])
+    );
+    onActiveSessionsChanged();
+  }, () => showToast("Private sitting connection error"));
+
+  subscribeActiveOrders((orders) => {
+    state.tableOrders = orders.filter((order) => getPsTableIds().has(order.tableId));
+    onPsTableOrdersChanged();
+  }, () => {});
 }
 
 function photoPreviewHtml(dataUrl, label) {
@@ -1128,31 +1187,6 @@ function bindPrivateSittingUi() {
   window.addEventListener("ps-food-order-modal-closed", handleFoodOrderModalClosed);
 }
 
-function subscribePrivateSitting() {
-  listenToActivePrivateSessions((sessions) => {
-    state.activeSessions = new Map(
-      sessions.map((session) => [session.sessionId || session.id, session])
-    );
-    renderPrivateSitting();
-    if (state.selectedSessionId && state.activeSessions.has(state.selectedSessionId)) {
-      renderSessionBody(state.activeSessions.get(state.selectedSessionId));
-    }
-  }, () => showToast("Private sitting connection error"));
-
-  listenToPrivateSessions((sessions) => {
-    state.allSessions = sessions;
-    renderStats();
-    renderReports();
-  }, () => {});
-
-  listenToActiveOrders((orders) => {
-    state.tableOrders = orders.filter((order) => getPsTableIds().has(order.tableId));
-    if (state.selectedSessionId && state.activeSessions.has(state.selectedSessionId)) {
-      renderSessionBody(state.activeSessions.get(state.selectedSessionId));
-    }
-  }, () => {});
-}
-
 export async function initPrivateSitting() {
   initIdCropCamera();
   try {
@@ -1161,23 +1195,44 @@ export async function initPrivateSitting() {
     console.warn("Runtime config load failed:", error);
   }
   subscribeRuntimeConfig(() => {
-    renderStats();
     renderSittingGrid();
-    if (elements.settingsPanel?.querySelector("#adminSettingsMount")) {
+    if (isManagerTabActive("dashboard")) {
+      renderStats();
+    }
+    if (isManagerTabActive("settings") && state.settingsMounted) {
       void renderAdminSettings(elements.settingsPanel);
     }
   });
   window.addEventListener("runtime-config-updated", () => {
-    renderStats();
     renderSittingGrid();
+    if (isManagerTabActive("dashboard")) {
+      renderStats();
+    }
   });
   bindPrivateSittingUi();
   subscribePrivateSitting();
   if (state.timerHandle) clearInterval(state.timerHandle);
   state.timerHandle = setInterval(updateLiveTimers, 1000);
-  renderPrivateSitting();
+  renderSittingGrid();
 }
 
-export function refreshPrivateSittingView() {
-  renderPrivateSitting();
+export function refreshPrivateSittingView(tabId = document.body.dataset.activeTab || "orders") {
+  if (tabId === "dashboard") {
+    ensureCompletedSessionsListener();
+    renderStats();
+    renderActiveCustomers();
+    return;
+  }
+  if (tabId === "sittings") {
+    renderSittingGrid();
+    return;
+  }
+  if (tabId === "reports") {
+    ensureCompletedSessionsListener();
+    renderReports();
+    return;
+  }
+  if (tabId === "settings") {
+    renderSettings();
+  }
 }
