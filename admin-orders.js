@@ -274,16 +274,6 @@ function getSectionTabIcon(sectionId) {
   return SECTION_TAB_ICONS[sectionId] || "";
 }
 
-function formatTableDisplayName(tableId) {
-  const raw = String(tableId || "").trim();
-  if (!raw.includes(" ")) return raw;
-  const parts = raw.split(/\s+/);
-  if (parts.length === 2 && /^\d+$/.test(parts[1])) {
-    return `${parts[0]}${parts[1]}`;
-  }
-  return raw.replace(/\s+/g, "");
-}
-
 function tableIdFromDisplayName(displayName) {
   const key = String(displayName || "").trim();
   return CONFIG.TABLES.find((id) => formatTableDisplayName(id) === key) || null;

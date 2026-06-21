@@ -106,21 +106,29 @@ function hideSplash() {
 }
 
 function startManagerApp() {
-  if (elements.restaurant) {
-    elements.restaurant.textContent = CONFIG.RESTAURANT_NAME;
+  try {
+    if (elements.restaurant) {
+      elements.restaurant.textContent = CONFIG.RESTAURANT_NAME;
+    }
+    bindShellUi();
+    const sittingRoute = /^#\/sitting\/[^/]+$/i.test(location.hash);
+    setActiveTab(sittingRoute ? "orders" : "orders");
+    initPrivateSitting();
+    initAdminOrders();
+    initExpenses();
+    startDailyReportScheduler();
+  } catch (error) {
+    console.error("Manager app init failed:", error);
+  } finally {
+    hideSplash();
   }
-  bindShellUi();
-  const sittingRoute = /^#\/sitting\/[^/]+$/i.test(location.hash);
-  setActiveTab(sittingRoute ? "orders" : "orders");
-  initPrivateSitting();
-  initAdminOrders();
-  initExpenses();
-  startDailyReportScheduler();
-  hideSplash();
 }
 
 function init() {
-  requireStaffAuth(startManagerApp);
+  requireStaffAuth(startManagerApp).catch((error) => {
+    console.error("Staff auth failed:", error);
+    hideSplash();
+  });
 }
 
 init();
