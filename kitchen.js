@@ -396,6 +396,7 @@ function subscribeToActiveOrders() {
       const pendingItems = getPendingItems(order.items || []);
       const isActive = ["new", "preparing"].includes(order.status)
         && (order.paymentStatus === "verified_paid"
+          || order.paymentStatus === "credit_pending"
           || order.paymentStatus === "session_hold"
           || order.paymentStatus === "voided")
         && pendingItems.length > 0;
