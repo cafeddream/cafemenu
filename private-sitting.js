@@ -13,7 +13,6 @@ import {
   getPrivateSittings,
   getTodayKey,
   listenToActivePrivateSessions,
-  listenToRecentCompletedPrivateSessions,
   loadRuntimeConfig,
   maskMobile,
   recordSittingPayment,
@@ -36,7 +35,6 @@ function getPsTableIds() {
 
 const state = {
   activeSessions: new Map(),
-  allSessions: [],
   tableOrders: [],
   selectedSittingId: null,
   selectedSessionId: null,
@@ -46,18 +44,11 @@ const state = {
   checkoutSubmitting: false,
   foodOrderReturnSessionId: null,
   timerHandle: null,
-  completedSessionsUnsubscribe: null,
   settingsMounted: false
 };
 
 const elements = {
-  statsTotal: document.querySelector("#psStatTotal"),
-  statsOccupied: document.querySelector("#psStatOccupied"),
-  statsAvailable: document.querySelector("#psStatAvailable"),
-  statsRevenue: document.querySelector("#psStatRevenue"),
-  activeList: document.querySelector("#psActiveList"),
   sittingGrid: document.querySelector("#psSittingGrid"),
-  reportsList: document.querySelector("#psReportsList"),
   settingsPanel: document.querySelector("#psSettingsPanel"),
   checkInModal: document.querySelector("#psCheckInModal"),
   checkInTitle: document.querySelector("#psCheckInTitle"),
@@ -404,25 +395,8 @@ function isManagerTabActive(tabId) {
   return document.body.dataset.activeTab === tabId;
 }
 
-function ensureCompletedSessionsListener() {
-  if (state.completedSessionsUnsubscribe) return;
-  state.completedSessionsUnsubscribe = listenToRecentCompletedPrivateSessions(80, (sessions) => {
-    state.allSessions = sessions;
-    if (isManagerTabActive("dashboard")) {
-      renderStats();
-    }
-    if (isManagerTabActive("reports")) {
-      renderReports();
-    }
-  }, () => showToast("Sitting reports connection error"));
-}
-
 function onActiveSessionsChanged() {
   renderSittingGrid();
-  if (isManagerTabActive("dashboard")) {
-    renderStats();
-    renderActiveCustomers();
-  }
   if (state.selectedSessionId && state.activeSessions.has(state.selectedSessionId)) {
     renderSessionBody(state.activeSessions.get(state.selectedSessionId));
   }
@@ -459,53 +433,6 @@ function getSessionFoodOrders(session) {
   return filterSessionFoodOrders(state.tableOrders, sessionId, session.sittingId);
 }
 
-function getTodaySittingRevenue() {
-  const today = getTodayKey();
-  return state.allSessions
-    .filter((session) => session.status === "completed")
-    .filter((session) => {
-      const outMs = session.checkOutAt?.toMillis?.() || 0;
-      if (!outMs) return false;
-      return getTodayKey(new Date(outMs)) === today;
-    })
-    .reduce((sum, session) => sum + Number(session.grandTotal ?? session.billedAmount ?? 0), 0);
-}
-
-function renderStats() {
-  const total = getPrivateSittings().length;
-  const occupied = state.activeSessions.size;
-  const available = Math.max(0, total - occupied);
-  if (elements.statsTotal) elements.statsTotal.textContent = String(total);
-  if (elements.statsOccupied) elements.statsOccupied.textContent = String(occupied).padStart(2, "0");
-  if (elements.statsAvailable) elements.statsAvailable.textContent = String(available).padStart(2, "0");
-  if (elements.statsRevenue) elements.statsRevenue.textContent = formatCurrency(getTodaySittingRevenue());
-}
-
-function renderActiveCustomers() {
-  if (!elements.activeList) return;
-  const sessions = [...state.activeSessions.values()].sort((a, b) => getCheckInMs(a) - getCheckInMs(b));
-  if (!sessions.length) {
-    elements.activeList.innerHTML = `<p class="ps-empty-note">No active customers right now.</p>`;
-    return;
-  }
-
-  elements.activeList.innerHTML = sessions.map((session) => {
-    const elapsed = formatDuration(Date.now() - getCheckInMs(session));
-    return `
-      <button class="ps-active-row" type="button" data-session="${escapeHtml(session.sessionId || session.id)}">
-        <span class="ps-active-sitting">${escapeHtml(session.sittingId)}</span>
-        <span class="ps-active-names">${escapeHtml(session.displayName || "Guests")}</span>
-        <span class="ps-active-meta">${escapeHtml(maskMobile(session.mobile || ""))} · ${escapeHtml(formatTime(session.checkInAt))}</span>
-        <strong class="ps-active-timer" data-checkin="${getCheckInMs(session)}">${elapsed}</strong>
-      </button>
-    `;
-  }).join("");
-
-  elements.activeList.querySelectorAll("[data-session]").forEach((button) => {
-    button.onclick = () => openSessionModal(button.dataset.session);
-  });
-}
-
 function sittingCardHtml(sitting) {
   const session = getSessionForSitting(sitting.id);
   const occupied = Boolean(session);
@@ -536,29 +463,6 @@ function renderSittingGrid() {
   });
 }
 
-function renderReports() {
-  if (!elements.reportsList) return;
-  const rows = [...state.allSessions]
-    .filter((session) => session.status === "completed")
-    .sort((a, b) => (b.checkOutAt?.toMillis?.() || 0) - (a.checkOutAt?.toMillis?.() || 0))
-    .slice(0, 40);
-
-  if (!rows.length) {
-    elements.reportsList.innerHTML = `<p class="ps-empty-note">No completed sitting sessions yet.</p>`;
-    return;
-  }
-
-  elements.reportsList.innerHTML = rows.map((session) => `
-    <article class="ps-report-row">
-      <div>
-        <strong>${escapeHtml(session.sittingId)} · ${escapeHtml(session.displayName || "Guests")}</strong>
-        <span>${escapeHtml(formatTime(session.checkInAt))} - ${escapeHtml(formatTime(session.checkOutAt))}</span>
-      </div>
-      <strong>${formatCurrency(session.grandTotal ?? session.billedAmount ?? 0)}</strong>
-    </article>
-  `).join("");
-}
-
 function renderSettings() {
   if (!elements.settingsPanel) return;
   if (!state.settingsMounted) {
@@ -574,20 +478,6 @@ function renderSettings() {
     state.settingsMounted = true;
   }
   void renderAdminSettings(elements.settingsPanel);
-}
-
-function renderPrivateSitting() {
-  renderSittingGrid();
-  if (isManagerTabActive("dashboard")) {
-    renderStats();
-    renderActiveCustomers();
-  }
-  if (isManagerTabActive("reports")) {
-    renderReports();
-  }
-  if (isManagerTabActive("settings")) {
-    renderSettings();
-  }
 }
 
 function subscribePrivateSitting() {
@@ -1157,7 +1047,7 @@ async function confirmCheckout(method) {
 }
 
 function updateLiveTimers() {
-  document.querySelectorAll(".ps-active-timer, .ps-session-timer").forEach((node) => {
+  document.querySelectorAll(".ps-session-timer").forEach((node) => {
     const checkInMs = Number(node.dataset.checkin || 0);
     if (!checkInMs) return;
     node.textContent = formatDuration(Date.now() - checkInMs);
@@ -1196,18 +1086,12 @@ export async function initPrivateSitting() {
   }
   subscribeRuntimeConfig(() => {
     renderSittingGrid();
-    if (isManagerTabActive("dashboard")) {
-      renderStats();
-    }
     if (isManagerTabActive("settings") && state.settingsMounted) {
       void renderAdminSettings(elements.settingsPanel);
     }
   });
   window.addEventListener("runtime-config-updated", () => {
     renderSittingGrid();
-    if (isManagerTabActive("dashboard")) {
-      renderStats();
-    }
   });
   bindPrivateSittingUi();
   subscribePrivateSitting();
@@ -1217,19 +1101,8 @@ export async function initPrivateSitting() {
 }
 
 export function refreshPrivateSittingView(tabId = document.body.dataset.activeTab || "orders") {
-  if (tabId === "dashboard") {
-    ensureCompletedSessionsListener();
-    renderStats();
-    renderActiveCustomers();
-    return;
-  }
   if (tabId === "sittings") {
     renderSittingGrid();
-    return;
-  }
-  if (tabId === "reports") {
-    ensureCompletedSessionsListener();
-    renderReports();
     return;
   }
   if (tabId === "settings") {

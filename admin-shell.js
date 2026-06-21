@@ -11,8 +11,6 @@ const elements = {
   menuBtn: document.querySelector("#managerMenuBtn"),
   menuDropdown: document.querySelector("#managerMenuDropdown"),
   headerMenu: document.querySelector(".ps-header-menu"),
-  drawerExpensesBtn: document.querySelector("#drawerExpensesBtn"),
-  drawerSettingsBtn: document.querySelector("#drawerSettingsBtn"),
   views: document.querySelectorAll("[data-ps-view]"),
   navButtons: document.querySelectorAll("[data-ps-tab]"),
   splash: document.querySelector("#psSplash")
@@ -48,7 +46,7 @@ function setActiveTab(tabId) {
   document.body.dataset.activeTab = tabId;
   closeManagerMenu();
 
-  if (tabId === "dashboard" || tabId === "sittings" || tabId === "reports" || tabId === "settings") {
+  if (tabId === "sittings" || tabId === "settings") {
     refreshPrivateSittingView(tabId);
   }
 }
@@ -85,9 +83,6 @@ function bindShellUi() {
       closeManagerMenu();
     }
   });
-
-  elements.drawerSettingsBtn?.addEventListener("click", () => setActiveTab("settings"));
-  elements.drawerExpensesBtn?.addEventListener("click", () => setActiveTab("expenses"));
 
   elements.signOutBtn?.addEventListener("click", async () => {
     const { signOutStaff } = await import("./staff-auth.js");

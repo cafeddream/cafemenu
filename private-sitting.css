@@ -179,49 +179,17 @@ body[data-active-tab="orders"] .ps-manager-main {
   display: none !important;
 }
 
-.ps-stats-grid,
 .ps-sitting-grid {
   display: grid;
   gap: 12px;
 }
 
-.ps-stats-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-bottom: 18px;
-}
-
-.ps-stat-card,
 .ps-settings-card,
-.ps-active-row,
-.ps-report-row,
 .ps-sitting-card {
   border: 1px solid var(--ps-line);
   border-radius: 16px;
   background: var(--ps-panel);
 }
-
-.ps-stat-card {
-  padding: 14px;
-}
-
-.ps-stat-card span {
-  display: block;
-  color: var(--ps-muted);
-  font-size: 12px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.ps-stat-card strong {
-  display: block;
-  margin-top: 8px;
-  font-size: 28px;
-}
-
-.ps-stat-card.total strong { color: #67b8ff; }
-.ps-stat-card.occupied strong { color: #ff6b6b; }
-.ps-stat-card.available strong { color: #f4c542; }
-.ps-stat-card.revenue strong { color: #3ecf8e; }
 
 .ps-section-head {
   display: flex;
@@ -236,53 +204,9 @@ body[data-active-tab="orders"] .ps-manager-main {
   margin: 0;
 }
 
-.ps-active-list,
-.ps-rate-list,
-.ps-reports-list {
+.ps-rate-list {
   display: grid;
   gap: 10px;
-}
-
-.ps-active-row {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 4px 12px;
-  padding: 12px 14px;
-  color: inherit;
-  text-align: left;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-  user-select: none;
-  transition: transform 0.08s ease, filter 0.08s ease;
-}
-
-.ps-active-sitting {
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--ps-gold);
-  text-transform: uppercase;
-}
-
-.ps-active-names {
-  grid-column: 1;
-  font-size: 16px;
-  font-weight: 900;
-}
-
-.ps-active-meta {
-  grid-column: 1;
-  color: var(--ps-muted);
-  font-size: 12px;
-}
-
-.ps-active-timer,
-.ps-session-timer {
-  grid-column: 2;
-  grid-row: 1 / span 3;
-  align-self: center;
-  color: #3ecf8e;
-  font-size: 18px;
 }
 
 .ps-sitting-grid {
@@ -307,9 +231,9 @@ body[data-active-tab="orders"] .ps-manager-main {
   filter: brightness(0.92);
 }
 
-.ps-active-row:active {
-  transform: scale(0.98);
-  filter: brightness(0.96);
+.ps-session-timer {
+  color: #3ecf8e;
+  font-size: 18px;
 }
 
 .ps-sitting-card.ps-wide {
@@ -420,19 +344,10 @@ body[data-active-tab="orders"] .ps-manager-main {
   font-weight: 700;
 }
 
-.ps-report-row,
 .ps-settings-card {
   padding: 14px;
 }
 
-.ps-report-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.ps-report-row span,
 .ps-settings-card p {
   color: var(--ps-muted);
 }
@@ -913,8 +828,7 @@ body[data-active-tab="orders"] .ps-manager-main {
 
 #psSittings.ps-view,
 #psSettings.ps-view,
-#psReports.ps-view,
-#psDashboard.ps-view {
+#psExpenses.ps-view {
   padding: 12px 12px 78px;
 }
 
