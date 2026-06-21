@@ -7,10 +7,14 @@ import {
   escapeHtml,
   fetchMenu,
   formatCurrency,
+  formatTableDisplayName,
   formatTime,
   listenToActiveOrders,
   listenToTodaySummary,
+  markOrderCreditPending,
   maskMobile,
+  normalizeCreditCustomer,
+  placeCounterOrderWithCredit,
   placeCounterOrderWithPayment,
   placePrivateSittingFoodOrder,
   registerServiceWorker,
@@ -22,6 +26,7 @@ import {
   voidActiveOrder,
   voidPendingCounterOrder
 } from "./firebase.js";
+import { syncPendingOrderToSheet } from "./report-sync.js";
 import {
   shareReceiptForOrder,
   shareReceiptForOrderId
@@ -50,7 +55,9 @@ const state = {
   pendingPaymentItems: null,
   pendingPaymentIsCounterOrder: false,
   pendingPaymentGross: 0,
+  pendingPaymentCustomerProfile: null,
   canVoidOrder: true,
+  canMarkPending: true,
   paymentVoidMode: false,
   hoverPreview: null,
   orderTableId: null,
@@ -86,6 +93,11 @@ const elements = {
   paymentMethodActions: document.querySelector("#paymentMethodActions"),
   paidCashBtn: document.querySelector("#paidCashBtn"),
   paidOnlineBtn: document.querySelector("#paidOnlineBtn"),
+  paidPendingBtn: document.querySelector("#paidPendingBtn"),
+  pendingCustomerPanel: document.querySelector("#pendingCustomerPanel"),
+  pendingCustomerName: document.querySelector("#pendingCustomerName"),
+  pendingCustomerMobile: document.querySelector("#pendingCustomerMobile"),
+  pendingCustomerConfirmBtn: document.querySelector("#pendingCustomerConfirmBtn"),
   voidOrderBtn: document.querySelector("#voidOrderBtn"),
   voidOrderPanel: document.querySelector("#voidOrderPanel"),
   voidOrderRemarks: document.querySelector("#voidOrderRemarks"),
@@ -106,7 +118,10 @@ const elements = {
   adminOrderCount: document.querySelector("#adminOrderCount"),
   adminOrderTotal: document.querySelector("#adminOrderTotal"),
   adminViewCartBtn: document.querySelector("#adminViewCartBtn"),
-  adminPlaceOrderBtn: document.querySelector("#adminPlaceOrderBtn")
+  adminPlaceOrderBtn: document.querySelector("#adminPlaceOrderBtn"),
+  adminOrderCustomerFields: document.querySelector("#adminOrderCustomerFields"),
+  adminCustomerName: document.querySelector("#adminCustomerName"),
+  adminCustomerMobile: document.querySelector("#adminCustomerMobile")
 };
 
 // Starts the food orders counter inside the Orders tab.
@@ -138,6 +153,8 @@ function bindUi() {
   });
   elements.paidCashBtn.addEventListener("click", () => confirmPaidWithMethod("cash"));
   elements.paidOnlineBtn.addEventListener("click", () => confirmPaidWithMethod("online"));
+  elements.paidPendingBtn?.addEventListener("click", handlePendingPaymentClick);
+  elements.pendingCustomerConfirmBtn?.addEventListener("click", confirmPendingCustomerPanel);
   elements.voidOrderBtn?.addEventListener("click", showVoidOrderPanel);
   elements.voidOrderBackBtn?.addEventListener("click", hideVoidOrderPanel);
   elements.voidOrderConfirmBtn?.addEventListener("click", confirmVoidOrder);
@@ -469,6 +486,11 @@ function getOrderStatusLabel(order) {
     if (status === "served") return "Served (Void)";
     return "Payment Void";
   }
+  if (order.paymentStatus === "credit_pending") {
+    const status = order.status || "new";
+    if (status === "served") return "Served (Udhaar)";
+    return "Udhaar";
+  }
   const status = order.status || "new";
   const paymentVerified = order.paymentStatus === "verified_paid";
   if (paymentVerified && status === "served") return "Served";
@@ -482,12 +504,15 @@ function mobileOrderCardHtml(order) {
   const cashRequested = order.paymentStatus === "cash_at_counter";
   const paymentVerified = order.paymentStatus === "verified_paid";
   const paymentVoided = order.paymentStatus === "voided";
+  const paymentCredit = order.paymentStatus === "credit_pending";
   const isSessionHold = order.paymentStatus === "session_hold" || Boolean(order.privateSessionId);
   const statusLabel = getOrderStatusLabel(order);
   const statusClass = status === "served" || (paymentVerified && status === "served")
     ? "ps-order-status-served"
     : paymentVoided
       ? "ps-order-status-void"
+      : paymentCredit
+        ? "ps-order-status-pending"
       : status === "preparing"
       ? "ps-order-status-preparing"
       : "ps-order-status-new";
@@ -512,6 +537,7 @@ function mobileOrderCardHtml(order) {
       </div>
       ${customerLine}
       ${paymentVoided ? `<div class="payment-alert void-alert">Payment void — ${escapeHtml(order.voidRemarks || "no payment")}</div>` : ""}
+      ${paymentCredit ? "<div class=\"payment-alert pending-alert\">Udhaar — payment pending</div>" : ""}
       ${paymentClaimed ? "<div class=\"payment-alert\">Customer says payment done - verify UPI</div>" : ""}
       ${cashRequested ? "<div class=\"payment-alert cash-alert\">Customer will pay cash at counter</div>" : ""}
       <ul class="ps-order-lines">${itemLines || "<li class=\"ps-order-line\"><span>No items</span></li>"}</ul>
@@ -522,7 +548,7 @@ function mobileOrderCardHtml(order) {
       <div class="card-actions" data-table="${escapeHtml(order.tableId)}" data-order="${escapeHtml(order.orderId || order.id)}" data-status="${escapeHtml(status)}">
         ${paymentClaimed ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"reject-pay\">Reject Payment Claim</button>" : ""}
         ${status === "new" || status === "preparing" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"cancel\">Cancel Order</button>" : ""}
-        ${status !== "paid" && !paymentVerified && !isSessionHold && !paymentVoided ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Confirm Payment</button>" : ""}
+        ${status !== "paid" && !paymentVerified && !isSessionHold && !paymentVoided && !paymentCredit ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Confirm Payment</button>" : ""}
         <button class="ghost-btn" type="button" data-action="share">Share Receipt</button>
       </div>
     </article>
@@ -790,7 +816,11 @@ function setPaymentModalVoidMode(enabled) {
   if (elements.paymentDiscountControl) elements.paymentDiscountControl.hidden = enabled;
   if (elements.paymentMethodActions) elements.paymentMethodActions.hidden = enabled;
   if (elements.voidOrderPanel) elements.voidOrderPanel.hidden = !enabled;
-  if (!enabled && elements.voidOrderRemarks) elements.voidOrderRemarks.value = "";
+  if (enabled) {
+    hidePendingCustomerPanel();
+  } else if (elements.voidOrderRemarks) {
+    elements.voidOrderRemarks.value = "";
+  }
 }
 
 function showVoidOrderPanel() {
@@ -800,6 +830,66 @@ function showVoidOrderPanel() {
 
 function hideVoidOrderPanel() {
   setPaymentModalVoidMode(false);
+}
+
+function hidePendingCustomerPanel() {
+  if (elements.pendingCustomerPanel) elements.pendingCustomerPanel.hidden = true;
+  if (elements.paymentMethodActions) elements.paymentMethodActions.hidden = state.paymentVoidMode;
+}
+
+function showPendingCustomerPanel(order, cartProfile) {
+  if (elements.pendingCustomerName) {
+    elements.pendingCustomerName.value = cartProfile?.name || order?.customerName || "";
+  }
+  if (elements.pendingCustomerMobile) {
+    elements.pendingCustomerMobile.value = cartProfile?.mobile || order?.customerMobile || order?.customerMobileNormalized || "";
+  }
+  if (elements.paymentMethodActions) elements.paymentMethodActions.hidden = true;
+  if (elements.pendingCustomerPanel) elements.pendingCustomerPanel.hidden = false;
+  elements.pendingCustomerName?.focus();
+}
+
+function readOrderCustomerProfile() {
+  const name = elements.adminCustomerName?.value?.trim() || "";
+  const mobile = elements.adminCustomerMobile?.value?.trim() || "";
+  if (!name && !mobile) return null;
+  return { name, mobile };
+}
+
+function resolveCreditCustomer(order, cartProfile, formValues = {}) {
+  const name = formValues.name
+    || cartProfile?.name
+    || order?.customerName
+    || "";
+  const mobile = formValues.mobile
+    || cartProfile?.mobile
+    || order?.customerMobile
+    || order?.customerMobileNormalized
+    || "";
+  return normalizeCreditCustomer({ name, mobile });
+}
+
+function hasCompleteCreditProfile(order, cartProfile) {
+  try {
+    resolveCreditCustomer(order, cartProfile);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildPendingItemsSummary(items = []) {
+  return items
+    .map((item) => `${item.name || "Item"} x${Number(item.qty || 0)}`)
+    .join(", ");
+}
+
+async function syncPendingOrderRecord(meta) {
+  try {
+    await syncPendingOrderToSheet(meta);
+  } catch (error) {
+    console.warn("[pending] Sheet sync failed", error);
+  }
 }
 
 function openPaymentMethodModal(tableId, options = {}) {
@@ -813,15 +903,19 @@ function openPaymentMethodModal(tableId, options = {}) {
   state.pendingPaymentItems = options.items ? cloneOrderItems(options.items) : null;
   state.pendingPaymentIsCounterOrder = Boolean(options.isCounterOrder);
   state.pendingPaymentGross = amount;
+  state.pendingPaymentCustomerProfile = options.customerProfile || null;
   state.canVoidOrder = !isPrivateSittingOrder;
+  state.canMarkPending = !isPrivateSittingOrder;
   hideVoidOrderPanel();
+  hidePendingCustomerPanel();
   elements.paymentMethodTable.innerHTML = `
-    <span>Mark ${escapeHtml(formatTableDisplayName(tableId))} paid by:</span>
+    <span>${options.isCounterOrder ? "Choose payment for" : "Mark"} ${escapeHtml(formatTableDisplayName(tableId))}${options.isCounterOrder ? "" : " paid by"}:</span>
     <strong>Bill Total: ${formatCurrency(amount)}</strong>
   `;
   if (elements.paymentDiscountType) elements.paymentDiscountType.value = "amount";
   if (elements.paymentDiscountValue) elements.paymentDiscountValue.value = "";
   if (elements.voidOrderBtn) elements.voidOrderBtn.hidden = !state.canVoidOrder;
+  if (elements.paidPendingBtn) elements.paidPendingBtn.hidden = !state.canMarkPending;
   updatePaymentDiscountDisplay();
   elements.paymentMethodModal.hidden = false;
 }
@@ -846,10 +940,40 @@ function closePaymentMethodModal() {
   state.pendingPaymentItems = null;
   state.pendingPaymentIsCounterOrder = false;
   state.pendingPaymentGross = 0;
+  state.pendingPaymentCustomerProfile = null;
   state.canVoidOrder = true;
+  state.canMarkPending = true;
   hideVoidOrderPanel();
+  hidePendingCustomerPanel();
   if (elements.paymentDiscountValue) elements.paymentDiscountValue.value = "";
   elements.paymentMethodModal.hidden = true;
+}
+
+function handlePendingPaymentClick() {
+  if (!state.canMarkPending) {
+    showToast("Private sitting orders cannot be marked pending");
+    return;
+  }
+  const order = state.pendingPaidOrderId ? state.orders.get(state.pendingPaidOrderId) : null;
+  if (hasCompleteCreditProfile(order, state.pendingPaymentCustomerProfile)) {
+    void confirmPaidWithMethod("pending");
+    return;
+  }
+  showPendingCustomerPanel(order, state.pendingPaymentCustomerProfile);
+}
+
+function confirmPendingCustomerPanel() {
+  const order = state.pendingPaidOrderId ? state.orders.get(state.pendingPaidOrderId) : null;
+  try {
+    resolveCreditCustomer(order, state.pendingPaymentCustomerProfile, {
+      name: elements.pendingCustomerName?.value || "",
+      mobile: elements.pendingCustomerMobile?.value || ""
+    });
+  } catch (error) {
+    showToast(error?.message || "Name and mobile required for udhaar");
+    return;
+  }
+  void confirmPaidWithMethod("pending");
 }
 
 async function confirmVoidOrder() {
@@ -902,23 +1026,85 @@ async function confirmPaidWithMethod(method) {
   const pendingItems = state.pendingPaymentItems ? cloneOrderItems(state.pendingPaymentItems) : null;
   const isCounterOrder = state.pendingPaymentIsCounterOrder;
   const discount = readPaymentDiscount();
+  const order = orderId ? state.orders.get(orderId) : null;
+  const pendingFormValues = !elements.pendingCustomerPanel?.hidden
+    ? {
+        name: elements.pendingCustomerName?.value || "",
+        mobile: elements.pendingCustomerMobile?.value || ""
+      }
+    : {};
+  let customerProfile = null;
+
+  if (method === "pending") {
+    try {
+      customerProfile = resolveCreditCustomer(order, state.pendingPaymentCustomerProfile, pendingFormValues);
+    } catch (error) {
+      showToast(error?.message || "Name and mobile required for udhaar");
+      return;
+    }
+  }
+
   elements.paidCashBtn.disabled = true;
   elements.paidOnlineBtn.disabled = true;
+  if (elements.paidPendingBtn) elements.paidPendingBtn.disabled = true;
+  if (elements.pendingCustomerConfirmBtn) elements.pendingCustomerConfirmBtn.disabled = true;
 
   try {
+    if (method === "pending") {
+      if (pendingItems?.length) {
+        const orderSnap = await placeCounterOrderWithCredit(tableId, pendingItems, customerProfile, discount);
+        const data = orderSnap?.data?.() || {};
+        await syncPendingOrderRecord({
+          orderId: data.orderId || orderSnap?.id,
+          tableId,
+          customerName: customerProfile.customerName,
+          customerMobile: customerProfile.customerMobileNormalized,
+          itemsSummary: buildPendingItemsSummary(data.items || pendingItems),
+          grossTotal: data.grossTotal ?? state.pendingPaymentGross,
+          discountAmount: data.discountAmount ?? 0,
+          total: data.total ?? 0
+        });
+        closePaymentMethodModal();
+        showToast(`Udhaar order placed for ${formatTableDisplayName(tableId)}`);
+      } else {
+        const result = await markOrderCreditPending(orderId, customerProfile, discount);
+        await syncPendingOrderRecord({
+          orderId: result.orderId,
+          tableId: result.tableId,
+          customerName: result.customerName,
+          customerMobile: result.customerMobile,
+          itemsSummary: buildPendingItemsSummary(result.items),
+          grossTotal: result.grossTotal,
+          discountAmount: result.discountAmount,
+          total: result.total
+        });
+        closePaymentMethodModal();
+        showToast(`Order marked udhaar (${formatTableDisplayName(tableId)})`);
+      }
+      return;
+    }
+
     if (pendingItems?.length) {
-      const orderSnap = await placeCounterOrderWithPayment(tableId, pendingItems, method, discount);
+      const orderSnap = await placeCounterOrderWithPayment(
+        tableId,
+        pendingItems,
+        method,
+        discount,
+        state.pendingPaymentCustomerProfile
+      );
       closePaymentMethodModal();
       showToast(`Order placed for ${formatTableDisplayName(tableId)}`);
     } else {
       await verifyOrderPayment(orderId, method, discount);
       closePaymentMethodModal();
     }
-  } catch {
-    showToast(isCounterOrder ? "Order failed. Check connection and refresh." : "Connection error, please refresh");
+  } catch (error) {
+    showToast(error?.message || (isCounterOrder ? "Order failed. Check connection and refresh." : "Connection error, please refresh"));
   } finally {
     elements.paidCashBtn.disabled = false;
     elements.paidOnlineBtn.disabled = false;
+    if (elements.paidPendingBtn) elements.paidPendingBtn.disabled = false;
+    if (elements.pendingCustomerConfirmBtn) elements.pendingCustomerConfirmBtn.disabled = false;
   }
 }
 
@@ -955,6 +1141,11 @@ export async function openAdminOrderModal(tableId, options = {}) {
   if (!elements.adminOrderModal) return;
   elements.adminOrderModal.classList.add("modal-front");
   elements.adminOrderModal.hidden = false;
+  if (elements.adminOrderCustomerFields) {
+    elements.adminOrderCustomerFields.hidden = Boolean(state.orderModalOptions.deferPayment);
+  }
+  if (elements.adminCustomerName) elements.adminCustomerName.value = "";
+  if (elements.adminCustomerMobile) elements.adminCustomerMobile.value = "";
   showAdminOrderScreen("menu");
   updateAdminOrderFooter();
 
@@ -1086,11 +1277,13 @@ async function placeAdminOrder() {
       return;
     }
 
+    const customerProfile = readOrderCustomerProfile();
     closeAdminOrderModal();
     openPaymentMethodModal(tableId, {
       items,
       amount: total,
-      isCounterOrder: true
+      isCounterOrder: true,
+      customerProfile
     });
   } catch {
     showToast("Could not place order");

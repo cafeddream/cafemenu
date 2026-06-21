@@ -1456,3 +1456,97 @@ body[data-active-tab="orders"] .ps-manager-main {
     grid-template-columns: 1fr;
   }
 }
+
+.expense-sync-hint {
+  margin: 0 0 12px;
+  color: var(--ps-muted);
+  font-size: 13px;
+}
+
+.expense-form-card {
+  margin-bottom: 16px;
+}
+
+.expense-form {
+  display: grid;
+  gap: 12px;
+}
+
+.expense-form textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 1px solid var(--ps-line);
+  border-radius: 10px;
+  background: #12151c;
+  color: var(--ps-text);
+  font: inherit;
+  resize: vertical;
+}
+
+.expense-form input[type="file"] {
+  width: 100%;
+  color: var(--ps-muted);
+  font-size: 13px;
+}
+
+.expense-list-head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.expense-list {
+  display: grid;
+  gap: 10px;
+}
+
+.expense-empty {
+  margin: 0;
+  color: var(--ps-muted);
+  font-size: 13px;
+}
+
+.expense-row {
+  padding: 12px;
+  border: 1px solid var(--ps-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.expense-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.expense-row-main strong {
+  font-size: 15px;
+}
+
+.expense-row-amount {
+  font-weight: 800;
+  color: #ffb74d;
+}
+
+.expense-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 6px;
+  color: var(--ps-muted);
+  font-size: 12px;
+}
+
+.expense-row-notes {
+  margin: 8px 0 0;
+  color: var(--ps-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.expense-receipt-link {
+  color: #8ce8b8;
+  font-weight: 700;
+  text-decoration: none;
+}

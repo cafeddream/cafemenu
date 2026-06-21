@@ -1686,9 +1686,62 @@ button:disabled {
   font-size: 18px;
 }
 
+.pending-customer-panel:not([hidden]) {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.pending-customer-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.admin-order-customer-fields {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-customer-field {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-customer-field span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-customer-field input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #12151c;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.payment-alert.pending-alert {
+  background: rgba(255, 180, 60, 0.14);
+  color: #ffcc80;
+}
+
+.ps-order-status-pending {
+  background: rgba(255, 180, 60, 0.18);
+  color: #ffcc80;
+}
+
 #paymentMethodActions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   width: 100%;
 }

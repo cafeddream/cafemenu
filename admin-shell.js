@@ -1,5 +1,6 @@
 import { CONFIG } from "./firebase.js";
 import { initAdminOrders } from "./admin-orders.js";
+import { initExpenses } from "./expenses.js";
 import { initPrivateSitting, refreshPrivateSittingView } from "./private-sitting.js";
 import { startDailyReportScheduler } from "./report-scheduler.js";
 import { requireStaffAuth } from "./staff-auth.js";
@@ -10,6 +11,7 @@ const elements = {
   menuBtn: document.querySelector("#managerMenuBtn"),
   menuDropdown: document.querySelector("#managerMenuDropdown"),
   headerMenu: document.querySelector(".ps-header-menu"),
+  drawerExpensesBtn: document.querySelector("#drawerExpensesBtn"),
   drawerSettingsBtn: document.querySelector("#drawerSettingsBtn"),
   views: document.querySelectorAll("[data-ps-view]"),
   navButtons: document.querySelectorAll("[data-ps-tab]"),
@@ -49,6 +51,9 @@ function setActiveTab(tabId) {
   if (tabId === "dashboard" || tabId === "sittings" || tabId === "reports" || tabId === "settings") {
     refreshPrivateSittingView();
   }
+  if (tabId === "expenses") {
+    window.dispatchEvent(new CustomEvent("expenses-tab-opened"));
+  }
 }
 
 function bindShellUi() {
@@ -85,6 +90,7 @@ function bindShellUi() {
   });
 
   elements.drawerSettingsBtn?.addEventListener("click", () => setActiveTab("settings"));
+  elements.drawerExpensesBtn?.addEventListener("click", () => setActiveTab("expenses"));
 
   elements.signOutBtn?.addEventListener("click", async () => {
     const { signOutStaff } = await import("./staff-auth.js");
@@ -108,6 +114,7 @@ function startManagerApp() {
   setActiveTab(sittingRoute ? "orders" : "orders");
   initPrivateSitting();
   initAdminOrders();
+  initExpenses();
   startDailyReportScheduler();
   hideSplash();
 }

@@ -1206,12 +1206,13 @@ export async function placeOrAppendOrder(tableId, cartItems, placedBy = "custome
 }
 
 // Places a counter order only after staff chooses a payment method.
-export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMethod = "cash", discount = null) {
+export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMethod = "cash", discount = null, customerProfile = null) {
   const cleanItems = cleanOrderItems(cartItems);
 
   if (!cleanItems.length) return null;
 
   const method = paymentMethod === "online" ? "online" : "cash";
+  const customerFields = buildCounterCustomerFields(customerProfile);
   const newOrderId = createOrderId(tableId);
   const orderDocument = activeOrderRef(newOrderId);
   const legacyDocument = orderRef(tableId);
@@ -1249,7 +1250,8 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
       kitchenStartedAt: serverTimestamp(),
       paidTotal: amountDue,
       paidItems: cleanItems,
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
+      ...customerFields
     };
 
     transaction.set(orderDocument, orderData);
@@ -1293,9 +1295,9 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
         finalTotal: amountDue,
         status: "paid",
         placedBy: "counter",
-        customerName: null,
-        customerMobile: null,
-        customerMobileNormalized: null,
+        customerName: customerFields.customerName,
+        customerMobile: customerFields.customerMobile,
+        customerMobileNormalized: customerFields.customerMobileNormalized,
         paymentStatus: "verified_paid",
         paymentMethod: method,
         orderedAt: orderData.timestamp,
@@ -1315,6 +1317,246 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
   });
 
   return getDoc(orderDocument);
+}
+
+export function normalizeCreditCustomer(profile = {}) {
+  const name = String(profile.name || profile.customerName || "").trim();
+  const mobile = normalizeIndianMobile(profile.mobile || profile.customerMobile || "");
+  if (name.length < 2) {
+    throw new Error("Customer name required for pending (udhaar)");
+  }
+  if (!mobile) {
+    throw new Error("Valid 10-digit mobile required for pending (udhaar)");
+  }
+  return {
+    customerName: name.slice(0, 60),
+    customerMobile: mobile,
+    customerMobileNormalized: mobile
+  };
+}
+
+function buildCounterCustomerFields(customerProfile = null) {
+  if (!customerProfile) {
+    return {
+      customerName: null,
+      customerMobile: null,
+      customerMobileNormalized: null
+    };
+  }
+  const name = String(customerProfile.name || customerProfile.customerName || "").trim().slice(0, 60);
+  const mobile = normalizeIndianMobile(customerProfile.mobile || customerProfile.customerMobile || "");
+  if (!name && !mobile) {
+    return {
+      customerName: null,
+      customerMobile: null,
+      customerMobileNormalized: null
+    };
+  }
+  return {
+    customerName: name || null,
+    customerMobile: mobile || null,
+    customerMobileNormalized: mobile || null
+  };
+}
+
+// Places a counter order on udhaar (credit pending) — kitchen sent, payment deferred.
+export async function placeCounterOrderWithCredit(tableId, cartItems, customerProfile, discount = null) {
+  const cleanItems = cleanOrderItems(cartItems);
+  if (!cleanItems.length) return null;
+
+  const customerFields = normalizeCreditCustomer(customerProfile);
+  const newOrderId = createOrderId(tableId);
+  const orderDocument = activeOrderRef(newOrderId);
+  const legacyDocument = orderRef(tableId);
+  const summaryDocument = dailySummaryRef();
+  let discountForAudit = null;
+
+  await runTransaction(db, async (transaction) => {
+    const grossDue = calculateTotal(cleanItems);
+    const discountInfo = computeDiscount(grossDue, discount);
+    const amountDue = discountInfo.finalTotal;
+    const historyDocument = tableHistoryOrderRef(tableId, newOrderId);
+    discountForAudit = discountInfo;
+    const orderData = {
+      orderId: newOrderId,
+      tableId,
+      items: cleanItems,
+      total: amountDue,
+      grossTotal: discountInfo.grossTotal,
+      discountType: discountInfo.discountType,
+      discountValue: discountInfo.discountValue,
+      discountAmount: discountInfo.discountAmount,
+      finalTotal: amountDue,
+      status: "preparing",
+      placedBy: "counter",
+      paymentStatus: "credit_pending",
+      paymentMethod: "pending",
+      preferredPaymentMethod: "pending",
+      timestamp: serverTimestamp(),
+      creditedAt: serverTimestamp(),
+      kitchenStartedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      ...customerFields
+    };
+
+    transaction.set(orderDocument, orderData);
+    transaction.set(legacyDocument, orderData);
+
+    transaction.set(summaryDocument, {
+      date: getTodayKey(),
+      pendingTotal: increment(amountDue),
+      pendingOrders: increment(1),
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    transaction.set(historyDocument, {
+      orderId: newOrderId,
+      tableId,
+      items: cleanItems,
+      total: amountDue,
+      grossTotal: discountInfo.grossTotal,
+      discountType: discountInfo.discountType,
+      discountValue: discountInfo.discountValue,
+      discountAmount: discountInfo.discountAmount,
+      finalTotal: amountDue,
+      status: "preparing",
+      placedBy: "counter",
+      paymentStatus: "credit_pending",
+      paymentMethod: "pending",
+      orderedAt: orderData.timestamp,
+      creditedAt: serverTimestamp(),
+      savedAt: serverTimestamp(),
+      ...customerFields
+    });
+  });
+
+  await logAuditEntry("counter_order_credit", tableId, {
+    orderId: newOrderId,
+    total: discountForAudit?.finalTotal ?? 0,
+    grossTotal: discountForAudit?.grossTotal ?? null,
+    discountAmount: discountForAudit?.discountAmount ?? 0,
+    customerName: customerFields.customerName,
+    customerMobile: customerFields.customerMobileNormalized
+  });
+
+  return getDoc(orderDocument);
+}
+
+// Marks an existing unpaid order as udhaar (credit pending).
+export async function markOrderCreditPending(orderId, customerProfile, discount = null) {
+  const orderDocument = activeOrderRef(orderId);
+  const summaryDocument = dailySummaryRef();
+  const customerFields = normalizeCreditCustomer(customerProfile);
+  let tableId = null;
+  let currentOrderId = orderId;
+  let discountInfo = null;
+  let orderItems = [];
+
+  await runTransaction(db, async (transaction) => {
+    const orderSnapshot = await transaction.get(orderDocument);
+    if (!orderSnapshot.exists()) {
+      throw new Error("Order not found");
+    }
+
+    const order = orderSnapshot.data();
+    if (order.paymentStatus === "verified_paid") {
+      throw new Error("Paid orders cannot be marked pending");
+    }
+    if (order.paymentStatus === "credit_pending") {
+      throw new Error("Order is already pending (udhaar)");
+    }
+    if (order.paymentStatus === "voided") {
+      throw new Error("Voided orders cannot be marked pending");
+    }
+    if (order.paymentStatus === "session_hold" || order.privateSessionId) {
+      throw new Error("Private sitting orders cannot be marked pending");
+    }
+
+    tableId = order.tableId;
+    currentOrderId = order.orderId || orderId;
+    const payableItems = normalizeOrderItems(order.items || []);
+    orderItems = payableItems;
+    const grossDue = calculateTotal(payableItems);
+    discountInfo = computeDiscount(grossDue, discount);
+    const amountDue = discountInfo.finalTotal;
+    const historyDocument = tableHistoryOrderRef(tableId, currentOrderId);
+    const legacyDocument = orderRef(tableId);
+
+    const updateData = {
+      status: "preparing",
+      paymentStatus: "credit_pending",
+      paymentMethod: "pending",
+      preferredPaymentMethod: "pending",
+      creditedAt: serverTimestamp(),
+      kitchenStartedAt: serverTimestamp(),
+      items: payableItems,
+      total: amountDue,
+      grossTotal: discountInfo.grossTotal,
+      discountType: discountInfo.discountType,
+      discountValue: discountInfo.discountValue,
+      discountAmount: discountInfo.discountAmount,
+      finalTotal: amountDue,
+      paymentClaimedAt: null,
+      updatedAt: serverTimestamp(),
+      ...customerFields
+    };
+
+    transaction.update(orderDocument, updateData);
+    const legacySnapshot = await transaction.get(legacyDocument);
+    if (legacySnapshot.exists()) {
+      const legacyOrderId = legacySnapshot.data().orderId || "";
+      if (!legacyOrderId || legacyOrderId === currentOrderId) {
+        transaction.update(legacyDocument, updateData);
+      }
+    }
+
+    transaction.set(summaryDocument, {
+      date: getTodayKey(),
+      pendingTotal: increment(amountDue),
+      pendingOrders: increment(1),
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    transaction.set(historyDocument, {
+      orderId: currentOrderId,
+      tableId,
+      items: payableItems,
+      total: amountDue,
+      grossTotal: discountInfo.grossTotal,
+      discountType: discountInfo.discountType,
+      discountValue: discountInfo.discountValue,
+      discountAmount: discountInfo.discountAmount,
+      finalTotal: amountDue,
+      status: "preparing",
+      placedBy: order.placedBy || "customer",
+      paymentStatus: "credit_pending",
+      paymentMethod: "pending",
+      orderedAt: order.timestamp || null,
+      creditedAt: serverTimestamp(),
+      savedAt: serverTimestamp(),
+      ...customerFields
+    });
+  });
+
+  await logAuditEntry("order_credit_pending", tableId, {
+    orderId: currentOrderId,
+    grossTotal: discountInfo?.grossTotal ?? null,
+    discountAmount: discountInfo?.discountAmount ?? 0,
+    finalTotal: discountInfo?.finalTotal ?? null,
+    customerName: customerFields.customerName,
+    customerMobile: customerFields.customerMobileNormalized
+  });
+
+  return {
+    orderId: currentOrderId,
+    tableId,
+    items: orderItems,
+    total: discountInfo?.finalTotal ?? 0,
+    grossTotal: discountInfo?.grossTotal ?? 0,
+    discountAmount: discountInfo?.discountAmount ?? 0,
+    customerName: customerFields.customerName,
+    customerMobile: customerFields.customerMobileNormalized
+  };
 }
 
 // Finds live/current orders for a customer mobile across configured tables.
@@ -1387,6 +1629,9 @@ export async function voidActiveOrder(orderId, remarks) {
   const order = snapshot.data();
   if (order.paymentStatus === "verified_paid") {
     throw new Error("Paid orders cannot be voided");
+  }
+  if (order.paymentStatus === "credit_pending") {
+    throw new Error("Pending (udhaar) orders cannot be voided");
   }
   if (order.paymentStatus === "voided") {
     throw new Error("Payment already voided for this order");
@@ -1889,6 +2134,10 @@ export function buildReportFromOrders(paidOrders, startKey, endKey, options = {}
       if (includeVoidedItems) addOrderItems(order);
       return;
     }
+    if (order.paymentStatus === "credit_pending") {
+      addOrderItems(order);
+      return;
+    }
 
     const total = Number(order.total || 0);
     const gross = Number(order.grossTotal ?? total);
@@ -1944,14 +2193,26 @@ export async function fetchFoodOrdersForDateRange(startKey, endKey, maxRows = 50
         const key = getTodayKey(voidedAt);
         return key >= startKey && key <= endKey;
       }
+      if (order.paymentStatus === "credit_pending") {
+        const creditedAt = toDate(order.creditedAt);
+        if (!creditedAt) return false;
+        const key = getTodayKey(creditedAt);
+        return key >= startKey && key <= endKey;
+      }
       const paidAt = toDate(order.paidAt);
       if (!paidAt) return false;
       const key = getTodayKey(paidAt);
       return key >= startKey && key <= endKey;
     })
     .sort((a, b) => {
-      const aTime = toDate(a.voidedAt)?.getTime() || toDate(a.paidAt)?.getTime() || 0;
-      const bTime = toDate(b.voidedAt)?.getTime() || toDate(b.paidAt)?.getTime() || 0;
+      const aTime = toDate(a.voidedAt)?.getTime()
+        || toDate(a.creditedAt)?.getTime()
+        || toDate(a.paidAt)?.getTime()
+        || 0;
+      const bTime = toDate(b.voidedAt)?.getTime()
+        || toDate(b.creditedAt)?.getTime()
+        || toDate(b.paidAt)?.getTime()
+        || 0;
       return bTime - aTime;
     });
 }
@@ -2109,25 +2370,36 @@ export async function fetchDayWiseReport(startKey, endKey) {
   ]);
 
   const salesFoodOrders = foodOrders.filter((order) => order.paymentStatus !== "voided");
+  const paidFoodOrders = salesFoodOrders.filter((order) => order.paymentStatus === "verified_paid");
+  const creditFoodOrders = salesFoodOrders.filter((order) => order.paymentStatus === "credit_pending");
   const voidOrders = collectVoidOrders(foodOrders, voids.details);
   const voidOrderGross = voidOrders.reduce((sum, order) => sum + voidOrderGrossValue(order), 0);
+  const pendingOrderGross = creditFoodOrders.reduce(
+    (sum, order) => sum + Number(order.grossTotal ?? order.total ?? 0),
+    0
+  );
+  const pendingOrderTotal = creditFoodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
   const itemsReport = buildReportFromOrders(
-    [...salesFoodOrders, ...voidOrders],
+    [...paidFoodOrders, ...creditFoodOrders, ...voidOrders],
     startKey,
     endKey,
     { includeVoidedItems: true }
   );
-  const foodSaleTotal = salesFoodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
-  const foodGrossTotal = salesFoodOrders.reduce((sum, order) => sum + Number(order.grossTotal ?? order.total ?? 0), 0);
-  const foodDiscountTotal = salesFoodOrders.reduce((sum, order) => sum + Number(order.discountAmount || 0), 0);
+  const foodSaleTotal = paidFoodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const paidFoodGross = paidFoodOrders.reduce(
+    (sum, order) => sum + Number(order.grossTotal ?? order.total ?? 0),
+    0
+  );
+  const foodDiscountTotal = paidFoodOrders.reduce((sum, order) => sum + Number(order.discountAmount || 0), 0)
+    + creditFoodOrders.reduce((sum, order) => sum + Number(order.discountAmount || 0), 0);
   const sittingSaleTotal = sittings.reduce((sum, session) => sum + Number(session.grandTotal ?? session.billedAmount ?? 0), 0);
   const sittingGrossTotal = sittings.reduce((sum, session) => sum + Number(session.grossTotal ?? session.grandTotal ?? session.billedAmount ?? 0), 0);
   const sittingDiscountTotal = sittings.reduce((sum, session) => sum + Number(session.discountAmount || 0), 0);
 
-  const foodCash = salesFoodOrders
+  const foodCash = paidFoodOrders
     .filter((order) => order.paymentMethod !== "online")
     .reduce((sum, order) => sum + Number(order.total || 0), 0);
-  const foodOnline = salesFoodOrders
+  const foodOnline = paidFoodOrders
     .filter((order) => order.paymentMethod === "online")
     .reduce((sum, order) => sum + Number(order.total || 0), 0);
   const sittingCash = sittings
@@ -2137,13 +2409,14 @@ export async function fetchDayWiseReport(startKey, endKey) {
     .filter((session) => session.paymentMethod === "online")
     .reduce((sum, session) => sum + Number(session.grandTotal ?? session.billedAmount ?? 0), 0);
 
-  const grossTotal = foodGrossTotal
+  const grossTotal = paidFoodGross
+    + pendingOrderGross
     + sittingGrossTotal
     + cancellations.cancelledWithPaymentAmount
     + voidOrderGross;
   const discountTotal = foodDiscountTotal + sittingDiscountTotal;
   const total = foodSaleTotal + sittingSaleTotal;
-  const paidOrderCount = salesFoodOrders.length + sittings.length;
+  const paidOrderCount = paidFoodOrders.length + sittings.length;
 
   const enrichedVoidDetails = voids.details.map((row) => {
     const full = voidOrders.find((order) => order.orderId === row.orderId);
@@ -2174,8 +2447,12 @@ export async function fetchDayWiseReport(startKey, endKey) {
     discountTotal,
     cash: foodCash + sittingCash,
     online: foodOnline + sittingOnline,
-    foodOrders: salesFoodOrders.length,
+    foodOrders: paidFoodOrders.length,
     foodSaleTotal,
+    pendingOrderCount: creditFoodOrders.length,
+    pendingOrderGross,
+    pendingOrderTotal,
+    pendingOrderDetails: creditFoodOrders,
     privateSittings: sittings.length,
     privateSittingTotal: sittingSaleTotal,
     paidOrderCount,
@@ -2232,12 +2509,13 @@ export async function purgeReportDataForDate(dateKey) {
 
   for (const tableId of CONFIG.TABLES) {
     const historyCollection = collection(db, "tableHistory", tableId, "orders");
-    const [paidSnapshot, voidSnapshot] = await Promise.all([
+    const [paidSnapshot, voidSnapshot, creditSnapshot] = await Promise.all([
       getDocs(query(historyCollection, where("paidAt", ">=", start), where("paidAt", "<=", end))).catch(() => ({ docs: [] })),
-      getDocs(query(historyCollection, where("voidedAt", ">=", start), where("voidedAt", "<=", end))).catch(() => ({ docs: [] }))
+      getDocs(query(historyCollection, where("voidedAt", ">=", start), where("voidedAt", "<=", end))).catch(() => ({ docs: [] })),
+      getDocs(query(historyCollection, where("creditedAt", ">=", start), where("creditedAt", "<=", end))).catch(() => ({ docs: [] }))
     ]);
     const orderIds = new Set();
-    [...paidSnapshot.docs, ...voidSnapshot.docs].forEach((historyDoc) => orderIds.add(historyDoc.id));
+    [...paidSnapshot.docs, ...voidSnapshot.docs, ...creditSnapshot.docs].forEach((historyDoc) => orderIds.add(historyDoc.id));
     const refs = [...orderIds].map((orderId) => doc(db, "tableHistory", tableId, "orders", orderId));
     await deleteDocRefsInBatches(refs);
     counts.history += refs.length;

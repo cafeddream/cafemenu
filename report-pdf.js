@@ -32,6 +32,9 @@ function formatOrderDateTime(order) {
   if (order.paymentStatus === "voided") {
     return formatPaidAt(order.voidedAt);
   }
+  if (order.paymentStatus === "credit_pending") {
+    return formatPaidAt(order.creditedAt || order.timestamp);
+  }
   return formatPaidAt(order.paidAt);
 }
 
@@ -48,6 +51,9 @@ function formatOrderPaymentLabel(order) {
     const reason = String(order.voidRemarks || "").trim();
     return reason ? `Void: ${reason}` : "Void";
   }
+  if (order.paymentStatus === "credit_pending" || order.paymentMethod === "pending") {
+    return "Pending";
+  }
   return order.paymentMethod === "online" ? "Online" : "Cash";
 }
 
@@ -63,6 +69,12 @@ function orderGrossAmount(order) {
     return Number(order.grossTotal ?? order.voidAmount ?? 0);
   }
   return Number(order.grossTotal ?? order.total ?? 0);
+}
+
+function orderNetAmount(order) {
+  if (order.paymentStatus === "voided") return 0;
+  if (order.paymentStatus === "credit_pending") return Number(order.total || 0);
+  return Number(order.total || 0);
 }
 
 // jsPDF built-in fonts cannot render the ₹ Unicode glyph; use Rs. for PDF output.
@@ -276,6 +288,17 @@ const MENU_COLS = [
   { label: "Total", w: 46, align: "right" }
 ];
 
+const PENDING_COLS = [
+  { label: "Date / Time", w: 26 },
+  { label: "Table", w: 16 },
+  { label: "Name", w: 28 },
+  { label: "Mobile", w: 22 },
+  { label: "Items", w: 44 },
+  { label: "Gross", w: 18, align: "right" },
+  { label: "Disc.", w: 16, align: "right" },
+  { label: "Net", w: 18, align: "right" }
+];
+
 function drawEmptyRow(doc, columns, message, y) {
   const cells = columns.map((_, index) => (index === 0 ? message : ""));
   return drawTableRow(doc, columns, cells, y, 0);
@@ -302,7 +325,27 @@ export async function buildSalesReportPdf(report) {
     ["Online Collection", fmtMoney(report.online || 0)],
     ["Cancelled Without Payment", `${report.cancelledWithoutPaymentCount || 0} orders  ·  ${fmtMoney(report.cancelledWithoutPaymentAmount || 0)}`],
     ["Cancelled After Payment", `${report.cancelledWithPaymentCount || 0} orders  ·  ${fmtMoney(report.cancelledWithPaymentAmount || 0)}`],
-    ["Void Orders (not collected)", `${report.voidOrderCount || 0} orders  ·  ${fmtMoney(report.voidOrderGross ?? report.voidOrderAmount ?? 0)}`]
+    ["Void Orders (not collected)", `${report.voidOrderCount || 0} orders  ·  ${fmtMoney(report.voidOrderGross ?? report.voidOrderAmount ?? 0)}`],
+    ["Pending / Udhaar (not collected)", `${report.pendingOrderCount || 0} orders  ·  ${fmtMoney(report.pendingOrderGross ?? report.pendingOrderTotal ?? 0)}`]
+  ], y);
+
+  y = drawSectionTitle(doc, "Daily Expenses", y);
+  const expenseRows = report.expenseDetails || [];
+  if (!expenseRows.length) {
+    y = drawKeyValueTable(doc, [["Total Expenses", fmtMoney(0)]], y);
+  } else {
+    y = drawKeyValueTable(doc, expenseRows.map((row) => [
+      String(row.description || "Expense"),
+      fmtMoney(row.amount || 0)
+    ]), y);
+    y = drawKeyValueTable(doc, [["Total Expenses", fmtMoney(report.expenseTotal || 0)]], y);
+  }
+
+  y = drawSectionTitle(doc, "Net Collection", y);
+  y = drawKeyValueTable(doc, [
+    ["Sales (paid)", fmtMoney(report.total || 0)],
+    ["Expenses", fmtMoney(report.expenseTotal || 0)],
+    ["Net Collection", fmtMoney(report.netAfterExpenses ?? ((report.total || 0) - (report.expenseTotal || 0)))]
   ], y);
 
   y = drawSectionTitle(doc, "Food Orders (All Tables)", y);
@@ -313,9 +356,10 @@ export async function buildSalesReportPdf(report) {
   } else {
     foodOrders.forEach((order, index) => {
       const isVoid = order.paymentStatus === "voided";
+      const isCredit = order.paymentStatus === "credit_pending";
       const gross = orderGrossAmount(order);
       const discount = Number(order.discountAmount || 0);
-      const net = isVoid ? 0 : Number(order.total || 0);
+      const net = isVoid ? 0 : orderNetAmount(order);
       y = drawFoodOrderRow(doc, FOOD_COLS, [
         formatOrderDateTime(order),
         formatTableDisplayName(order.tableId),
@@ -324,7 +368,31 @@ export async function buildSalesReportPdf(report) {
         fmtMoney(gross),
         discount > 0 ? `-Rs. ${Number(discount).toLocaleString("en-IN")}` : "Rs. 0",
         fmtMoney(net)
-      ], y, index, isVoid ? { ink: C.danger } : {});
+      ], y, index, isVoid ? { ink: C.danger } : (isCredit ? { ink: [180, 120, 20] } : {}));
+    });
+  }
+  y += SECTION_GAP;
+
+  y = drawSectionTitle(doc, "Pending Orders (Udhaar)", y);
+  y = drawTableHeader(doc, PENDING_COLS, y);
+  const pendingOrders = report.pendingOrderDetails || [];
+  if (!pendingOrders.length) {
+    y = drawEmptyRow(doc, PENDING_COLS, "No pending (udhaar) orders in this period.", y);
+  } else {
+    pendingOrders.forEach((order, index) => {
+      const gross = orderGrossAmount(order);
+      const discount = Number(order.discountAmount || 0);
+      const net = orderNetAmount(order);
+      y = drawTableRow(doc, PENDING_COLS, [
+        formatOrderDateTime(order),
+        formatTableDisplayName(order.tableId),
+        order.customerName || "-",
+        order.customerMobileNormalized || order.customerMobile || "-",
+        formatItemsSummary(order.items),
+        fmtMoney(gross),
+        discount > 0 ? `-Rs. ${Number(discount).toLocaleString("en-IN")}` : "Rs. 0",
+        fmtMoney(net)
+      ], y, index, { noTruncateIndices: [2, 4] });
     });
   }
   y += SECTION_GAP;

@@ -10,6 +10,9 @@ const SITTING_FOLDER_NAME = "Private Sitting";
 const REPORTS_FOLDER_NAME = "Sales Reports";
 const SHEET_NAME = "Private Sitting";
 const SALES_SHEET_NAME = "Sales Reports";
+const PENDING_SHEET_NAME = "Pending Orders";
+const EXPENSES_FOLDER_NAME = "Expenses";
+const EXPENSES_SHEET_NAME = "Expenses";
 
 const SHEET_HEADERS = [
   "Date",
@@ -35,6 +38,29 @@ const SALES_SHEET_HEADERS = [
   "PDF URL"
 ];
 
+const PENDING_SHEET_HEADERS = [
+  "Date",
+  "Time",
+  "Name",
+  "Mobile",
+  "Table",
+  "Items",
+  "Gross",
+  "Discount",
+  "Net",
+  "Order ID"
+];
+
+const EXPENSES_SHEET_HEADERS = [
+  "Date",
+  "Time",
+  "Description",
+  "Amount",
+  "Receipt Link",
+  "Notes",
+  "Added By"
+];
+
 function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents || "{}");
@@ -57,6 +83,15 @@ function doPost(e) {
     }
     if (action === "saveSalesReport") {
       return jsonResponse(handleSaveSalesReport(payload));
+    }
+    if (action === "savePendingOrder") {
+      return jsonResponse(handleSavePendingOrder(payload));
+    }
+    if (action === "saveExpense") {
+      return jsonResponse(handleSaveExpense(payload));
+    }
+    if (action === "fetchExpensesForDate") {
+      return jsonResponse(handleFetchExpensesForDate(payload));
     }
 
     return jsonResponse({ ok: false, error: "Unknown action" });
@@ -429,6 +464,163 @@ function handleSaveSalesReport(payload) {
     pdfFileId: pdfFileId,
     pdfBytes: bytes.length
   };
+}
+
+function handleSavePendingOrder(payload) {
+  const orderId = String(payload.orderId || "");
+  if (!orderId) {
+    return { ok: false, error: "Missing orderId" };
+  }
+
+  const sheet = ensurePendingSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    const existingIds = sheet.getRange(2, 10, lastRow, 10).getValues();
+    for (var i = 0; i < existingIds.length; i += 1) {
+      if (String(existingIds[i][0] || "") === orderId) {
+        return { ok: true, skipped: true, orderId: orderId };
+      }
+    }
+  }
+
+  const now = new Date();
+  const dateKey = String(payload.dateKey || Utilities.formatDate(now, Session.getScriptTimeZone(), "yyyy-MM-dd"));
+  const timeLabel = String(payload.timeLabel || Utilities.formatDate(now, Session.getScriptTimeZone(), "HH:mm:ss"));
+  sheet.appendRow([
+    dateKey,
+    timeLabel,
+    String(payload.customerName || ""),
+    String(payload.customerMobile || ""),
+    String(payload.tableId || ""),
+    String(payload.itemsSummary || ""),
+    Number(payload.grossTotal || 0),
+    Number(payload.discountAmount || 0),
+    Number(payload.total || 0),
+    orderId
+  ]);
+
+  return { ok: true, orderId: orderId };
+}
+
+function ensurePendingSheet_() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(PENDING_SHEET_NAME);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(PENDING_SHEET_NAME);
+    sheet.appendRow(PENDING_SHEET_HEADERS);
+    return sheet;
+  }
+
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(PENDING_SHEET_HEADERS);
+  }
+
+  return sheet;
+}
+
+function ensureExpensesSheet_() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = spreadsheet.getSheetByName(EXPENSES_SHEET_NAME);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(EXPENSES_SHEET_NAME);
+    sheet.appendRow(EXPENSES_SHEET_HEADERS);
+    return sheet;
+  }
+
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(EXPENSES_SHEET_HEADERS);
+  }
+
+  return sheet;
+}
+
+function ensureExpenseDayFolder_(dateKey) {
+  const root = getOrCreateFolder_(DriveApp.getRootFolder(), ROOT_FOLDER_NAME);
+  const expensesRoot = getOrCreateFolder_(root, EXPENSES_FOLDER_NAME);
+  return getOrCreateFolder_(expensesRoot, dateKey);
+}
+
+function buildReceiptBlob_(bytes, fileName, mimeType) {
+  const name = String(fileName || "receipt.jpg");
+  const mime = String(mimeType || "image/jpeg");
+  return Utilities.newBlob(bytes, mime, name);
+}
+
+function handleSaveExpense(payload) {
+  const description = String(payload.description || "").trim();
+  const amount = Number(payload.amount || 0);
+  const notes = String(payload.notes || "").trim();
+  const addedBy = String(payload.addedBy || "staff").trim();
+  if (description.length < 2) {
+    return { ok: false, error: "Description required" };
+  }
+  if (!amount || amount <= 0) {
+    return { ok: false, error: "Valid amount required" };
+  }
+
+  const now = new Date();
+  const tz = Session.getScriptTimeZone();
+  const dateKey = String(payload.dateKey || Utilities.formatDate(now, tz, "yyyy-MM-dd"));
+  const timeLabel = String(payload.timeLabel || Utilities.formatDate(now, tz, "HH:mm:ss"));
+  let receiptUrl = "";
+
+  const receiptBase64 = String(payload.receiptBase64 || "");
+  if (receiptBase64 && receiptBase64.length > 100) {
+    const bytes = Utilities.base64Decode(receiptBase64);
+    const dayFolder = ensureExpenseDayFolder_(dateKey);
+    const safeName = String(payload.receiptFileName || ("expense-" + timeLabel.replace(/:/g, "") + ".jpg"))
+      .replace(/[\\/:*?"<>|]+/g, "-");
+    const receiptFile = dayFolder.createFile(buildReceiptBlob_(bytes, safeName, payload.receiptMimeType));
+    receiptUrl = receiptFile.getUrl();
+  }
+
+  const sheet = ensureExpensesSheet_();
+  sheet.appendRow([
+    dateKey,
+    timeLabel,
+    description,
+    amount,
+    receiptUrl,
+    notes,
+    addedBy
+  ]);
+
+  return {
+    ok: true,
+    dateKey: dateKey,
+    timeLabel: timeLabel,
+    receiptUrl: receiptUrl
+  };
+}
+
+function handleFetchExpensesForDate(payload) {
+  const dateKey = String(payload.dateKey || "");
+  if (!dateKey) {
+    return { ok: false, error: "Missing dateKey" };
+  }
+
+  const sheet = ensureExpensesSheet_();
+  const lastRow = sheet.getLastRow();
+  const expenses = [];
+  if (lastRow < 2) {
+    return { ok: true, expenses: expenses };
+  }
+
+  const rows = sheet.getRange(2, 1, lastRow, EXPENSES_SHEET_HEADERS.length).getValues();
+  rows.forEach(function(row) {
+    if (String(row[0] || "") !== dateKey) return;
+    expenses.push({
+      date: String(row[0] || ""),
+      time: String(row[1] || ""),
+      description: String(row[2] || ""),
+      amount: Number(row[3] || 0),
+      receiptUrl: String(row[4] || ""),
+      notes: String(row[5] || ""),
+      addedBy: String(row[6] || "")
+    });
+  });
+
+  return { ok: true, expenses: expenses };
 }
 
 function ensureSalesSheet_() {

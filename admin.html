@@ -27,6 +27,7 @@
       </button>
       <nav class="ps-menu-dropdown" id="managerMenuDropdown" hidden aria-label="Manager menu">
         <a class="ps-menu-dropdown-item" href="./kitchen.html">Kitchen View</a>
+        <button class="ps-menu-dropdown-item" id="drawerExpensesBtn" type="button">Expenses</button>
         <button class="ps-menu-dropdown-item" id="drawerSettingsBtn" type="button">Setting</button>
         <button class="ps-menu-dropdown-item ps-menu-dropdown-logout" id="signOutBtn" type="button">Sign Out</button>
       </nav>
@@ -73,6 +74,38 @@
         <h2>Settings</h2>
       </div>
       <div id="psSettingsPanel"></div>
+    </section>
+
+    <section class="ps-view" id="psExpenses" data-ps-view="expenses" hidden>
+      <div class="ps-section-head">
+        <h2>Expenses</h2>
+      </div>
+      <p class="expense-sync-hint" id="expenseSyncHint" hidden>Apps Script URL required to save expenses.</p>
+      <section class="ps-settings-card expense-form-card">
+        <form id="expenseForm" class="expense-form">
+          <label class="ps-field">
+            <span>Description *</span>
+            <input type="text" id="expenseDescription" maxlength="120" required placeholder="e.g. Milk Purchase">
+          </label>
+          <label class="ps-field">
+            <span>Amount *</span>
+            <input type="number" id="expenseAmount" min="1" step="1" inputmode="numeric" required placeholder="850">
+          </label>
+          <label class="ps-field">
+            <span>Receipt (optional)</span>
+            <input type="file" id="expenseReceipt" accept="image/*,application/pdf">
+          </label>
+          <label class="ps-field">
+            <span>Notes (optional)</span>
+            <textarea id="expenseNotes" rows="2" maxlength="200" placeholder="Any extra detail"></textarea>
+          </label>
+          <button class="primary-btn" id="expenseSubmitBtn" type="submit">Submit Expense</button>
+        </form>
+      </section>
+      <div class="ps-section-head expense-list-head">
+        <h3>Today&apos;s Expenses</h3>
+      </div>
+      <div class="expense-list" id="expenseList"></div>
     </section>
   </main>
 
@@ -183,6 +216,16 @@
             <h3>Order Cart</h3>
             <button class="ghost-btn" id="adminBackToMenu" type="button">Back</button>
           </div>
+          <div class="admin-order-customer-fields" id="adminOrderCustomerFields">
+            <label class="admin-customer-field">
+              <span>Name (optional)</span>
+              <input type="text" id="adminCustomerName" maxlength="60" placeholder="Customer name" autocomplete="name">
+            </label>
+            <label class="admin-customer-field">
+              <span>Mobile (optional)</span>
+              <input type="tel" id="adminCustomerMobile" maxlength="10" inputmode="numeric" placeholder="10-digit mobile" autocomplete="tel">
+            </label>
+          </div>
           <div class="cart-list" id="adminCartList"></div>
           <div class="cart-total">
             <span>Grand Total</span>
@@ -206,7 +249,7 @@
   <div class="modal-backdrop" id="paymentMethodModal" hidden>
     <section class="history-modal payment-method-modal" role="dialog" aria-modal="true" aria-labelledby="paymentMethodTitle">
       <div class="modal-head">
-        <h2 id="paymentMethodTitle">Mark Paid</h2>
+        <h2 id="paymentMethodTitle">Payment Method</h2>
         <button class="ghost-btn" id="closePaymentMethod" type="button">Close</button>
       </div>
       <div class="payment-method-body">
@@ -225,7 +268,20 @@
         <div id="paymentMethodActions">
           <button class="primary-btn" id="paidCashBtn" type="button">Cash</button>
           <button class="secondary-btn" id="paidOnlineBtn" type="button">Online</button>
+          <button class="secondary-btn" id="paidPendingBtn" type="button">Pending (Udhaar)</button>
           <button class="ghost-btn danger-btn" id="voidOrderBtn" type="button">Void Order</button>
+        </div>
+        <div class="pending-customer-panel" id="pendingCustomerPanel" hidden>
+          <p class="pending-customer-help">Name and mobile required for udhaar.</p>
+          <label class="admin-customer-field">
+            <span>Name</span>
+            <input type="text" id="pendingCustomerName" maxlength="60" placeholder="Customer name" autocomplete="name">
+          </label>
+          <label class="admin-customer-field">
+            <span>Mobile</span>
+            <input type="tel" id="pendingCustomerMobile" maxlength="10" inputmode="numeric" placeholder="10-digit mobile" autocomplete="tel">
+          </label>
+          <button class="primary-btn" id="pendingCustomerConfirmBtn" type="button">Confirm Pending</button>
         </div>
         <div class="void-order-panel" id="voidOrderPanel" hidden>
           <label class="select-label" for="voidOrderRemarks">Reason / Remarks (required)</label>

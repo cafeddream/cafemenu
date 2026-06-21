@@ -9,6 +9,7 @@ import {
 } from "./firebase.js";
 import { buildSalesReportPdfBase64 } from "./report-pdf.js";
 import { isReportSyncConfigured, syncSalesReportToDrive } from "./report-sync.js";
+import { attachExpensesToReport } from "./expense-sync.js";
 import { preloadJsPdf } from "./private-sitting-pdf.js";
 
 const REPORT_STATE_KEY = "cafe_sales_report_state";
@@ -95,7 +96,9 @@ function pickSummary(report) {
 
 function isReportEmpty(report) {
   const paidOrderCount = report.paidOrderCount ?? report.totalOrders ?? 0;
-  return paidOrderCount === 0 && Number(report.total || 0) === 0;
+  const hasSales = paidOrderCount > 0 || Number(report.total || 0) > 0;
+  const hasExpenses = Number(report.expenseTotal || 0) > 0;
+  return !hasSales && !hasExpenses;
 }
 
 function msUntilNextMidnight() {
@@ -169,6 +172,7 @@ export async function runDailyReportForDate(dateKey) {
     if (!alreadyUploaded) {
       preloadJsPdf();
       const report = await fetchDayWiseReport(dateKey, dateKey);
+      await attachExpensesToReport(report, dateKey);
 
       if (isReportEmpty(report)) {
         console.warn("[report] Skipping empty report for", dateKey, "— data may already be archived");
