@@ -51,9 +51,6 @@ function setActiveTab(tabId) {
   if (tabId === "dashboard" || tabId === "sittings" || tabId === "reports" || tabId === "settings") {
     refreshPrivateSittingView();
   }
-  if (tabId === "expenses") {
-    window.dispatchEvent(new CustomEvent("expenses-tab-opened"));
-  }
 }
 
 function bindShellUi() {

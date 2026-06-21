@@ -1,5 +1,7 @@
-import { auth, escapeHtml, formatCurrency, getTodayKey, showToast } from "./firebase.js";
-import { fetchExpensesForDate, isExpenseSyncConfigured, saveExpense } from "./expense-sync.js";
+import { auth, showToast } from "./firebase.js";
+import { isExpenseSyncConfigured, saveExpense } from "./expense-sync.js";
+
+const SUBMIT_LABEL = "Submit Expense";
 
 const elements = {
   form: document.querySelector("#expenseForm"),
@@ -8,7 +10,6 @@ const elements = {
   receipt: document.querySelector("#expenseReceipt"),
   notes: document.querySelector("#expenseNotes"),
   submitBtn: document.querySelector("#expenseSubmitBtn"),
-  list: document.querySelector("#expenseList"),
   syncHint: document.querySelector("#expenseSyncHint")
 };
 
@@ -25,48 +26,21 @@ function readFileAsBase64(file) {
   });
 }
 
-function renderExpenseList(expenses = []) {
-  if (!elements.list) return;
-  if (!expenses.length) {
-    elements.list.innerHTML = `<p class="expense-empty">No expenses recorded today.</p>`;
+function setSubmitBusy(busy) {
+  if (!elements.submitBtn) return;
+  if (busy) {
+    elements.submitBtn.disabled = true;
+    elements.submitBtn.textContent = "Saving...";
     return;
   }
-
-  elements.list.innerHTML = expenses.map((row) => {
-    const receiptLink = row.receiptUrl
-      ? `<a class="expense-receipt-link" href="${escapeHtml(row.receiptUrl)}" target="_blank" rel="noopener noreferrer">View Receipt</a>`
-      : "";
-    return `
-      <article class="expense-row">
-        <div class="expense-row-main">
-          <strong>${escapeHtml(row.description || "Expense")}</strong>
-          <span class="expense-row-amount">${formatCurrency(row.amount || 0)}</span>
-        </div>
-        <div class="expense-row-meta">
-          <span>${escapeHtml(row.time || "")}</span>
-          ${row.addedBy ? `<span>${escapeHtml(row.addedBy)}</span>` : ""}
-          ${receiptLink}
-        </div>
-        ${row.notes ? `<p class="expense-row-notes">${escapeHtml(row.notes)}</p>` : ""}
-      </article>
-    `;
-  }).join("");
+  elements.submitBtn.disabled = false;
+  elements.submitBtn.textContent = SUBMIT_LABEL;
 }
 
-export async function loadTodayExpenses() {
-  if (!elements.list) return;
-  if (!isExpenseSyncConfigured()) {
-    elements.list.innerHTML = `<p class="expense-empty">Configure Apps Script URL to sync expenses.</p>`;
-    return;
-  }
-
-  elements.list.innerHTML = `<p class="expense-empty">Loading today&apos;s expenses...</p>`;
-  const result = await fetchExpensesForDate(getTodayKey());
-  if (!result.ok) {
-    elements.list.innerHTML = `<p class="expense-empty">Could not load expenses.</p>`;
-    return;
-  }
-  renderExpenseList(result.expenses || []);
+function allowUiPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
 }
 
 async function handleExpenseSubmit(event) {
@@ -92,7 +66,8 @@ async function handleExpenseSubmit(event) {
     return;
   }
 
-  if (elements.submitBtn) elements.submitBtn.disabled = true;
+  setSubmitBusy(true);
+  await allowUiPaint();
 
   try {
     let receiptBase64 = "";
@@ -104,8 +79,6 @@ async function handleExpenseSubmit(event) {
         throw new Error("Receipt must be under 8 MB");
       }
       receiptBase64 = await readFileAsBase64(file);
-      receiptFileName = file.name || "receipt.jpg";
-      receiptMimeType = file.type || "application/octet-stream";
     }
 
     const result = await saveExpense({
@@ -113,8 +86,8 @@ async function handleExpenseSubmit(event) {
       amount,
       notes,
       receiptBase64,
-      receiptFileName,
-      receiptMimeType,
+      receiptFileName: file ? (file.name || "receipt.jpg") : "",
+      receiptMimeType: file ? (file.type || "application/octet-stream") : "",
       addedBy: auth.currentUser?.email || "staff"
     });
 
@@ -124,19 +97,16 @@ async function handleExpenseSubmit(event) {
 
     elements.form.reset();
     showToast("Expense saved");
-    await loadTodayExpenses();
+    elements.description?.focus();
   } catch (error) {
     showToast(error?.message || "Could not save expense");
   } finally {
-    if (elements.submitBtn) elements.submitBtn.disabled = false;
+    setSubmitBusy(false);
   }
 }
 
 function bindExpenseUi() {
   elements.form?.addEventListener("submit", handleExpenseSubmit);
-  window.addEventListener("expenses-tab-opened", () => {
-    void loadTodayExpenses();
-  });
 }
 
 export function initExpenses() {
