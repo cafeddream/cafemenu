@@ -114,8 +114,20 @@
   transform: scale(0.98);
 }
 
-.ps-menu-dropdown-logout {
+.ps-menu-dropdown-action {
+  color: #f4c542;
+}
+
+.ps-close-day-modal .modal-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ps-close-day-error {
+  margin: 0 16px 8px;
   color: #ff8f8f;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .ps-manager-main {

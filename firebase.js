@@ -66,7 +66,7 @@ export const CONFIG = {
     ]
   },
   RECEIPT_LOGO_SRC: "./assets/receipt-logo.png",
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzfnFgCldbHh1_IQDrYaWgrc4nBEPJ9Pbh6b1DSqz4sLfWzMm5t9zdgGhTlhVKyxtzOAQ/exec",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxyUGP3kohv-GZH5GDOcmd6vpW-cwW2MmVjqY8F5uUfR3h4szcLpjuC6tDFj8ocdQu2Bw/exec",
   PRIVATE_SITTINGS: [
     { id: "PS 1", ratePerHour: 150, theme: "ps-green" },
     { id: "PS 2", ratePerHour: 150, theme: "ps-green" },
@@ -771,6 +771,24 @@ export function listenToActivePrivateSessions(callback, onError) {
   return onSnapshot(sessionsQuery, (snapshot) => {
     callback(snapshot.docs.map((sessionDoc) => ({ id: sessionDoc.id, ...sessionDoc.data() })));
   }, onError);
+}
+
+export async function fetchActivePrivateSessionsOnce() {
+  const sessionsQuery = query(
+    collection(db, "privateSessions"),
+    where("status", "==", "active")
+  );
+  const snapshot = await getDocs(sessionsQuery);
+  return snapshot.docs.map((sessionDoc) => ({ id: sessionDoc.id, ...sessionDoc.data() }));
+}
+
+export async function fetchActiveOrdersOnce() {
+  const snapshot = await getDocs(collection(db, "activeOrders"));
+  return snapshot.docs.map((orderDoc) => ({
+    id: orderDoc.id,
+    orderId: orderDoc.id,
+    ...orderDoc.data()
+  }));
 }
 
 export function listenToPrivateSessions(callback, onError) {

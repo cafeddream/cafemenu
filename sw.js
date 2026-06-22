@@ -1,4 +1,4 @@
-const CACHE_NAME = "cafe-d-dream-v84";
+const CACHE_NAME = "cafe-d-dream-v85";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -11,6 +11,7 @@ const APP_SHELL = [
   "./admin-shell.js",
   "./admin-orders.js",
   "./admin-settings.js",
+  "./close-day.js",
   "./expenses.js",
   "./expense-sync.js",
   "./private-sitting.js",

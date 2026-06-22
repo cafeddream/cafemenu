@@ -123,7 +123,11 @@ async function recordSuccessfulUpload(dateKey, result, summary) {
   markUploadedLocal(dateKey);
 }
 
-async function uploadReportToDrive(dateKey, report) {
+export async function isReportDayUploaded(dateKey) {
+  return isAlreadyUploaded(dateKey);
+}
+
+export async function uploadReportToDrive(dateKey, report) {
   const summary = pickSummary(report);
   const pdfBase64 = await buildSalesReportPdfBase64(report);
   const result = await syncSalesReportToDrive({ dateKey, pdfBase64, summary });

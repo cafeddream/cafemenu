@@ -27,7 +27,7 @@
       </button>
       <nav class="ps-menu-dropdown" id="managerMenuDropdown" hidden aria-label="Manager menu">
         <a class="ps-menu-dropdown-item" href="./kitchen.html">Kitchen View</a>
-        <button class="ps-menu-dropdown-item ps-menu-dropdown-logout" id="signOutBtn" type="button">Sign Out</button>
+        <button class="ps-menu-dropdown-item ps-menu-dropdown-action" id="closeDayBtn" type="button">Close Day</button>
       </nav>
     </div>
   </header>
@@ -299,6 +299,22 @@
   </div>
 
   <span id="todayCollection" hidden>Today's Collection: Rs 0</span>
+
+  <div class="modal-backdrop" id="closeDayModal" hidden>
+    <section class="history-modal ps-close-day-modal" role="dialog" aria-modal="true" aria-labelledby="closeDayTitle">
+      <div class="modal-head">
+        <div>
+          <h2 id="closeDayTitle">Close Day?</h2>
+          <div class="subtle">Today's sales report will download on this device. Automatic midnight and next-login reports for today will be skipped.</div>
+        </div>
+        <button class="ghost-btn" id="closeDayCancel" type="button">Cancel</button>
+      </div>
+      <p class="ps-close-day-error" id="closeDayError" hidden></p>
+      <div class="modal-foot" style="padding:16px;">
+        <button class="primary-btn" id="closeDayConfirm" type="button">Close Day</button>
+      </div>
+    </section>
+  </div>
 
   <script type="module" src="./admin.js"></script>
 </body>

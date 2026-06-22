@@ -1,13 +1,18 @@
-import { CONFIG } from "./firebase.js";
+import { CONFIG, showToast } from "./firebase.js";
 import { initAdminOrders } from "./admin-orders.js";
 import { initExpenses } from "./expenses.js";
 import { initPrivateSitting, refreshPrivateSittingView } from "./private-sitting.js";
 import { startDailyReportScheduler } from "./report-scheduler.js";
 import { requireStaffAuth } from "./staff-auth.js";
+import { closeDayForToday } from "./close-day.js";
 
 const elements = {
   restaurant: document.querySelector("#adminRestaurant"),
-  signOutBtn: document.querySelector("#signOutBtn"),
+  closeDayBtn: document.querySelector("#closeDayBtn"),
+  closeDayModal: document.querySelector("#closeDayModal"),
+  closeDayCancel: document.querySelector("#closeDayCancel"),
+  closeDayConfirm: document.querySelector("#closeDayConfirm"),
+  closeDayError: document.querySelector("#closeDayError"),
   menuBtn: document.querySelector("#managerMenuBtn"),
   menuDropdown: document.querySelector("#managerMenuDropdown"),
   headerMenu: document.querySelector(".ps-header-menu"),
@@ -17,6 +22,7 @@ const elements = {
 };
 
 let activeTab = "orders";
+let closeDayRunning = false;
 
 export function closeManagerMenu() {
   if (!elements.menuDropdown) return;
@@ -51,6 +57,54 @@ function setActiveTab(tabId) {
   }
 }
 
+function setCloseDayError(message = "") {
+  if (!elements.closeDayError) return;
+  if (message) {
+    elements.closeDayError.textContent = message;
+    elements.closeDayError.hidden = false;
+    return;
+  }
+  elements.closeDayError.textContent = "";
+  elements.closeDayError.hidden = true;
+}
+
+function setCloseDayBusy(busy) {
+  closeDayRunning = busy;
+  if (elements.closeDayConfirm) {
+    elements.closeDayConfirm.disabled = busy;
+    elements.closeDayConfirm.textContent = busy ? "Closing..." : "Close Day";
+  }
+  if (elements.closeDayCancel) elements.closeDayCancel.disabled = busy;
+}
+
+function openCloseDayModal() {
+  setCloseDayError();
+  setCloseDayBusy(false);
+  if (elements.closeDayModal) elements.closeDayModal.hidden = false;
+}
+
+function closeCloseDayModal() {
+  if (closeDayRunning) return;
+  setCloseDayError();
+  if (elements.closeDayModal) elements.closeDayModal.hidden = true;
+}
+
+async function confirmCloseDay() {
+  if (closeDayRunning) return;
+  setCloseDayError();
+  setCloseDayBusy(true);
+  try {
+    await closeDayForToday();
+    closeCloseDayModal();
+    closeManagerMenu();
+    showToast("Day closed. Report downloaded.");
+  } catch (error) {
+    setCloseDayError(error?.message || "Close day failed. Please try again.");
+  } finally {
+    setCloseDayBusy(false);
+  }
+}
+
 function bindShellUi() {
   elements.navButtons.forEach((button) => {
     button.addEventListener("click", () => setActiveTab(button.dataset.psTab));
@@ -79,15 +133,23 @@ function bindShellUi() {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && isManagerMenuOpen()) {
-      closeManagerMenu();
+    if (event.key === "Escape") {
+      if (elements.closeDayModal && !elements.closeDayModal.hidden) {
+        closeCloseDayModal();
+        return;
+      }
+      if (isManagerMenuOpen()) closeManagerMenu();
     }
   });
 
-  elements.signOutBtn?.addEventListener("click", async () => {
-    const { signOutStaff } = await import("./staff-auth.js");
-    await signOutStaff();
-    window.location.reload();
+  elements.closeDayBtn?.addEventListener("click", () => {
+    closeManagerMenu();
+    openCloseDayModal();
+  });
+  elements.closeDayCancel?.addEventListener("click", closeCloseDayModal);
+  elements.closeDayConfirm?.addEventListener("click", confirmCloseDay);
+  elements.closeDayModal?.addEventListener("click", (event) => {
+    if (event.target === elements.closeDayModal) closeCloseDayModal();
   });
 }
 
