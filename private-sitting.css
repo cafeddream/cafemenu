@@ -114,13 +114,38 @@
   transform: scale(0.98);
 }
 
-.ps-menu-dropdown-action {
-  color: #f4c542;
+.ps-menu-dropdown-logout {
+  color: #ff8f8f;
 }
 
-.ps-close-day-modal .modal-foot {
+.ps-close-day-modal {
+  width: min(100%, 420px);
+  background: #171b24;
+  color: var(--ps-text);
+}
+
+.ps-close-day-modal .modal-head {
+  border-bottom-color: var(--ps-line);
+}
+
+.ps-close-day-modal .modal-head h2 {
+  margin: 0;
+  color: var(--ps-text);
+}
+
+.ps-close-day-prompt {
+  margin: 0;
+  padding: 16px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--ps-text);
+}
+
+.ps-close-day-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
+  padding: 16px;
 }
 
 .ps-close-day-error {

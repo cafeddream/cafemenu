@@ -10,8 +10,8 @@ const elements = {
   restaurant: document.querySelector("#adminRestaurant"),
   closeDayBtn: document.querySelector("#closeDayBtn"),
   closeDayModal: document.querySelector("#closeDayModal"),
-  closeDayCancel: document.querySelector("#closeDayCancel"),
-  closeDayConfirm: document.querySelector("#closeDayConfirm"),
+  closeDayNo: document.querySelector("#closeDayNo"),
+  closeDayYes: document.querySelector("#closeDayYes"),
   closeDayError: document.querySelector("#closeDayError"),
   menuBtn: document.querySelector("#managerMenuBtn"),
   menuDropdown: document.querySelector("#managerMenuDropdown"),
@@ -70,11 +70,11 @@ function setCloseDayError(message = "") {
 
 function setCloseDayBusy(busy) {
   closeDayRunning = busy;
-  if (elements.closeDayConfirm) {
-    elements.closeDayConfirm.disabled = busy;
-    elements.closeDayConfirm.textContent = busy ? "Closing..." : "Close Day";
+  if (elements.closeDayYes) {
+    elements.closeDayYes.disabled = busy;
+    elements.closeDayYes.textContent = busy ? "Please wait..." : "Yes";
   }
-  if (elements.closeDayCancel) elements.closeDayCancel.disabled = busy;
+  if (elements.closeDayNo) elements.closeDayNo.disabled = busy;
 }
 
 function openCloseDayModal() {
@@ -97,9 +97,12 @@ async function confirmCloseDay() {
     await closeDayForToday();
     closeCloseDayModal();
     closeManagerMenu();
-    showToast("Day closed. Report downloaded.");
+    showToast("Day closed. Report saved to Drive and downloaded.");
   } catch (error) {
-    setCloseDayError(error?.message || "Close day failed. Please try again.");
+    console.error("Close day failed:", error);
+    const message = error?.message || "Close day failed. Please try again.";
+    setCloseDayError(message);
+    showToast(message);
   } finally {
     setCloseDayBusy(false);
   }
@@ -142,12 +145,13 @@ function bindShellUi() {
     }
   });
 
-  elements.closeDayBtn?.addEventListener("click", () => {
+  elements.closeDayBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
     closeManagerMenu();
     openCloseDayModal();
   });
-  elements.closeDayCancel?.addEventListener("click", closeCloseDayModal);
-  elements.closeDayConfirm?.addEventListener("click", confirmCloseDay);
+  elements.closeDayNo?.addEventListener("click", closeCloseDayModal);
+  elements.closeDayYes?.addEventListener("click", confirmCloseDay);
   elements.closeDayModal?.addEventListener("click", (event) => {
     if (event.target === elements.closeDayModal) closeCloseDayModal();
   });

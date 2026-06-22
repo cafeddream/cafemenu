@@ -8,7 +8,7 @@ import { attachExpensesToReport } from "./expense-sync.js";
 import { downloadSalesReportPdf } from "./report-pdf.js";
 import { isReportSyncConfigured } from "./report-sync.js";
 import { isReportDayUploaded, uploadReportToDrive } from "./report-scheduler.js";
-import { preloadJsPdf } from "./private-sitting-pdf.js";
+import { getJsPdf } from "./private-sitting-pdf.js";
 
 export const CLOSE_DAY_ERRORS = {
   unserved: "Please orders unserved, cannot close cafe",
@@ -45,10 +45,10 @@ export async function closeDayForToday() {
     throw new Error(CLOSE_DAY_ERRORS.sitting);
   }
 
-  preloadJsPdf();
+  await getJsPdf();
   const report = await fetchDayWiseReport(dateKey, dateKey);
   await attachExpensesToReport(report, dateKey);
-  await downloadSalesReportPdf(report);
   await uploadReportToDrive(dateKey, report);
+  await downloadSalesReportPdf(report);
   return { dateKey };
 }
