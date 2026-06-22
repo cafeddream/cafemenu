@@ -2,7 +2,7 @@ import {
   CONFIG,
   STATUS_LABELS,
   cancelActiveOrder,
-  clearTable,
+  clearActiveOrder,
   computeDiscount,
   escapeHtml,
   fetchMenu,
@@ -505,6 +505,7 @@ function mobileOrderCardHtml(order) {
       <strong>${formatCurrency(Number(item.price || 0) * Number(item.qty || 0))}</strong>
     </li>
   `).join("");
+  const clearOrderEnabled = !hasPendingItems(order) && !isSessionHold;
 
   return `
     <article class="ps-order-card status-${escapeHtml(status)}" data-order="${escapeHtml(order.orderId || order.id)}">
@@ -530,6 +531,7 @@ function mobileOrderCardHtml(order) {
         ${status === "new" || status === "preparing" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"cancel\">Cancel Order</button>" : ""}
         ${status !== "paid" && !paymentVerified && !isSessionHold && !paymentVoided && !paymentCredit ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Confirm Payment</button>" : ""}
         <button class="ghost-btn" type="button" data-action="share">Share Receipt</button>
+        <button class="danger-btn order-clear-btn" type="button" data-action="clear-order" ${clearOrderEnabled ? "" : "disabled"} title="${clearOrderEnabled ? "Clear this order from the table" : "Serve all items before clearing"}">Clear Order</button>
       </div>
     </article>
   `;
@@ -546,7 +548,6 @@ function renderTableDetail(tableId) {
   const orders = getOrdersForTable(tableId);
   const displayName = formatTableDisplayName(tableId);
   const isEmpty = !orders.length;
-  const clearEnabled = orders.length > 0 && orders.every((order) => !hasPendingItems(order));
   const runningCount = getRunningOrderCount(orders);
   const tableTotal = getTableOrdersTotal(orders);
   const statusBadgeClass = isEmpty ? "table-status-empty" : "table-status-active";
@@ -589,11 +590,6 @@ function renderTableDetail(tableId) {
           </article>
         </div>
       </div>
-      ${orders.length ? `
-      <footer class="ps-table-detail-footer">
-        <button class="danger-btn table-clear-btn" type="button" data-table="${escapeHtml(tableId)}" data-action="clear" ${clearEnabled ? "" : "disabled"} title="${clearEnabled ? "Clear this table" : "Serve all items before clearing"}">Clear Table</button>
-      </footer>
-      ` : ""}
     </div>
   `;
   bindDetailActions();
@@ -617,18 +613,6 @@ function bindDetailActions() {
   elements.tableDetail.querySelector(".ps-table-back-btn")?.addEventListener("click", closeTableDetail);
   elements.tableDetail.querySelector(".ps-add-order-btn")?.addEventListener("click", (event) => {
     openAdminOrderModal(event.currentTarget.dataset.table);
-  });
-
-  elements.tableDetail.querySelector(".table-clear-btn")?.addEventListener("click", async (event) => {
-    const button = event.currentTarget;
-    const tableId = button.dataset.table;
-    button.disabled = true;
-    try {
-      await clearTable(tableId);
-    } catch {
-      showToast("Connection error, please refresh");
-      button.disabled = false;
-    }
   });
 
   bindOrderActionButtons(elements.tableDetail);
@@ -668,10 +652,14 @@ async function handleOrderAction(button) {
       button.disabled = false;
       return;
     }
-    if (action === "clear") await clearTable(tableId);
+    if (action === "clear-order") {
+      await clearActiveOrder(orderId);
+      showToast("Order cleared.");
+      return;
+    }
     if (action === "share") shareTableBill(tableId, orderId);
-  } catch {
-    showToast("Connection error, please refresh");
+  } catch (error) {
+    showToast(error?.message || "Connection error, please refresh");
     button.disabled = false;
   }
 }

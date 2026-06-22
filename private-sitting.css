@@ -1290,6 +1290,12 @@ body[data-active-tab="orders"] .ps-manager-main {
   margin-top: 10px;
 }
 
+.ps-order-card .order-clear-btn {
+  flex: 1 1 100%;
+  width: 100%;
+  margin-top: 2px;
+}
+
 .ps-order-summary {
   padding: 0;
   border: 0;

@@ -2069,6 +2069,42 @@ export async function markOrderPaid(orderId, paymentMethod = "cash", discount = 
   await recordOrderPayment(orderId, paymentMethod, "paid", discount);
 }
 
+// Deletes one served order from a table; clears legacy table doc when last order is removed.
+export async function clearActiveOrder(orderId) {
+  const snapshot = await getDoc(activeOrderRef(orderId));
+  if (!snapshot.exists()) return false;
+
+  const order = snapshot.data();
+  if (order.paymentStatus === "session_hold" || order.privateSessionId) {
+    throw new Error("Private sitting orders are cleared at checkout.");
+  }
+
+  if (getPendingItems(order.items || []).length > 0) {
+    throw new Error("Serve all items before clearing this order.");
+  }
+
+  const tableId = order.tableId;
+  await deleteDoc(activeOrderRef(orderId));
+
+  const remainingSnapshot = await getDocs(collection(db, "activeOrders"));
+  const hasRemaining = remainingSnapshot.docs.some((orderDoc) => {
+    const data = orderDoc.data();
+    return data.tableId === tableId;
+  });
+
+  if (!hasRemaining) {
+    await deleteDoc(orderRef(tableId)).catch(() => {});
+    await logAuditEntry("table_cleared", tableId);
+  } else {
+    await logAuditEntry("order_cleared", tableId, {
+      orderId,
+      total: order.total || 0
+    });
+  }
+
+  return true;
+}
+
 // Deletes the current order for a table after payment.
 export async function clearTable(tableId) {
   const snapshot = await getDocs(collection(db, "activeOrders"));
