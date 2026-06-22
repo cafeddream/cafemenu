@@ -2127,6 +2127,7 @@ export function listenToTodaySummary(callback, onError) {
 
 function historySortTime(order) {
   return toDate(order.savedAt)?.getTime()
+    || toDate(order.creditedAt)?.getTime()
     || toDate(order.voidedAt)?.getTime()
     || toDate(order.paidAt)?.getTime()
     || 0;
@@ -2135,13 +2136,14 @@ function historySortTime(order) {
 // Loads recent paid order history for one table.
 export async function fetchTableHistory(tableId, maxRows = 20) {
   const historyCollection = collection(db, "tableHistory", tableId, "orders");
-  const [paidSnapshot, voidSnapshot] = await Promise.all([
+  const [paidSnapshot, voidSnapshot, creditSnapshot] = await Promise.all([
     getDocs(query(historyCollection, orderBy("paidAt", "desc"), limit(maxRows))).catch(() => ({ docs: [] })),
-    getDocs(query(historyCollection, orderBy("voidedAt", "desc"), limit(maxRows))).catch(() => ({ docs: [] }))
+    getDocs(query(historyCollection, orderBy("voidedAt", "desc"), limit(maxRows))).catch(() => ({ docs: [] })),
+    getDocs(query(historyCollection, orderBy("creditedAt", "desc"), limit(maxRows))).catch(() => ({ docs: [] }))
   ]);
 
   const byOrderId = new Map();
-  [...paidSnapshot.docs, ...voidSnapshot.docs].forEach((historyDoc) => {
+  [...paidSnapshot.docs, ...voidSnapshot.docs, ...creditSnapshot.docs].forEach((historyDoc) => {
     const data = { id: historyDoc.id, ...historyDoc.data() };
     const key = data.orderId || historyDoc.id;
     const existing = byOrderId.get(key);
@@ -2301,28 +2303,42 @@ function listDateKeys(startKey, endKey) {
   return keys;
 }
 
-// Loads paid and payment-void food orders across all tables for a date range.
+// Loads paid, void, and udhaar food orders across all tables for a date range.
 export async function fetchFoodOrdersForDateRange(startKey, endKey, maxRows = 500) {
   const histories = await Promise.all(CONFIG.TABLES.map((tableId) => fetchTableHistory(tableId, maxRows)));
-  return histories.flat()
+  const fromHistory = histories.flat().filter((order) => {
+    if (order.paymentStatus === "voided") {
+      const voidedAt = toDate(order.voidedAt);
+      if (!voidedAt) return false;
+      const key = getTodayKey(voidedAt);
+      return key >= startKey && key <= endKey;
+    }
+    if (order.paymentStatus === "credit_pending") {
+      const creditedAt = toDate(order.creditedAt);
+      if (!creditedAt) return false;
+      const key = getTodayKey(creditedAt);
+      return key >= startKey && key <= endKey;
+    }
+    const paidAt = toDate(order.paidAt);
+    if (!paidAt) return false;
+    const key = getTodayKey(paidAt);
+    return key >= startKey && key <= endKey;
+  });
+
+  const historyIds = new Set(fromHistory.map((order) => order.orderId || order.id).filter(Boolean));
+  const activeSnapshot = await getDocs(collection(db, "activeOrders"));
+  const fromActive = activeSnapshot.docs
+    .map((orderDoc) => ({ id: orderDoc.id, orderId: orderDoc.id, ...orderDoc.data() }))
+    .filter((order) => order.paymentStatus === "credit_pending")
     .filter((order) => {
-      if (order.paymentStatus === "voided") {
-        const voidedAt = toDate(order.voidedAt);
-        if (!voidedAt) return false;
-        const key = getTodayKey(voidedAt);
-        return key >= startKey && key <= endKey;
-      }
-      if (order.paymentStatus === "credit_pending") {
-        const creditedAt = toDate(order.creditedAt);
-        if (!creditedAt) return false;
-        const key = getTodayKey(creditedAt);
-        return key >= startKey && key <= endKey;
-      }
-      const paidAt = toDate(order.paidAt);
-      if (!paidAt) return false;
-      const key = getTodayKey(paidAt);
+      const creditedAt = toDate(order.creditedAt);
+      if (!creditedAt) return false;
+      const key = getTodayKey(creditedAt);
       return key >= startKey && key <= endKey;
     })
+    .filter((order) => !historyIds.has(order.orderId || order.id));
+
+  return [...fromHistory, ...fromActive]
     .sort((a, b) => {
       const aTime = toDate(a.voidedAt)?.getTime()
         || toDate(a.creditedAt)?.getTime()

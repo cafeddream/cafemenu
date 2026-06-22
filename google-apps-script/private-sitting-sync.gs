@@ -576,7 +576,7 @@ function handleSaveExpense(payload) {
 
   const sheet = ensureExpensesSheet_();
   sheet.appendRow([
-    dateKey,
+    "'" + dateKey,
     timeLabel,
     description,
     amount,
@@ -591,6 +591,21 @@ function handleSaveExpense(payload) {
     timeLabel: timeLabel,
     receiptUrl: receiptUrl
   };
+}
+
+function normalizeSheetDateKey_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  }
+  const text = String(value || "").trim().replace(/^'/, "");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+  const parsed = new Date(text);
+  if (!isNaN(parsed.getTime())) {
+    return Utilities.formatDate(parsed, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  }
+  return text;
 }
 
 function handleFetchExpensesForDate(payload) {
@@ -608,7 +623,7 @@ function handleFetchExpensesForDate(payload) {
 
   const rows = sheet.getRange(2, 1, lastRow, EXPENSES_SHEET_HEADERS.length).getValues();
   rows.forEach(function(row) {
-    if (String(row[0] || "") !== dateKey) return;
+    if (normalizeSheetDateKey_(row[0]) !== dateKey) return;
     expenses.push({
       date: String(row[0] || ""),
       time: String(row[1] || ""),
