@@ -227,6 +227,10 @@ body[data-active-tab="orders"] .ps-manager-main {
   padding-top: 0;
 }
 
+body[data-active-tab="orders"] {
+  scroll-padding-top: calc(var(--ps-header-h) + 68px + env(safe-area-inset-top, 0px));
+}
+
 .ps-bottom-nav {
   position: fixed;
   left: 0;
@@ -1219,7 +1223,8 @@ body[data-active-tab="expenses"] .ps-manager-main {
 }
 
 body[data-active-tab="settings"] .ps-manager-header,
-body[data-active-tab="expenses"] .ps-manager-header {
+body[data-active-tab="expenses"] .ps-manager-header,
+body[data-active-tab="orders"] .ps-manager-header {
   background: rgba(255, 255, 255, 0.98);
   border-bottom: 1px solid var(--ps-line);
   backdrop-filter: blur(12px);
@@ -1934,6 +1939,13 @@ body[data-active-tab="expenses"] .ps-manager-header {
   #psSittings .ps-sitting-card em {
     font-size: 9px;
     letter-spacing: 0.03em;
+  }
+
+  body[data-active-tab="orders"]:not(.ps-orders-detail-open) #adminCategoryTabs {
+    position: sticky;
+    top: calc(var(--ps-header-h) + env(safe-area-inset-top, 0px));
+    z-index: 35;
+    background: var(--ps-bg);
   }
 }
 
