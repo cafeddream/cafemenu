@@ -112,6 +112,25 @@ function checkInCustomerIconHtml(index) {
   return `<span class="ps-customer-gender-icon ${toneClass}" aria-label="${label}">${icon}</span>`;
 }
 
+const CHECKIN_FIELD_ICONS = {
+  mobile: "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z\"/></svg>",
+  name: "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z\"/></svg>",
+  dob: "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5z\"/></svg>"
+};
+
+function checkInInputHtml({ name, type = "text", value = "", placeholder, iconKey, attrs = "", ariaLabel = "" }) {
+  const icon = CHECKIN_FIELD_ICONS[iconKey] || "";
+  const aria = ariaLabel ? ` aria-label="${escapeHtml(ariaLabel)}"` : "";
+  return `
+    <label class="ps-field ps-field--icon">
+      <span class="ps-field-input-wrap">
+        <span class="ps-field-icon" aria-hidden="true">${icon}</span>
+        <input type="${type}" name="${name}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}"${aria} ${attrs}>
+      </span>
+    </label>
+  `;
+}
+
 function renderSessionCustomerCard(customer, index) {
   return `
     <section class="ps-session-customer" aria-label="Guest ${index + 1}">
@@ -585,14 +604,23 @@ function customerBlockHtml(customer, index) {
       <div class="ps-customer-head">
         ${checkInCustomerIconHtml(index)}
       </div>
-      <label class="ps-field">
-        <span>Name</span>
-        <input type="text" name="name-${index}" value="${escapeHtml(customer.name)}" maxlength="60" required>
-      </label>
-      <label class="ps-field">
-        <span>Date of Birth</span>
-        <input type="date" name="dob-${index}" value="${escapeHtml(customer.dob)}" max="${getMaxDobForAdult()}" required>
-      </label>
+      ${checkInInputHtml({
+        name: `name-${index}`,
+        value: customer.name,
+        placeholder: "Enter name here",
+        iconKey: "name",
+        ariaLabel: "Name",
+        attrs: 'maxlength="60" required'
+      })}
+      ${checkInInputHtml({
+        name: `dob-${index}`,
+        type: "date",
+        value: customer.dob,
+        placeholder: "Select date of birth",
+        iconKey: "dob",
+        ariaLabel: "Date of birth",
+        attrs: `max="${getMaxDobForAdult()}" required`
+      })}
       <div class="ps-photo-row">
         <div class="ps-photo-actions">
           <button class="secondary-btn ps-photo-btn" type="button" data-photo-side="front" data-photo-index="${index}">Capture ID Front</button>
@@ -677,10 +705,15 @@ function renderCheckInForm() {
   if (!elements.checkInForm || !state.checkInDraft) return;
   const draft = state.checkInDraft;
   elements.checkInForm.innerHTML = `
-    <label class="ps-field">
-      <span>Mobile Number</span>
-      <input type="tel" name="mobile" value="${escapeHtml(draft.mobile)}" inputmode="numeric" maxlength="10" required>
-    </label>
+    ${checkInInputHtml({
+      name: "mobile",
+      type: "tel",
+      value: draft.mobile,
+      placeholder: "Enter mob. no. here",
+      iconKey: "mobile",
+      ariaLabel: "Mobile number",
+      attrs: 'inputmode="numeric" maxlength="10" required'
+    })}
     ${draft.customers.map((customer, index) => customerBlockHtml(customer, index)).join("")}
   `;
 
