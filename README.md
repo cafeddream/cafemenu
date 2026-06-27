@@ -1,6 +1,6 @@
-# Cafe D Dream — Counter & Private Sitting
+# Cafe D Dream — Manager & Kitchen
 
-Static PWA for counter ordering, private sitting management, and kitchen display. Data lives in **Firestore**; menu comes from a published **Google Sheet CSV**.
+Static PWA for staff-managed table orders, private sitting, and kitchen display. Data lives in **Firestore**; menu comes from a published **Google Sheet CSV**. There is **no customer QR ordering page** — all orders are entered by staff from the manager app.
 
 ## Pages
 
@@ -9,7 +9,7 @@ Static PWA for counter ordering, private sitting management, and kitchen display
 | Manager | `admin.html` | Staff (sign-in required) |
 | Kitchen | `kitchen.html` | Staff (sign-in required) |
 
-Walk-in food orders are taken at the **counter** from the Orders tab. Private sitting (PS 1–10) is managed separately on the Sitting tab.
+Food orders are taken from the **Orders** tab (Party Hall, Tattoo Studio, Hotel tables + counter). Private sitting (PS 1–10) is managed on the **Sitting** tab.
 
 ## Setup
 
@@ -32,16 +32,16 @@ Walk-in food orders are taken at the **counter** from the Orders tab. Private si
 - **Staff password** — only in Firebase Console → Authentication.
 
 ### What staff login protects
-- Mark orders paid, kitchen status, daily sales, order deletion — all require staff sign-in.
+- Table orders, mark paid, kitchen status, daily sales, order deletion — all require staff sign-in.
 
 ### Checklist
 1. Deploy `firestore.rules` (staff-only writes on orders).
 2. Google Cloud → Credentials → enable **Cloud Firestore API** and **Identity Toolkit API**.
-3. Do not post `admin.html` on customer-facing posters.
+3. Do not expose staff login credentials on customer-facing materials.
 
 ## Private Sitting Manager (`admin.html`)
 
-The manager app covers PS 1–10 (occupancy, couple check-in, timers, billing). Counter food orders are under the **Orders** tab.
+The manager app covers PS 1–10 (occupancy, couple check-in, timers, billing) and dine-in table orders under the **Orders** tab.
 
 ### Google Drive + Sheet sync (Apps Script)
 

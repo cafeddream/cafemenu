@@ -17,7 +17,7 @@ Step 3b: In Firebase Authentication, enable Email/Password and create a staff us
 Staff sign in on admin/kitchen pages only. Deploy firestore.rules from this repo.
 
 Step 4: Upload all files to GitHub and enable GitHub Pages for the repository.
-Staff take counter orders from admin.html; kitchen uses kitchen.html.
+Staff manage table and counter orders from admin.html; kitchen uses kitchen.html.
 */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
@@ -78,7 +78,9 @@ export const CONFIG = {
   ],
   TABLE_SECTIONS: [
     { id: "private-sitting", name: "Private Sitting", tables: ["PS 1", "PS 2", "PS 3", "PS 4", "PS 5", "PS 6", "PS 7", "PS 8", "PS 9", "PS 10"] },
-    { id: "counter", name: "Counter", tables: ["COUNTER"] }
+    { id: "party-hall", name: "Party Hall", tables: ["COUNTER", "H 1", "H 2", "H 3", "H 4", "HUT"] },
+    { id: "tatoo-studio", name: "Tatoo Studio", tables: ["T 1", "T 2", "T 3", "T 4"] },
+    { id: "hotel", name: "Hotel", tables: ["D 1", "D 2", "D 3", "D 4", "D 5", "D 6", "D 7", "D 8", "D 9", "D 10"] }
   ],
   FIREBASE: {
     apiKey: "AIzaSyCTooPUmZqPwPWF_GUB_bI_7ULIYqE_PU8",
@@ -136,14 +138,9 @@ export function getPrivateSittings() {
 }
 
 export function getTableSections() {
-  const raw = runtimeConfigData?.tableSections?.length
+  return runtimeConfigData?.tableSections?.length
     ? runtimeConfigData.tableSections
     : DEFAULT_TABLE_SECTIONS;
-  const privateSitting = raw.find((section) => section.id === "private-sitting")
-    || DEFAULT_TABLE_SECTIONS.find((section) => section.id === "private-sitting");
-  const counter = raw.find((section) => section.id === "counter")
-    || DEFAULT_TABLE_SECTIONS.find((section) => section.id === "counter");
-  return [privateSitting, counter].filter(Boolean);
 }
 
 export function getAllowedTables() {
@@ -2097,6 +2094,20 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
     discountAmount: discountInfo?.discountAmount ?? 0,
     finalTotal: discountInfo?.finalTotal ?? null
   });
+}
+
+// Resets a customer payment claim on an active order so staff can re-verify.
+export async function rejectActivePaymentClaim(orderId) {
+  const snapshot = await getDoc(activeOrderRef(orderId));
+  if (!snapshot.exists()) return;
+  await updateDoc(activeOrderRef(orderId), {
+    paymentStatus: "pending",
+    preferredPaymentMethod: null,
+    paymentClaimedAt: null,
+    cashRequestedAt: null,
+    updatedAt: serverTimestamp()
+  });
+  await logAuditEntry("payment_claim_rejected", snapshot.data().tableId, { orderId });
 }
 
 // Verifies payment and releases the order to the kitchen without completing the table.
