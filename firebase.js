@@ -137,10 +137,24 @@ export function getPrivateSittings() {
     : DEFAULT_PRIVATE_SITTINGS;
 }
 
+function mergeTableSectionsWithDefaults(raw) {
+  const sections = Array.isArray(raw) && raw.length ? raw : DEFAULT_TABLE_SECTIONS;
+  const hasDineInSections = sections.some((section) => (
+    section.id === "party-hall" || section.id === "tatoo-studio" || section.id === "hotel"
+  ));
+  if (hasDineInSections) return sections;
+
+  const privateSitting = sections.find((section) => section.id === "private-sitting")
+    || DEFAULT_TABLE_SECTIONS.find((section) => section.id === "private-sitting");
+  const dineInSections = DEFAULT_TABLE_SECTIONS.filter((section) => section.id !== "private-sitting");
+  return [privateSitting, ...dineInSections].filter(Boolean);
+}
+
 export function getTableSections() {
-  return runtimeConfigData?.tableSections?.length
+  const raw = runtimeConfigData?.tableSections?.length
     ? runtimeConfigData.tableSections
     : DEFAULT_TABLE_SECTIONS;
+  return mergeTableSectionsWithDefaults(raw);
 }
 
 export function getAllowedTables() {

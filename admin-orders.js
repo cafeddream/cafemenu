@@ -396,7 +396,9 @@ function renderTables(flashTableId = null) {
 }
 
 function getActiveSection() {
-  return CONFIG.ORDER_SECTIONS.find((section) => section.id === state.activeSectionId) || CONFIG.ORDER_SECTIONS[0];
+  const section = CONFIG.ORDER_SECTIONS.find((entry) => entry.id === state.activeSectionId)
+    || CONFIG.ORDER_SECTIONS[0];
+  return section || { id: "", name: "", tables: [] };
 }
 
 function getSectionForTable(tableId) {

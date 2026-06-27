@@ -188,6 +188,7 @@ function startManagerApp() {
 }
 
 function init() {
+  setTimeout(hideSplash, 12000);
   requireStaffAuth(startManagerApp).catch((error) => {
     console.error("Staff auth failed:", error);
     hideSplash();
