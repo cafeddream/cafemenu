@@ -13,7 +13,6 @@
   --ps-ruby: #b4233b;
   --ps-header-h: 52px;
   --ps-bottom-nav-h: 72px;
-  --ps-orders-chrome-h: 124px;
   min-height: 100dvh;
   background: linear-gradient(180deg, #ffffff 0%, var(--ps-bg) 52%);
   color: var(--ps-text);
@@ -26,9 +25,9 @@
   top: 0;
   z-index: 40;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   width: 100%;
   padding: 8px 12px;
   padding-top: max(8px, env(safe-area-inset-top));
@@ -36,15 +35,6 @@
   box-sizing: border-box;
   background: transparent;
   border-bottom: 0;
-}
-
-.ps-header-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
 }
 
 .ps-manager-page .ps-brand-mark {
@@ -292,21 +282,7 @@ body[data-active-tab="orders"] .ps-manager-main {
 }
 
 body[data-active-tab="orders"] {
-  scroll-padding-top: calc(var(--ps-orders-chrome-h) + env(safe-area-inset-top, 0px));
-}
-
-body:not([data-active-tab="orders"]) #adminCategoryTabs,
-body[data-active-tab="orders"] #adminCategoryTabs[hidden] {
-  display: none !important;
-}
-
-body[data-active-tab="orders"] #adminCategoryTabs:not([hidden]) {
-  display: flex;
-  width: calc(100% + 24px);
-  margin: 4px -12px 0;
-  padding: 0;
-  box-sizing: border-box;
-  background: transparent;
+  scroll-padding-top: calc(var(--ps-header-h) + 68px + env(safe-area-inset-top, 0px));
 }
 
 .ps-bottom-nav {
@@ -1222,7 +1198,8 @@ body[data-active-tab="orders"] #adminCategoryTabs:not([hidden]) {
   color: var(--ps-text);
 }
 
-#psOrders.ps-orders-detail-mode #psOrdersGrid {
+#psOrders.ps-orders-detail-mode #psOrdersGrid,
+#psOrders.ps-orders-detail-mode #adminCategoryTabs {
   display: none !important;
 }
 
@@ -1273,7 +1250,7 @@ body.ps-orders-detail-open {
 
 .ps-manager-page #adminCategoryTabs {
   flex-shrink: 0;
-  height: auto;
+  height: 68px;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -2016,6 +1993,13 @@ body[data-active-tab="orders"] .ps-manager-header {
   #psSittings .ps-sitting-card em {
     font-size: 9px;
     letter-spacing: 0.03em;
+  }
+
+  body[data-active-tab="orders"]:not(.ps-orders-detail-open) #adminCategoryTabs {
+    position: sticky;
+    top: calc(var(--ps-header-h) + env(safe-area-inset-top, 0px));
+    z-index: 35;
+    background: var(--ps-bg);
   }
 }
 
