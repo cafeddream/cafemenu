@@ -120,7 +120,6 @@ const elements = {
   adminBackToMenu: document.querySelector("#adminBackToMenu"),
   adminOrderCount: document.querySelector("#adminOrderCount"),
   adminOrderTotal: document.querySelector("#adminOrderTotal"),
-  adminViewCartBtn: document.querySelector("#adminViewCartBtn"),
   adminPlaceOrderBtn: document.querySelector("#adminPlaceOrderBtn"),
   adminOrderCustomerFields: document.querySelector("#adminOrderCustomerFields"),
   adminCustomerName: document.querySelector("#adminCustomerName"),
@@ -183,10 +182,6 @@ function bindUi() {
   elements.adminMenuSearch?.addEventListener("input", () => {
     state.menuSearchQuery = elements.adminMenuSearch?.value || "";
     renderAdminMenu();
-  });
-  elements.adminViewCartBtn.addEventListener("click", () => {
-    renderAdminCart();
-    showAdminOrderScreen("cart");
   });
   elements.adminPlaceOrderBtn.addEventListener("click", placeAdminOrder);
   window.addEventListener("scroll", hideAdminHoverPreview, true);
@@ -344,6 +339,10 @@ function setOrdersViewMode(mode) {
   if (elements.categoryTabs) elements.categoryTabs.hidden = isDetail;
   if (elements.tableGrid) elements.tableGrid.hidden = isDetail;
   if (elements.tableDetail) elements.tableDetail.hidden = !isDetail;
+  document.body.classList.toggle("ps-orders-detail-open", isDetail);
+  if (isDetail) {
+    window.scrollTo(0, 0);
+  }
 }
 
 function renderCategoryTabs() {
@@ -1249,7 +1248,6 @@ function showAdminOrderScreen(name) {
   elements.adminOrderMenuScreen.hidden = !isMenu;
   elements.adminOrderCartScreen.classList.toggle("active", !isMenu);
   elements.adminOrderCartScreen.hidden = isMenu;
-  elements.adminViewCartBtn.hidden = !isMenu;
   elements.adminPlaceOrderBtn.textContent = isMenu
     ? (state.orderModalOptions.deferPayment ? "Add to Order" : "Place Order")
     : "Confirm Order";
@@ -1308,7 +1306,6 @@ function updateAdminOrderFooter() {
   elements.adminOrderCount.textContent = `${count} item${count === 1 ? "" : "s"}`;
   elements.adminOrderTotal.textContent = formatCurrency(total);
   elements.adminPlaceOrderBtn.disabled = items.length === 0;
-  elements.adminViewCartBtn.hidden = items.length === 0 || !elements.adminOrderMenuScreen.classList.contains("active");
 }
 
 async function placeAdminOrder() {

@@ -1090,6 +1090,38 @@ body[data-active-tab="orders"] .ps-manager-main {
   display: none !important;
 }
 
+body.ps-orders-detail-open {
+  overflow: hidden;
+}
+
+#psOrders.ps-orders-detail-mode .ps-table-detail {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  bottom: calc(var(--ps-bottom-nav-h) + env(safe-area-inset-bottom));
+  z-index: 45;
+  display: flex !important;
+  flex-direction: column;
+  min-height: 0;
+  max-height: none;
+  padding-bottom: 0;
+  overflow: hidden;
+  background: #0a0a0a;
+}
+
+#psOrders.ps-orders-detail-mode .ps-table-detail-header {
+  flex-shrink: 0;
+  padding-top: max(10px, env(safe-area-inset-top));
+}
+
+#psOrders.ps-orders-detail-mode .ps-table-detail-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .ps-manager-page .admin-dashboard,
 .ps-manager-page .admin-dashboard-pos {
   display: block;
@@ -1312,11 +1344,6 @@ body[data-active-tab="orders"] .ps-manager-main {
   padding-bottom: 78px;
   background: #0a0a0a;
   color: var(--ps-text);
-}
-
-#psOrders.ps-orders-detail-mode .ps-table-detail {
-  display: block !important;
-  min-height: calc(100dvh - 120px);
 }
 
 .ps-table-detail-header {
