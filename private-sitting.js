@@ -101,17 +101,6 @@ const SESSION_PEOPLE_ICON = "<svg class=\"ps-session-icon\" viewBox=\"0 0 24 24\
 
 const SESSION_BIRTHDAY_ICON = "<span class=\"ps-session-birthday-chip\" aria-hidden=\"true\"><svg class=\"ps-session-icon ps-session-birthday-icon\" viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M12 6c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-1 3H7v2h1v7c0 1.1.9 2 2 2h4c1.1 0 2-.9 2-2v-7h1V9h-4v-.59c.59-.34 1-.98 1-1.73 0-1.1-.9-2-2-2s-2 .9-2 2c0 .75.41 1.39 1 1.73V9zm1 2h2v7h-2v-7z\"/></svg></span>";
 
-const CHECKIN_MALE_ICON = "<svg class=\"ps-customer-gender-svg\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM12 14a7 7 0 0 0-7 7h14a7 7 0 0 0-7-7z\"/></svg>";
-const CHECKIN_FEMALE_ICON = "<svg class=\"ps-customer-gender-svg\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M12 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 11c-3.87 0-7 1.94-7 4.33V20h14v-2.67C19 14.94 15.87 13 12 13z\"/></svg>";
-
-function checkInCustomerIconHtml(index) {
-  const isFemale = index === 1;
-  const label = isFemale ? "Customer 2" : "Customer 1";
-  const icon = isFemale ? CHECKIN_FEMALE_ICON : CHECKIN_MALE_ICON;
-  const toneClass = isFemale ? "ps-customer-gender-icon--female" : "ps-customer-gender-icon--male";
-  return `<span class="ps-customer-gender-icon ${toneClass}" aria-label="${label}">${icon}</span>`;
-}
-
 const CHECKIN_FIELD_ICONS = {
   mobile: "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z\"/></svg>",
   name: "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z\"/></svg>",
@@ -601,9 +590,6 @@ function photoPreviewHtml(dataUrl, label) {
 function customerBlockHtml(customer, index) {
   return `
     <section class="ps-customer-block" data-customer-index="${index}">
-      <div class="ps-customer-head">
-        ${checkInCustomerIconHtml(index)}
-      </div>
       ${checkInInputHtml({
         name: `name-${index}`,
         value: customer.name,
@@ -735,7 +721,7 @@ async function updateCheckInPreview() {
   if (!elements.checkInPreview || !state.checkInDraft) return;
   const ready = state.checkInDraft.customers.every(customerHasAllPhotos);
   if (!ready) {
-    elements.checkInPreview.innerHTML = `<p class="ps-empty-note">Capture front and back ID photos for both customers.</p>`;
+    elements.checkInPreview.innerHTML = "";
     return;
   }
   elements.checkInPreview.innerHTML = buildSittingEntryHtmlPreview(state.checkInDraft);

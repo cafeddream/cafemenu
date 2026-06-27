@@ -696,39 +696,6 @@ body[data-active-tab="orders"] .ps-manager-main {
   background: var(--ps-panel-soft);
 }
 
-.ps-customer-head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-}
-
-.ps-customer-gender-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  color: #fff;
-}
-
-.ps-customer-gender-icon--male {
-  background: linear-gradient(145deg, #3b82f6 0%, #2563eb 100%);
-  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.28);
-}
-
-.ps-customer-gender-icon--female {
-  background: linear-gradient(145deg, #ec4899 0%, #d946a8 100%);
-  box-shadow: 0 3px 10px rgba(236, 72, 153, 0.28);
-}
-
-.ps-customer-gender-svg {
-  width: 20px;
-  height: 20px;
-}
-
-.ps-customer-head h3,
 .ps-session-customer h4 {
   margin: 0;
 }
@@ -798,6 +765,14 @@ body[data-active-tab="orders"] .ps-manager-main {
 .ps-checkin-form .ps-field-icon svg {
   width: 18px;
   height: 18px;
+}
+
+.ps-customer-block[data-customer-index="0"] .ps-field-icon {
+  color: #2563eb;
+}
+
+.ps-customer-block[data-customer-index="1"] .ps-field-icon {
+  color: #d946a8;
 }
 
 .ps-checkin-form .ps-field--icon input {
