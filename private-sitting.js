@@ -510,8 +510,9 @@ function sittingCardHtml(sitting) {
       type="button"
       data-sitting="${escapeHtml(sitting.id)}"
     >
-      <span class="ps-sitting-id">${escapeHtml(sitting.id)}</span>
-      <strong class="ps-sitting-price">₹${sitting.ratePerHour}<small>/hr</small></strong>
+      <span class="ps-sitting-no">${escapeHtml(sitting.id.replace("PS ", ""))}</span>
+      <strong>${escapeHtml(sitting.id)}</strong>
+      <span>₹${sitting.ratePerHour}/hr</span>
       <em>${occupied ? "Occupied" : "Available"}</em>
     </button>
   `;
