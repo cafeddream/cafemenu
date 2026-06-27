@@ -572,6 +572,8 @@ body[data-active-tab="orders"] .ps-manager-main {
   height: 72px;
   min-height: 72px;
   max-height: 72px;
+  width: 100%;
+  text-align: left;
 }
 
 .ps-manager-page .admin-order-modal .item-name,
@@ -1653,6 +1655,8 @@ body[data-active-tab="orders"] .ps-manager-main {
   .admin-order-modal .item-card-top {
     flex-wrap: nowrap;
     align-items: center;
+    justify-content: space-between;
+    width: 100%;
     gap: 6px;
   }
 
