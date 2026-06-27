@@ -1601,7 +1601,10 @@ button:disabled {
 }
 
 .admin-order-menu-list {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  align-content: flex-start;
 }
 
 #adminOrderCartScreen .cart-header,
@@ -1612,12 +1615,22 @@ button:disabled {
 
 .admin-order-modal .item-card {
   padding: 8px 10px;
-  min-height: 58px;
+  height: 72px;
+  min-height: 72px;
+  max-height: 72px;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
 .admin-order-modal .item-card-top {
   gap: 8px;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 0;
 }
 
 .admin-order-modal .item-name {
@@ -1631,6 +1644,7 @@ button:disabled {
 .admin-order-modal .item-card .item-price {
   margin-top: 1px;
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 .admin-order-modal .qty-control {
