@@ -99,7 +99,7 @@ const CHECKOUT_PENDING_LABEL = "Udhaar";
 
 const SESSION_PEOPLE_ICON = "<svg class=\"ps-session-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S7.66 5 6 5C4.34 5 3 6.34 3 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-4.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-4.5c0-2.33-4.67-3.5-7-3.5z\"/></svg>";
 
-const SESSION_BIRTHDAY_ICON = "<svg class=\"ps-session-icon ps-session-birthday-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M12 6c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-1 3H7v2h1v7c0 1.1.9 2 2 2h4c1.1 0 2-.9 2-2v-7h1V9h-4v-.59c.59-.34 1-.98 1-1.73 0-1.1-.9-2-2-2s-2 .9-2 2c0 .75.41 1.39 1 1.73V9zm1 2h2v7h-2v-7z\"/></svg>";
+const SESSION_BIRTHDAY_ICON = "<span class=\"ps-session-birthday-chip\" aria-hidden=\"true\"><svg class=\"ps-session-icon ps-session-birthday-icon\" viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M12 6c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-1 3H7v2h1v7c0 1.1.9 2 2 2h4c1.1 0 2-.9 2-2v-7h1V9h-4v-.59c.59-.34 1-.98 1-1.73 0-1.1-.9-2-2-2s-2 .9-2 2c0 .75.41 1.39 1 1.73V9zm1 2h2v7h-2v-7z\"/></svg></span>";
 
 function renderSessionCustomerCard(customer, index) {
   return `

@@ -264,12 +264,12 @@ const SECTION_TAB_THEMES = {
 };
 
 const SECTION_TAB_ICONS = {
-  "party-hall": "<svg class=\"admin-tab-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M5 3v18l7-3 7 3V3H5zm2 2h10v11.5l-5-2.1-5 2.1V5z\"/></svg>",
-  "tatoo-studio": "<svg class=\"admin-tab-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z\"/></svg>",
-  "hotel": "<svg class=\"admin-tab-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M4 10V19H9V13H15V19H20V10L12 4L4 10Z\"/></svg>"
+  "party-hall": "<svg class=\"admin-tab-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"#fef3c7\" d=\"M5 3v18l7-3 7 3V3H5z\"/><path fill=\"#fff\" d=\"M7 5h10v11.5l-5-2.1-5 2.1V5z\"/><circle fill=\"#f59e0b\" cx=\"12\" cy=\"9.5\" r=\"1.6\"/></svg>",
+  "tatoo-studio": "<svg class=\"admin-tab-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"#fce7f3\" d=\"M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z\"/><path fill=\"#fff\" d=\"M5.5 18.5L15.5 8.5l2 2-10 10H5.5z\"/><path fill=\"#ec4899\" d=\"M18.5 5.5l-1 1 2 2 1-1a1.4 1.4 0 0 0 0-2l-.5-.5a1.4 1.4 0 0 0-2 0z\"/></svg>",
+  "hotel": "<svg class=\"admin-tab-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"#fff\" d=\"M4 10V19H9V13H15V19H20V10L12 4L4 10Z\"/><rect fill=\"#fcd34d\" x=\"10.5\" y=\"14\" width=\"3\" height=\"3\" rx=\"0.5\"/><path fill=\"#f97316\" d=\"M12 4l8 6H4l8-6z\"/></svg>"
 };
 
-const PEOPLE_ICON = "<svg class=\"table-people-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S7.66 5 6 5C4.34 5 3 6.34 3 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-4.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-4.5c0-2.33-4.67-3.5-7-3.5z\"/></svg>";
+const PEOPLE_ICON = "<span class=\"table-people-chip\" aria-hidden=\"true\"><svg class=\"table-people-icon\" viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S7.66 5 6 5C4.34 5 3 6.34 3 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-4.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-4.5c0-2.33-4.67-3.5-7-3.5z\"/></svg></span>";
 
 const BACK_ICON = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z\"/></svg>";
 

@@ -1801,10 +1801,11 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
 }
 
 .payment-option-icon svg {
@@ -1813,28 +1814,28 @@ button:disabled {
 }
 
 .payment-option-cash .payment-option-icon {
-  color: #7dffb0;
-  background: rgba(125, 255, 176, 0.12);
+  background: linear-gradient(145deg, #22c55e 0%, #10b981 100%);
+  box-shadow: 0 3px 10px rgba(34, 197, 94, 0.38);
 }
 
 .payment-option-online .payment-option-icon {
-  color: #7ec8ff;
-  background: rgba(126, 200, 255, 0.12);
+  background: linear-gradient(145deg, #3b82f6 0%, #06b6d4 100%);
+  box-shadow: 0 3px 10px rgba(59, 130, 246, 0.38);
 }
 
 .payment-option-split .payment-option-icon {
-  color: #d4b5ff;
-  background: rgba(212, 181, 255, 0.12);
+  background: linear-gradient(145deg, #a855f7 0%, #ec4899 100%);
+  box-shadow: 0 3px 10px rgba(168, 85, 247, 0.38);
 }
 
 .payment-option-pending .payment-option-icon {
-  color: #ffcc80;
-  background: rgba(255, 204, 128, 0.14);
+  background: linear-gradient(145deg, #f59e0b 0%, #f97316 100%);
+  box-shadow: 0 3px 10px rgba(245, 158, 11, 0.38);
 }
 
 .payment-option-void .payment-option-icon {
-  color: #ff8a8a;
-  background: rgba(255, 138, 138, 0.14);
+  background: linear-gradient(145deg, #ef4444 0%, #f43f5e 100%);
+  box-shadow: 0 3px 10px rgba(239, 68, 68, 0.38);
 }
 
 .payment-option-label {
