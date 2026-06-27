@@ -1159,16 +1159,67 @@ body.ps-orders-detail-open {
   padding: 6px 12px 78px;
 }
 
+body[data-active-tab="settings"],
+body[data-active-tab="expenses"] {
+  overflow: hidden;
+}
+
+body[data-active-tab="settings"] .ps-manager-main,
+body[data-active-tab="expenses"] .ps-manager-main {
+  overflow: hidden;
+}
+
+body[data-active-tab="settings"] .ps-manager-header,
+body[data-active-tab="expenses"] .ps-manager-header {
+  background: rgba(255, 255, 255, 0.98);
+  border-bottom: 1px solid var(--ps-line);
+  backdrop-filter: blur(12px);
+}
+
 #psSettings.ps-view,
 #psExpenses.ps-view {
-  padding: 12px 12px 78px;
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - var(--ps-header-h) - var(--ps-bottom-nav-h));
+  padding: 0 12px 8px;
   min-width: 0;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow: hidden;
   box-sizing: border-box;
 }
 
-#psSettingsPanel,
+#psSettings .ps-section-head,
+#psExpenses .ps-section-head {
+  flex-shrink: 0;
+  margin: 0 0 8px;
+  padding-top: 8px;
+}
+
+#psSettingsPanel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+#psExpenses.ps-view {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+#psExpenses .ps-section-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--ps-bg);
+  padding-bottom: 8px;
+}
+
 .ps-settings-card.admin-settings-card {
   min-width: 0;
   max-width: 100%;
