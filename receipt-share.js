@@ -4,7 +4,8 @@ import {
   buildWhatsAppDirectUrl,
   fetchReceipt,
   normalizeIndianMobile,
-  showToast
+  showToast,
+  toWhatsAppPhone
 } from "./firebase.js";
 import { receiptToJpegBlob, receiptToJpegDataUrl } from "./receipt-image.js";
 
@@ -47,13 +48,56 @@ function closeShareReceiptModal() {
   }
 }
 
-async function downloadReceiptJpeg(blob, receipt) {
+async function saveReceiptToDevice(blob, fileName) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `Cafe-D-Dream-${receipt.receiptNumber || "receipt"}.jpg`;
+  link.download = fileName;
+  link.style.display = "none";
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(url);
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function isIOS() {
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+function isMobile() {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+
+async function copyReceiptImage(blob) {
+  if (!window.ClipboardItem) return false;
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ "image/jpeg": blob })]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function openWhatsAppChat(phone, text = "") {
+  const waPhone = toWhatsAppPhone(phone);
+  if (!waPhone) return false;
+
+  const webUrl = buildWhatsAppDirectUrl(phone, text);
+  const appUrl = `whatsapp://send?phone=${waPhone}${text ? `&text=${encodeURIComponent(text)}` : ""}`;
+
+  if (isMobile()) {
+    window.location.href = appUrl;
+    window.setTimeout(() => {
+      if (webUrl) window.location.href = webUrl;
+    }, 700);
+    return true;
+  }
+
+  if (webUrl) {
+    window.location.href = webUrl;
+    return true;
+  }
+  return false;
 }
 
 async function shareReceiptJpeg(receipt, mobile) {
@@ -64,44 +108,38 @@ async function shareReceiptJpeg(receipt, mobile) {
   }
 
   const blob = await receiptToJpegBlob(receipt);
-  const file = new File([blob], "Cafe-D-Dream-Receipt.jpg", { type: "image/jpeg" });
-  const waUrl = buildWhatsAppDirectUrl(phone, "Cafe D Dream Receipt");
+  const fileName = `Cafe-D-Dream-${receipt.receiptNumber || "receipt"}.jpg`;
+  const file = new File([blob], fileName, { type: "image/jpeg" });
+  const shareText = "Cafe D Dream Receipt";
 
-  let shared = false;
-  if (navigator.canShare?.({ files: [file] })) {
+  closeShareReceiptModal();
+
+  if (isIOS() && navigator.share && navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({
         files: [file],
-        title: "Cafe D Dream Receipt",
-        text: "Cafe D Dream Receipt"
+        title: shareText,
+        text: shareText
       });
-      shared = true;
+      return;
     } catch (error) {
       if (error?.name === "AbortError") return;
       console.warn("Share failed:", error);
     }
   }
 
-  if (!shared) {
-    try {
-      if (window.ClipboardItem) {
-        await navigator.clipboard.write([new ClipboardItem({ "image/jpeg": blob })]);
-        showToast("Receipt copied. Paste in WhatsApp chat.");
-      } else {
-        await downloadReceiptJpeg(blob, receipt);
-        showToast("Receipt saved. Attach in WhatsApp chat.");
-      }
-    } catch {
-      await downloadReceiptJpeg(blob, receipt);
-      showToast("Receipt downloaded. Attach in WhatsApp.");
-    }
+  const copied = await copyReceiptImage(blob);
+  if (!copied) {
+    await saveReceiptToDevice(blob, fileName);
   }
 
-  if (waUrl) {
-    window.open(waUrl, "_blank", "noopener,noreferrer");
-  }
+  openWhatsAppChat(phone, copied ? "" : shareText);
 
-  closeShareReceiptModal();
+  if (copied) {
+    showToast("WhatsApp opened. Paste the receipt image and tap Send.");
+  } else {
+    showToast("WhatsApp opened. Tap attach and pick the receipt image.");
+  }
 }
 
 export async function shareReceiptForOrder(order, paymentMethod = "cash") {
