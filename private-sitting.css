@@ -699,8 +699,33 @@ body[data-active-tab="orders"] .ps-manager-main {
 .ps-customer-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 10px;
+}
+
+.ps-customer-gender-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  color: #fff;
+}
+
+.ps-customer-gender-icon--male {
+  background: linear-gradient(145deg, #3b82f6 0%, #2563eb 100%);
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.28);
+}
+
+.ps-customer-gender-icon--female {
+  background: linear-gradient(145deg, #ec4899 0%, #d946a8 100%);
+  box-shadow: 0 3px 10px rgba(236, 72, 153, 0.28);
+}
+
+.ps-customer-gender-svg {
+  width: 20px;
+  height: 20px;
 }
 
 .ps-customer-head h3,

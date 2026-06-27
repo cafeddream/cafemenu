@@ -101,6 +101,17 @@ const SESSION_PEOPLE_ICON = "<svg class=\"ps-session-icon\" viewBox=\"0 0 24 24\
 
 const SESSION_BIRTHDAY_ICON = "<span class=\"ps-session-birthday-chip\" aria-hidden=\"true\"><svg class=\"ps-session-icon ps-session-birthday-icon\" viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M12 6c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-1 3H7v2h1v7c0 1.1.9 2 2 2h4c1.1 0 2-.9 2-2v-7h1V9h-4v-.59c.59-.34 1-.98 1-1.73 0-1.1-.9-2-2-2s-2 .9-2 2c0 .75.41 1.39 1 1.73V9zm1 2h2v7h-2v-7z\"/></svg></span>";
 
+const CHECKIN_MALE_ICON = "<svg class=\"ps-customer-gender-svg\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM12 14a7 7 0 0 0-7 7h14a7 7 0 0 0-7-7z\"/></svg>";
+const CHECKIN_FEMALE_ICON = "<svg class=\"ps-customer-gender-svg\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M12 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 11c-3.87 0-7 1.94-7 4.33V20h14v-2.67C19 14.94 15.87 13 12 13z\"/></svg>";
+
+function checkInCustomerIconHtml(index) {
+  const isFemale = index === 1;
+  const label = isFemale ? "Customer 2" : "Customer 1";
+  const icon = isFemale ? CHECKIN_FEMALE_ICON : CHECKIN_MALE_ICON;
+  const toneClass = isFemale ? "ps-customer-gender-icon--female" : "ps-customer-gender-icon--male";
+  return `<span class="ps-customer-gender-icon ${toneClass}" aria-label="${label}">${icon}</span>`;
+}
+
 function renderSessionCustomerCard(customer, index) {
   return `
     <section class="ps-session-customer" aria-label="Guest ${index + 1}">
@@ -572,7 +583,7 @@ function customerBlockHtml(customer, index) {
   return `
     <section class="ps-customer-block" data-customer-index="${index}">
       <div class="ps-customer-head">
-        <h3>Customer ${index + 1}</h3>
+        ${checkInCustomerIconHtml(index)}
       </div>
       <label class="ps-field">
         <span>Name</span>
