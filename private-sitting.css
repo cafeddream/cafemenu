@@ -32,6 +32,22 @@
   border-bottom: 1px solid var(--ps-line);
 }
 
+.ps-manager-page .ps-brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ps-manager-page .ps-brand-icon {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  object-fit: cover;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+}
+
 .ps-manager-page .brand-title {
   margin: 0;
   font-size: 17px;
@@ -39,6 +55,7 @@
   letter-spacing: 0.02em;
   text-transform: none;
   line-height: 1.1;
+  min-width: 0;
 }
 
 .ps-menu-btn {
