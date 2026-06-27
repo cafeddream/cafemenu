@@ -694,9 +694,8 @@ export async function placePrivateSittingFoodOrder(tableId, sessionId, cartItems
 }
 
 export async function recordSittingPayment(sessionId, amount, paymentMethod = "cash", discount = null) {
-  const { businessDateKey, businessSessionId } = await requireSalesSession();
-  const paymentDocument = doc(db, "dailySummaries", businessDateKey, "payments", `sitting-${sessionId}`);
-  const summaryDocument = dailySummaryRef(businessDateKey);
+  const paymentDocument = doc(db, "dailySummaries", getTodayKey(), "payments", `sitting-${sessionId}`);
+  const summaryDocument = dailySummaryRef();
   const discountInfo = computeDiscount(amount, discount);
   const finalAmount = discountInfo.finalTotal;
   const payment = normalizePaymentAmounts(finalAmount, paymentMethod);
@@ -706,7 +705,7 @@ export async function recordSittingPayment(sessionId, amount, paymentMethod = "c
     if (paymentSnapshot.exists()) return;
 
     transaction.set(summaryDocument, {
-      date: businessDateKey,
+      date: getTodayKey(),
       total: increment(finalAmount),
       grossTotal: increment(discountInfo.grossTotal),
       discountTotal: increment(discountInfo.discountAmount),
@@ -726,8 +725,7 @@ export async function recordSittingPayment(sessionId, amount, paymentMethod = "c
       cashAmount: payment.cashAmount,
       onlineAmount: payment.onlineAmount,
       type: "private_sitting",
-      paidAt: serverTimestamp(),
-      ...businessSessionStamp(businessDateKey, businessSessionId)
+      paidAt: serverTimestamp()
     });
   });
 
@@ -743,9 +741,8 @@ export async function recordSittingPayment(sessionId, amount, paymentMethod = "c
 }
 
 export async function recordSittingCreditPending(sessionId, amount, customerProfile, discount = null) {
-  const { businessDateKey, businessSessionId } = await requireSalesSession();
-  const paymentDocument = doc(db, "dailySummaries", businessDateKey, "payments", `sitting-pending-${sessionId}`);
-  const summaryDocument = dailySummaryRef(businessDateKey);
+  const paymentDocument = doc(db, "dailySummaries", getTodayKey(), "payments", `sitting-pending-${sessionId}`);
+  const summaryDocument = dailySummaryRef();
   const customerFields = normalizeCreditCustomer(customerProfile);
   const discountInfo = computeDiscount(amount, discount);
   const finalAmount = discountInfo.finalTotal;
@@ -755,7 +752,7 @@ export async function recordSittingCreditPending(sessionId, amount, customerProf
     if (paymentSnapshot.exists()) return;
 
     transaction.set(summaryDocument, {
-      date: businessDateKey,
+      date: getTodayKey(),
       pendingTotal: increment(finalAmount),
       pendingOrders: increment(1),
       updatedAt: serverTimestamp()
@@ -771,8 +768,7 @@ export async function recordSittingCreditPending(sessionId, amount, customerProf
       customerName: customerFields.customerName,
       customerMobile: customerFields.customerMobile,
       customerMobileNormalized: customerFields.customerMobileNormalized,
-      creditedAt: serverTimestamp(),
-      ...businessSessionStamp(businessDateKey, businessSessionId)
+      creditedAt: serverTimestamp()
     });
   });
 
@@ -796,7 +792,6 @@ export async function recordSittingCreditPending(sessionId, amount, customerProf
 }
 
 export async function createPrivateSession(payload) {
-  const { businessDateKey, businessSessionId } = await requireSalesSession();
   const sessionId = createPrivateSessionId();
   const ref = privateSessionRef(sessionId);
   await setDoc(ref, {
@@ -811,8 +806,7 @@ export async function createPrivateSession(payload) {
     checkInAt: serverTimestamp(),
     sheetSynced: false,
     createdBy: auth.currentUser?.uid || null,
-    createdAt: serverTimestamp(),
-    ...businessSessionStamp(businessDateKey, businessSessionId)
+    createdAt: serverTimestamp()
   });
   return sessionId;
 }
@@ -897,118 +891,6 @@ export function getTodayKey(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-const businessSessionPointerRef = () => doc(db, "appConfig", "businessSession");
-
-function createBusinessSessionId() {
-  if (crypto.randomUUID) return crypto.randomUUID();
-  return `bs-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function normalizeBusinessSessionState(data = null) {
-  if (!data) {
-    return { status: "closed", businessDateKey: null, sessionId: null, clockInAt: null, clockOutAt: null };
-  }
-  return {
-    status: data.status === "open" ? "open" : "closed",
-    businessDateKey: data.businessDateKey || null,
-    sessionId: data.sessionId || null,
-    clockInAt: data.clockInAt || null,
-    clockOutAt: data.clockOutAt || null
-  };
-}
-
-function businessSessionStamp(businessDateKey, businessSessionId) {
-  return { businessDateKey, businessSessionId };
-}
-
-// Resolves sales attribution date from stamped field or timestamp fallback.
-export function resolveRecordBusinessDateKey(record, timestampValue) {
-  if (record?.businessDateKey) return record.businessDateKey;
-  const date = toDate(timestampValue);
-  if (!date) return null;
-  return getTodayKey(date);
-}
-
-export async function getBusinessSessionState() {
-  const snapshot = await getDoc(businessSessionPointerRef());
-  return normalizeBusinessSessionState(snapshot.exists() ? snapshot.data() : null);
-}
-
-export async function requireSalesSession() {
-  const state = await getBusinessSessionState();
-  if (state.status !== "open" || !state.businessDateKey || !state.sessionId) {
-    const error = new Error("BUSINESS_SESSION_CLOSED");
-    error.code = "BUSINESS_SESSION_CLOSED";
-    throw error;
-  }
-  return {
-    businessDateKey: state.businessDateKey,
-    businessSessionId: state.sessionId
-  };
-}
-
-export async function openBusinessSession(businessDateKey = getTodayKey()) {
-  if (!auth.currentUser) {
-    throw new Error("Staff sign-in required");
-  }
-
-  const existing = await getBusinessSessionState();
-  if (existing.status === "open") {
-    throw new Error("A business session is already open");
-  }
-
-  const sessionId = createBusinessSessionId();
-  const sessionData = {
-    sessionId,
-    status: "open",
-    businessDateKey,
-    clockInAt: serverTimestamp(),
-    clockOutAt: null,
-    openedBy: auth.currentUser.uid
-  };
-
-  await setDoc(doc(db, "businessSessions", sessionId), {
-    ...sessionData,
-    createdAt: serverTimestamp()
-  });
-  await setDoc(businessSessionPointerRef(), {
-    ...sessionData,
-    updatedAt: serverTimestamp()
-  }, { merge: true });
-
-  return { sessionId, businessDateKey };
-}
-
-export async function closeBusinessSession() {
-  if (!auth.currentUser) {
-    throw new Error("Staff sign-in required");
-  }
-
-  const state = await getBusinessSessionState();
-  if (state.status !== "open" || !state.sessionId) {
-    throw new Error("No open business session");
-  }
-
-  const clockOutAt = serverTimestamp();
-  await updateDoc(doc(db, "businessSessions", state.sessionId), {
-    status: "closed",
-    clockOutAt
-  });
-  await setDoc(businessSessionPointerRef(), {
-    status: "closed",
-    clockOutAt,
-    updatedAt: serverTimestamp()
-  }, { merge: true });
-
-  return { sessionId: state.sessionId, businessDateKey: state.businessDateKey };
-}
-
-export function subscribeBusinessSession(callback, onError) {
-  return onSnapshot(businessSessionPointerRef(), (snapshot) => {
-    callback(normalizeBusinessSessionState(snapshot.exists() ? snapshot.data() : null));
-  }, onError);
 }
 
 // Converts a Firestore timestamp, Date, or millisecond value to a Date object.
@@ -1483,12 +1365,11 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
 
   if (!cleanItems.length) return null;
 
-  const { businessDateKey, businessSessionId } = await requireSalesSession();
   const customerFields = buildCounterCustomerFields(customerProfile);
   const newOrderId = createOrderId(tableId);
   const orderDocument = activeOrderRef(newOrderId);
   const legacyDocument = orderRef(tableId);
-  const summaryDocument = dailySummaryRef(businessDateKey);
+  const summaryDocument = dailySummaryRef();
   let orderIdForAudit = newOrderId;
   let discountForAudit = null;
   let paymentForAudit = null;
@@ -1499,7 +1380,7 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
     const amountDue = discountInfo.finalTotal;
     const payment = normalizePaymentAmounts(amountDue, paymentMethod);
     paymentForAudit = payment;
-    const paymentDocument = paymentRef(newOrderId, businessDateKey);
+    const paymentDocument = paymentRef(newOrderId);
     const historyDocument = tableHistoryOrderRef(tableId, newOrderId);
     const receiptDocument = receiptRef(newOrderId);
     const paymentSnapshot = await transaction.get(paymentDocument);
@@ -1528,8 +1409,7 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
       paidTotal: amountDue,
       paidItems: cleanItems,
       updatedAt: serverTimestamp(),
-      ...customerFields,
-      ...businessSessionStamp(businessDateKey, businessSessionId)
+      ...customerFields
     };
 
     transaction.set(orderDocument, orderData);
@@ -1538,7 +1418,7 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
     if (!paymentSnapshot.exists()) {
       const receipt = createReceiptPayload(orderData, paymentMethod, discountInfo);
       transaction.set(summaryDocument, {
-        date: businessDateKey,
+        date: getTodayKey(),
         total: increment(amountDue),
         grossTotal: increment(discountInfo.grossTotal),
         discountTotal: increment(discountInfo.discountAmount),
@@ -1558,8 +1438,7 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
         cashAmount: payment.cashAmount,
         onlineAmount: payment.onlineAmount,
         type: "food_order",
-        paidAt: serverTimestamp(),
-        ...businessSessionStamp(businessDateKey, businessSessionId)
+        paidAt: serverTimestamp()
       });
 
       transaction.set(receiptDocument, receipt);
@@ -1586,8 +1465,7 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
         orderedAt: orderData.timestamp,
         paidAt: serverTimestamp(),
         receiptNumber: receipt.receiptNumber,
-        savedAt: serverTimestamp(),
-        ...businessSessionStamp(businessDateKey, businessSessionId)
+        savedAt: serverTimestamp()
       });
     }
   });
@@ -1650,12 +1528,11 @@ export async function placeCounterOrderWithCredit(tableId, cartItems, customerPr
   const cleanItems = cleanOrderItems(cartItems);
   if (!cleanItems.length) return null;
 
-  const { businessDateKey, businessSessionId } = await requireSalesSession();
   const customerFields = normalizeCreditCustomer(customerProfile);
   const newOrderId = createOrderId(tableId);
   const orderDocument = activeOrderRef(newOrderId);
   const legacyDocument = orderRef(tableId);
-  const summaryDocument = dailySummaryRef(businessDateKey);
+  const summaryDocument = dailySummaryRef();
   let discountForAudit = null;
 
   await runTransaction(db, async (transaction) => {
@@ -1683,15 +1560,14 @@ export async function placeCounterOrderWithCredit(tableId, cartItems, customerPr
       creditedAt: serverTimestamp(),
       kitchenStartedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-      ...customerFields,
-      ...businessSessionStamp(businessDateKey, businessSessionId)
+      ...customerFields
     };
 
     transaction.set(orderDocument, orderData);
     transaction.set(legacyDocument, orderData);
 
     transaction.set(summaryDocument, {
-      date: businessDateKey,
+      date: getTodayKey(),
       pendingTotal: increment(amountDue),
       pendingOrders: increment(1),
       updatedAt: serverTimestamp()
@@ -1714,8 +1590,7 @@ export async function placeCounterOrderWithCredit(tableId, cartItems, customerPr
       orderedAt: orderData.timestamp,
       creditedAt: serverTimestamp(),
       savedAt: serverTimestamp(),
-      ...customerFields,
-      ...businessSessionStamp(businessDateKey, businessSessionId)
+      ...customerFields
     });
   });
 
@@ -1733,9 +1608,8 @@ export async function placeCounterOrderWithCredit(tableId, cartItems, customerPr
 
 // Marks an existing unpaid order as udhaar (credit pending).
 export async function markOrderCreditPending(orderId, customerProfile, discount = null) {
-  const { businessDateKey, businessSessionId } = await requireSalesSession();
   const orderDocument = activeOrderRef(orderId);
-  const summaryDocument = dailySummaryRef(businessDateKey);
+  const summaryDocument = dailySummaryRef();
   const customerFields = normalizeCreditCustomer(customerProfile);
   let tableId = null;
   let currentOrderId = orderId;
@@ -1785,8 +1659,7 @@ export async function markOrderCreditPending(orderId, customerProfile, discount 
       finalTotal: amountDue,
       paymentClaimedAt: null,
       updatedAt: serverTimestamp(),
-      ...customerFields,
-      ...businessSessionStamp(businessDateKey, businessSessionId)
+      ...customerFields
     };
 
     transaction.update(orderDocument, updateData);
@@ -1799,7 +1672,7 @@ export async function markOrderCreditPending(orderId, customerProfile, discount 
     }
 
     transaction.set(summaryDocument, {
-      date: businessDateKey,
+      date: getTodayKey(),
       pendingTotal: increment(amountDue),
       pendingOrders: increment(1),
       updatedAt: serverTimestamp()
@@ -1823,8 +1696,7 @@ export async function markOrderCreditPending(orderId, customerProfile, discount 
       orderedAt: order.timestamp || null,
       creditedAt: serverTimestamp(),
       savedAt: serverTimestamp(),
-      ...customerFields,
-      ...businessSessionStamp(businessDateKey, businessSessionId)
+      ...customerFields
     });
   });
 
@@ -2122,9 +1994,8 @@ export async function markOrderItemsServed(orderId, servedItemIds = []) {
 }
 
 async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = "paid", discount = null) {
-  const { businessDateKey, businessSessionId } = await requireSalesSession();
   const orderDocument = activeOrderRef(orderId);
-  const summaryDocument = dailySummaryRef(businessDateKey);
+  const summaryDocument = dailySummaryRef();
   let tableId = null;
   let discountInfo = null;
   let paymentForAudit = null;
@@ -2142,7 +2013,7 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
     const amountDue = discountInfo.finalTotal;
     const payment = normalizePaymentAmounts(amountDue, paymentMethod);
     paymentForAudit = payment;
-    const paymentDocument = paymentRef(currentOrderId, businessDateKey);
+    const paymentDocument = paymentRef(currentOrderId);
     const historyDocument = tableHistoryOrderRef(tableId, currentOrderId);
     const receiptDocument = receiptRef(currentOrderId);
     const paymentSnapshot = await transaction.get(paymentDocument);
@@ -2171,13 +2042,12 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
       paidItems: payableItems,
       receiptNumber: receipt.receiptNumber,
       paymentClaimedAt: null,
-      updatedAt: serverTimestamp(),
-      ...businessSessionStamp(businessDateKey, businessSessionId)
+      updatedAt: serverTimestamp()
     });
 
     if (!paymentSnapshot.exists()) {
       transaction.set(summaryDocument, {
-        date: businessDateKey,
+        date: getTodayKey(),
         total: increment(amountDue),
         grossTotal: increment(discountInfo.grossTotal),
         discountTotal: increment(discountInfo.discountAmount),
@@ -2197,8 +2067,7 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
         cashAmount: payment.cashAmount,
         onlineAmount: payment.onlineAmount,
         type: "food_order",
-        paidAt: serverTimestamp(),
-        ...businessSessionStamp(businessDateKey, businessSessionId)
+        paidAt: serverTimestamp()
       });
 
       transaction.set(receiptDocument, receipt);
@@ -2225,8 +2094,7 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
         orderedAt: order.timestamp || null,
         paidAt: serverTimestamp(),
         receiptNumber: receipt.receiptNumber,
-        savedAt: serverTimestamp(),
-        ...businessSessionStamp(businessDateKey, businessSessionId)
+        savedAt: serverTimestamp()
       });
     }
   });
@@ -2315,23 +2183,11 @@ export async function clearTable(tableId) {
   await logAuditEntry("table_cleared", tableId);
 }
 
-// Subscribes to the active business session's collection summary.
+// Subscribes to today's collection summary.
 export function listenToTodaySummary(callback, onError) {
-  let summaryUnsub = null;
-  const sessionUnsub = subscribeBusinessSession((state) => {
-    if (summaryUnsub) summaryUnsub();
-    const dateKey = state.status === "open" && state.businessDateKey
-      ? state.businessDateKey
-      : getTodayKey();
-    summaryUnsub = onSnapshot(dailySummaryRef(dateKey), (snapshot) => {
-      callback(snapshot.exists() ? snapshot.data() : { total: 0 });
-    }, onError);
+  return onSnapshot(dailySummaryRef(), (snapshot) => {
+    callback(snapshot.exists() ? snapshot.data() : { total: 0 });
   }, onError);
-
-  return () => {
-    sessionUnsub();
-    if (summaryUnsub) summaryUnsub();
-  };
 }
 
 function historySortTime(order) {
@@ -2518,17 +2374,20 @@ export async function fetchFoodOrdersForDateRange(startKey, endKey, maxRows = 50
   const histories = await Promise.all(CONFIG.TABLES.map((tableId) => fetchTableHistory(tableId, maxRows)));
   const fromHistory = histories.flat().filter((order) => {
     if (order.paymentStatus === "voided") {
-      const key = resolveRecordBusinessDateKey(order, order.voidedAt);
-      if (!key) return false;
+      const voidedAt = toDate(order.voidedAt);
+      if (!voidedAt) return false;
+      const key = getTodayKey(voidedAt);
       return key >= startKey && key <= endKey;
     }
     if (order.paymentStatus === "credit_pending") {
-      const key = resolveRecordBusinessDateKey(order, order.creditedAt);
-      if (!key) return false;
+      const creditedAt = toDate(order.creditedAt);
+      if (!creditedAt) return false;
+      const key = getTodayKey(creditedAt);
       return key >= startKey && key <= endKey;
     }
-    const key = resolveRecordBusinessDateKey(order, order.paidAt);
-    if (!key) return false;
+    const paidAt = toDate(order.paidAt);
+    if (!paidAt) return false;
+    const key = getTodayKey(paidAt);
     return key >= startKey && key <= endKey;
   });
 
@@ -2538,8 +2397,9 @@ export async function fetchFoodOrdersForDateRange(startKey, endKey, maxRows = 50
     .map((orderDoc) => ({ id: orderDoc.id, orderId: orderDoc.id, ...orderDoc.data() }))
     .filter((order) => order.paymentStatus === "credit_pending")
     .filter((order) => {
-      const key = resolveRecordBusinessDateKey(order, order.creditedAt);
-      if (!key) return false;
+      const creditedAt = toDate(order.creditedAt);
+      if (!creditedAt) return false;
+      const key = getTodayKey(creditedAt);
       return key >= startKey && key <= endKey;
     })
     .filter((order) => !historyIds.has(order.orderId || order.id));
@@ -2571,8 +2431,9 @@ export async function fetchCompletedSittingsForDateRange(startKey, endKey) {
     .map((sessionDoc) => ({ id: sessionDoc.id, ...sessionDoc.data() }))
     .filter((session) => {
       if (session.status !== "completed") return false;
-      const key = resolveRecordBusinessDateKey(session, session.checkOutAt);
-      if (!key) return false;
+      const checkOutAt = toDate(session.checkOutAt);
+      if (!checkOutAt) return false;
+      const key = getTodayKey(checkOutAt);
       return key >= startKey && key <= endKey;
     })
     .sort((a, b) => (toDate(b.checkOutAt)?.getTime() || 0) - (toDate(a.checkOutAt)?.getTime() || 0));
@@ -2863,14 +2724,13 @@ export async function purgeReportDataForDate(dateKey) {
 
   for (const tableId of CONFIG.TABLES) {
     const historyCollection = collection(db, "tableHistory", tableId, "orders");
-    const [paidSnapshot, voidSnapshot, creditSnapshot, stampedSnapshot] = await Promise.all([
+    const [paidSnapshot, voidSnapshot, creditSnapshot] = await Promise.all([
       getDocs(query(historyCollection, where("paidAt", ">=", start), where("paidAt", "<=", end))).catch(() => ({ docs: [] })),
       getDocs(query(historyCollection, where("voidedAt", ">=", start), where("voidedAt", "<=", end))).catch(() => ({ docs: [] })),
-      getDocs(query(historyCollection, where("creditedAt", ">=", start), where("creditedAt", "<=", end))).catch(() => ({ docs: [] })),
-      getDocs(query(historyCollection, where("businessDateKey", "==", dateKey))).catch(() => ({ docs: [] }))
+      getDocs(query(historyCollection, where("creditedAt", ">=", start), where("creditedAt", "<=", end))).catch(() => ({ docs: [] }))
     ]);
     const orderIds = new Set();
-    [...paidSnapshot.docs, ...voidSnapshot.docs, ...creditSnapshot.docs, ...stampedSnapshot.docs].forEach((historyDoc) => orderIds.add(historyDoc.id));
+    [...paidSnapshot.docs, ...voidSnapshot.docs, ...creditSnapshot.docs].forEach((historyDoc) => orderIds.add(historyDoc.id));
     const refs = [...orderIds].map((orderId) => doc(db, "tableHistory", tableId, "orders", orderId));
     await deleteDocRefsInBatches(refs);
     counts.history += refs.length;
@@ -2894,8 +2754,8 @@ export async function purgeReportDataForDate(dateKey) {
   const sessionRefs = sessionSnapshot.docs.filter((sessionDoc) => {
     const session = sessionDoc.data();
     if (session.status !== "completed") return false;
-    const key = resolveRecordBusinessDateKey(session, session.checkOutAt);
-    return key === dateKey;
+    const checkOutAt = toDate(session.checkOutAt);
+    return Boolean(checkOutAt && getTodayKey(checkOutAt) === dateKey);
   }).map((sessionDoc) => sessionDoc.ref);
   await deleteDocRefsInBatches(sessionRefs);
   counts.sessions = sessionRefs.length;
@@ -2905,10 +2765,7 @@ export async function purgeReportDataForDate(dateKey) {
 
 // Builds a today's report from saved paid history across all configured tables.
 export async function fetchTodayReport() {
-  const state = await getBusinessSessionState();
-  const todayKey = state.status === "open" && state.businessDateKey
-    ? state.businessDateKey
-    : getTodayKey();
+  const todayKey = getTodayKey();
   return fetchReportForDateRange(todayKey, todayKey);
 }
 

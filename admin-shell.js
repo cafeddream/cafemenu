@@ -5,7 +5,6 @@ import { initPrivateSitting, refreshPrivateSittingView } from "./private-sitting
 import { startDailyReportScheduler } from "./report-scheduler.js";
 import { requireStaffAuth } from "./staff-auth.js";
 import { closeDayForToday } from "./close-day.js";
-import { initBusinessSession } from "./business-session.js";
 
 const elements = {
   restaurant: document.querySelector("#adminRestaurant"),
@@ -174,7 +173,6 @@ function setRestaurantBrandName(element, name) {
 function startManagerApp() {
   try {
     setRestaurantBrandName(elements.restaurant, CONFIG.RESTAURANT_NAME);
-    initBusinessSession();
     bindShellUi();
     const sittingRoute = /^#\/sitting\/[^/]+$/i.test(location.hash);
     setActiveTab(sittingRoute ? "sittings" : "orders");
