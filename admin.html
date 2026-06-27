@@ -44,11 +44,10 @@
     </section>
 
     <section class="ps-view" id="psOrders" data-ps-view="orders">
-      <div class="ps-counter-orders-head">
-        <h2>Counter Orders</h2>
-        <button type="button" class="primary-btn" id="newCounterOrderBtn">+ New Order</button>
-      </div>
-      <div id="psOrdersGrid" class="ps-counter-order-list" aria-live="polite"></div>
+      <nav class="admin-top-tabs" id="adminCategoryTabs" aria-label="Table sections"></nav>
+      <div id="psOrdersGrid" aria-live="polite"></div>
+      <div id="psTableDetail" class="ps-table-detail" hidden></div>
+      <span id="activeTables" hidden>0</span>
     </section>
 
     <section class="ps-view" id="psSettings" data-ps-view="settings" hidden>
