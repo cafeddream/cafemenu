@@ -1,4 +1,4 @@
-import { CONFIG, formatTableDisplayName, toDate } from "./firebase.js";
+import { CONFIG, formatCurrency, formatPaymentMethodLabel, formatTableDisplayName, resolvePaymentAmounts, toDate } from "./firebase.js";
 import { getJsPdf } from "./private-sitting-pdf.js";
 
 const PAGE = { left: 14, right: 196, width: 182, bottom: 272, top: 18 };
@@ -54,7 +54,11 @@ function formatOrderPaymentLabel(order) {
   if (order.paymentStatus === "credit_pending" || order.paymentMethod === "pending") {
     return "Pending";
   }
-  return order.paymentMethod === "online" ? "Online" : "Cash";
+  const amounts = resolvePaymentAmounts(order);
+  if (amounts.cashAmount > 0 && amounts.onlineAmount > 0) {
+    return `Split (${formatCurrency(amounts.cashAmount)} + ${formatCurrency(amounts.onlineAmount)})`;
+  }
+  return formatPaymentMethodLabel(order);
 }
 
 function formatItemsSummary(items = []) {

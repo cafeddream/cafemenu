@@ -171,9 +171,56 @@
         </div>
         <p class="discount-final" id="psCheckoutFinalPayable">Final Payable: ₹0</p>
       </div>
-      <div class="modal-foot ps-checkout-actions" style="padding:16px;">
-        <button class="primary-btn" id="psCheckoutCash" type="button">Cash</button>
-        <button class="secondary-btn" id="psCheckoutOnline" type="button">Online</button>
+      <div class="modal-foot ps-checkout-actions payment-method-actions ps-checkout-payment-actions" style="padding:16px;">
+        <button class="payment-option-btn payment-option-cash primary-btn" id="psCheckoutCash" type="button">
+          <span class="payment-option-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 6h18v12H3V6zm2 2v2h14V8H5zm0 4v2h10v-2H5z"/></svg></span>
+          <span class="payment-option-label">Cash</span>
+        </button>
+        <button class="payment-option-btn payment-option-online secondary-btn" id="psCheckoutOnline" type="button">
+          <span class="payment-option-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 18H7V5h10v14z"/></svg></span>
+          <span class="payment-option-label">Online</span>
+        </button>
+        <button class="payment-option-btn payment-option-split secondary-btn" id="psCheckoutSplit" type="button">
+          <span class="payment-option-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M11 7v10H3V7h8zm2 0h8v10h-8V7zM5 9v2h4V9H5zm10 0v2h4V9h-4z"/></svg></span>
+          <span class="payment-option-label">Split</span>
+        </button>
+        <button class="payment-option-btn payment-option-pending secondary-btn" id="psCheckoutPending" type="button">
+          <span class="payment-option-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></span>
+          <span class="payment-option-label">Udhaar</span>
+        </button>
+      </div>
+      <div class="pending-customer-panel ps-checkout-pending-panel" id="psCheckoutPendingPanel" hidden style="padding:0 16px 16px;">
+        <p class="pending-customer-help">Name and mobile required for udhaar.</p>
+        <label class="admin-customer-field">
+          <span>Name</span>
+          <input type="text" id="psCheckoutPendingName" maxlength="60" placeholder="Customer name" autocomplete="name">
+        </label>
+        <label class="admin-customer-field">
+          <span>Mobile</span>
+          <input type="tel" id="psCheckoutPendingMobile" maxlength="10" inputmode="numeric" placeholder="10-digit mobile" autocomplete="tel">
+        </label>
+        <div class="split-payment-actions">
+          <button class="ghost-btn" id="psCheckoutPendingBackBtn" type="button">Back</button>
+          <button class="primary-btn" id="psCheckoutPendingConfirmBtn" type="button">Confirm Udhaar</button>
+        </div>
+      </div>
+      <div class="split-payment-panel ps-split-panel" id="psSplitPanel" hidden style="padding:0 16px 16px;">
+        <p class="split-payment-help">Enter cash and online amounts (must equal final payable).</p>
+        <div class="discount-input-row split-amount-row">
+          <label class="split-amount-field">
+            <span>Online ₹</span>
+            <input id="psSplitOnlineAmount" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
+          </label>
+          <label class="split-amount-field">
+            <span>Cash ₹</span>
+            <input id="psSplitCashAmount" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
+          </label>
+        </div>
+        <p class="split-payment-hint" id="psSplitPaymentHint">Total: ₹0</p>
+        <div class="split-payment-actions">
+          <button class="ghost-btn" id="psSplitBackBtn" type="button">Back</button>
+          <button class="primary-btn" id="psSplitConfirmBtn" type="button" disabled>Confirm Split</button>
+        </div>
       </div>
     </section>
   </div>
@@ -247,11 +294,45 @@
           </div>
           <p class="discount-final" id="paymentFinalPayable">Final Payable: ₹0</p>
         </div>
-        <div id="paymentMethodActions">
-          <button class="primary-btn" id="paidCashBtn" type="button">Cash</button>
-          <button class="secondary-btn" id="paidOnlineBtn" type="button">Online</button>
-          <button class="secondary-btn" id="paidPendingBtn" type="button">Pending (Udhaar)</button>
-          <button class="ghost-btn danger-btn" id="voidOrderBtn" type="button">Void Order</button>
+        <div id="paymentMethodActions" class="payment-method-actions">
+          <button class="payment-option-btn payment-option-cash primary-btn" id="paidCashBtn" type="button">
+            <span class="payment-option-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 6h18v12H3V6zm2 2v2h14V8H5zm0 4v2h10v-2H5z"/></svg></span>
+            <span class="payment-option-label">Cash</span>
+          </button>
+          <button class="payment-option-btn payment-option-online secondary-btn" id="paidOnlineBtn" type="button">
+            <span class="payment-option-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 18H7V5h10v14z"/></svg></span>
+            <span class="payment-option-label">Online</span>
+          </button>
+          <button class="payment-option-btn payment-option-split secondary-btn" id="paidSplitBtn" type="button">
+            <span class="payment-option-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M11 7v10H3V7h8zm2 0h8v10h-8V7zM5 9v2h4V9H5zm10 0v2h4V9h-4z"/></svg></span>
+            <span class="payment-option-label">Split</span>
+          </button>
+          <button class="payment-option-btn payment-option-pending secondary-btn" id="paidPendingBtn" type="button">
+            <span class="payment-option-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></span>
+            <span class="payment-option-label">Udhaar</span>
+          </button>
+          <button class="payment-option-btn payment-option-void ghost-btn danger-btn" id="voidOrderBtn" type="button">
+            <span class="payment-option-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg></span>
+            <span class="payment-option-label">Void</span>
+          </button>
+        </div>
+        <div class="split-payment-panel" id="splitPaymentPanel" hidden>
+          <p class="split-payment-help">Enter cash and online amounts (must equal final payable).</p>
+          <div class="discount-input-row split-amount-row">
+            <label class="split-amount-field">
+              <span>Online ₹</span>
+              <input id="splitOnlineAmount" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
+            </label>
+            <label class="split-amount-field">
+              <span>Cash ₹</span>
+              <input id="splitCashAmount" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
+            </label>
+          </div>
+          <p class="split-payment-hint" id="splitPaymentHint">Total: ₹0</p>
+          <div class="split-payment-actions">
+            <button class="ghost-btn" id="splitPaymentBackBtn" type="button">Back</button>
+            <button class="primary-btn" id="splitConfirmBtn" type="button" disabled>Confirm Split</button>
+          </div>
         </div>
         <div class="pending-customer-panel" id="pendingCustomerPanel" hidden>
           <p class="pending-customer-help">Name and mobile required for udhaar.</p>

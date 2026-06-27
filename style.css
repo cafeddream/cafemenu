@@ -1739,18 +1739,111 @@ button:disabled {
   color: #ffcc80;
 }
 
-#paymentMethodActions {
+#paymentMethodActions,
+.payment-method-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
   width: 100%;
 }
 
-#paymentMethodActions button {
+#paymentMethodActions .payment-option-cash,
+.payment-method-actions .payment-option-cash {
+  grid-column: span 2;
+}
+
+#paymentMethodActions .payment-option-online,
+.payment-method-actions .payment-option-online {
+  grid-column: span 2;
+}
+
+#paymentMethodActions .payment-option-split,
+.payment-method-actions .payment-option-split {
+  grid-column: span 2;
+}
+
+#paymentMethodActions .payment-option-pending {
+  grid-column: span 3;
+}
+
+#paymentMethodActions .payment-option-void {
+  grid-column: span 3;
+}
+
+.ps-checkout-payment-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ps-checkout-payment-actions .payment-option-btn {
+  grid-column: auto;
+}
+
+.ps-checkout-pending-panel:not([hidden]) {
+  border-top: 1px dashed var(--border, #d8d8d8);
+}
+
+.payment-option-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   width: 100%;
-  min-height: 44px;
+  min-height: 72px;
   padding: 10px 8px;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.payment-option-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.payment-option-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.payment-option-cash .payment-option-icon {
+  color: #7dffb0;
+  background: rgba(125, 255, 176, 0.12);
+}
+
+.payment-option-online .payment-option-icon {
+  color: #7ec8ff;
+  background: rgba(126, 200, 255, 0.12);
+}
+
+.payment-option-split .payment-option-icon {
+  color: #d4b5ff;
+  background: rgba(212, 181, 255, 0.12);
+}
+
+.payment-option-pending .payment-option-icon {
+  color: #ffcc80;
+  background: rgba(255, 204, 128, 0.14);
+}
+
+.payment-option-void .payment-option-icon {
+  color: #ff8a8a;
+  background: rgba(255, 138, 138, 0.14);
+}
+
+.payment-option-label {
+  display: block;
+}
+
+#paymentMethodActions button,
+.payment-method-actions button {
+  width: 100%;
 }
 
 .discount-control {
@@ -1787,6 +1880,53 @@ button:disabled {
   margin: 0;
   font-weight: 800;
   color: var(--ink);
+}
+
+.split-payment-panel:not([hidden]) {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0 4px;
+  border-top: 1px dashed var(--border, #d8d8d8);
+}
+
+.split-payment-help {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted, #666);
+}
+
+.split-amount-row {
+  align-items: flex-end;
+}
+
+.split-amount-field {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.split-payment-hint {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.split-payment-hint--error {
+  color: #b42318;
+}
+
+.split-payment-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.ps-split-panel:not([hidden]) {
+  border-top: 1px dashed var(--border, #d8d8d8);
 }
 
 .staff-nav {

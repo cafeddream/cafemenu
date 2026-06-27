@@ -1,6 +1,7 @@
 import {
   CONFIG,
   buildCustomerDisplayName,
+  allocateSplitAcrossPayments,
   calculateSittingBill,
   completePrivateSession,
   computeDiscount,
@@ -14,7 +15,11 @@ import {
   getTodayKey,
   listenToActivePrivateSessions,
   loadRuntimeConfig,
+  markOrderCreditPending,
   maskMobile,
+  normalizeCreditCustomer,
+  normalizePaymentAmounts,
+  recordSittingCreditPending,
   recordSittingPayment,
   serverTimestamp,
   showToast,
@@ -27,6 +32,7 @@ import { openAdminOrderModal } from "./admin-orders.js";
 import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, formatCheckInLabel, isValidPdfBase64, mergeCustomersWithPhotos, preloadJsPdf, withTimeout } from "./private-sitting-pdf.js";
 import { initIdCropCamera, openGalleryPhotoPicker, openIdCropCamera } from "./private-sitting-camera.js";
 import { fetchSessionPhotos, syncSittingCheckIn, syncSittingCheckout, uploadSittingPhotos } from "./sitting-sync.js";
+import { syncPendingOrderToSheet } from "./report-sync.js";
 import { renderAdminSettings } from "./admin-settings.js";
 
 function getPsTableIds() {
@@ -67,6 +73,19 @@ const elements = {
   closeCheckout: document.querySelector("#closePsCheckout"),
   checkoutCashBtn: document.querySelector("#psCheckoutCash"),
   checkoutOnlineBtn: document.querySelector("#psCheckoutOnline"),
+  checkoutSplitBtn: document.querySelector("#psCheckoutSplit"),
+  checkoutSplitPanel: document.querySelector("#psSplitPanel"),
+  checkoutSplitOnlineAmount: document.querySelector("#psSplitOnlineAmount"),
+  checkoutSplitCashAmount: document.querySelector("#psSplitCashAmount"),
+  checkoutSplitPaymentHint: document.querySelector("#psSplitPaymentHint"),
+  checkoutSplitBackBtn: document.querySelector("#psSplitBackBtn"),
+  checkoutSplitConfirmBtn: document.querySelector("#psSplitConfirmBtn"),
+  checkoutPendingBtn: document.querySelector("#psCheckoutPending"),
+  checkoutPendingPanel: document.querySelector("#psCheckoutPendingPanel"),
+  checkoutPendingName: document.querySelector("#psCheckoutPendingName"),
+  checkoutPendingMobile: document.querySelector("#psCheckoutPendingMobile"),
+  checkoutPendingBackBtn: document.querySelector("#psCheckoutPendingBackBtn"),
+  checkoutPendingConfirmBtn: document.querySelector("#psCheckoutPendingConfirmBtn"),
   checkoutDiscountType: document.querySelector("#psCheckoutDiscountType"),
   checkoutDiscountValue: document.querySelector("#psCheckoutDiscountValue"),
   checkoutFinalPayable: document.querySelector("#psCheckoutFinalPayable")
@@ -75,6 +94,14 @@ const elements = {
 const CHECK_IN_BTN_LABEL = "Confirm Check-in";
 const CHECKOUT_CASH_LABEL = "Cash";
 const CHECKOUT_ONLINE_LABEL = "Online";
+const CHECKOUT_SPLIT_LABEL = "Split";
+const CHECKOUT_PENDING_LABEL = "Udhaar";
+
+function setCheckoutButtonLabel(button, text) {
+  const label = button?.querySelector(".payment-option-label");
+  if (label) label.textContent = text;
+  else if (button) button.textContent = text;
+}
 
 function setCheckInBusy(busy) {
   if (!elements.confirmCheckIn) return;
@@ -91,22 +118,92 @@ function setCheckInBusy(busy) {
 }
 
 function setCheckoutBusy(busy) {
-  const buttons = [elements.checkoutCashBtn, elements.checkoutOnlineBtn];
+  const buttons = [
+    elements.checkoutCashBtn,
+    elements.checkoutOnlineBtn,
+    elements.checkoutSplitBtn,
+    elements.checkoutPendingBtn,
+    elements.checkoutSplitConfirmBtn,
+    elements.checkoutPendingConfirmBtn
+  ];
+  buttons.forEach((button) => {
+    if (!button) return;
+    const label = button.querySelector(".payment-option-label");
+    if (busy) {
+      if (!button.dataset.originalLabel) {
+        button.dataset.originalLabel = label?.textContent
+          || (button.id === "psCheckoutCash"
+            ? CHECKOUT_CASH_LABEL
+            : button.id === "psCheckoutOnline"
+              ? CHECKOUT_ONLINE_LABEL
+              : button.id === "psCheckoutPending"
+                ? CHECKOUT_PENDING_LABEL
+                : CHECKOUT_SPLIT_LABEL);
+      }
+      button.disabled = true;
+      if (label && button.id !== "psCheckoutSplit" && button.id !== "psCheckoutPending") {
+        label.textContent = "Processing...";
+      }
+      return;
+    }
+    button.disabled = false;
+    setCheckoutButtonLabel(
+      button,
+      button.dataset.originalLabel
+        || (button.id === "psCheckoutCash"
+          ? CHECKOUT_CASH_LABEL
+          : button.id === "psCheckoutOnline"
+            ? CHECKOUT_ONLINE_LABEL
+            : button.id === "psCheckoutPending"
+              ? CHECKOUT_PENDING_LABEL
+              : CHECKOUT_SPLIT_LABEL)
+    );
+  });
+}
+  if (!elements.confirmCheckIn) return;
+  if (busy) {
+    if (!elements.confirmCheckIn.dataset.originalLabel) {
+      elements.confirmCheckIn.dataset.originalLabel = elements.confirmCheckIn.textContent || CHECK_IN_BTN_LABEL;
+    }
+    elements.confirmCheckIn.disabled = true;
+    elements.confirmCheckIn.textContent = "Checking in...";
+    return;
+  }
+  elements.confirmCheckIn.disabled = false;
+  elements.confirmCheckIn.textContent = elements.confirmCheckIn.dataset.originalLabel || CHECK_IN_BTN_LABEL;
+}
+
+function setCheckoutBusy(busy) {
+  const buttons = [
+    elements.checkoutCashBtn,
+    elements.checkoutOnlineBtn,
+    elements.checkoutSplitBtn,
+    elements.checkoutSplitConfirmBtn
+  ];
   buttons.forEach((button) => {
     if (!button) return;
     if (busy) {
       if (!button.dataset.originalLabel) {
-        button.dataset.originalLabel = button.textContent || button.id === "psCheckoutCash"
-          ? CHECKOUT_CASH_LABEL
-          : CHECKOUT_ONLINE_LABEL;
+        button.dataset.originalLabel = button.textContent
+          || (button.id === "psCheckoutCash"
+            ? CHECKOUT_CASH_LABEL
+            : button.id === "psCheckoutOnline"
+              ? CHECKOUT_ONLINE_LABEL
+              : "Split");
       }
       button.disabled = true;
-      button.textContent = "Processing...";
+      if (button.id !== "psCheckoutSplit") {
+        button.textContent = "Processing...";
+      }
       return;
     }
     button.disabled = false;
     button.textContent = button.dataset.originalLabel
-      || (button.id === "psCheckoutCash" ? CHECKOUT_CASH_LABEL : CHECKOUT_ONLINE_LABEL);
+      || (button.id === "psCheckoutCash"
+        ? CHECKOUT_CASH_LABEL
+        : button.id === "psCheckoutOnline"
+          ? CHECKOUT_ONLINE_LABEL
+          : "Split");
   });
 }
 
@@ -864,6 +961,9 @@ function startCheckout() {
   renderCheckoutModal(state.checkoutDraft);
   if (elements.checkoutDiscountType) elements.checkoutDiscountType.value = "amount";
   if (elements.checkoutDiscountValue) elements.checkoutDiscountValue.value = "";
+  hideCheckoutPaymentPanels();
+  if (elements.checkoutPendingName) elements.checkoutPendingName.value = "";
+  if (elements.checkoutPendingMobile) elements.checkoutPendingMobile.value = "";
   updateCheckoutDiscountDisplay();
   if (elements.checkoutModal) elements.checkoutModal.hidden = false;
 }
@@ -881,10 +981,111 @@ function updateCheckoutDiscountDisplay() {
   elements.checkoutFinalPayable.textContent = info.discountAmount > 0
     ? `Final Payable: ${formatCurrency(info.finalTotal)} (− ${formatCurrency(info.discountAmount)})`
     : `Final Payable: ${formatCurrency(info.finalTotal)}`;
+  updateCheckoutSplitValidation();
+}
+
+function hideCheckoutSplitPanel() {
+  if (elements.checkoutSplitPanel) elements.checkoutSplitPanel.hidden = true;
+  const actions = elements.checkoutModal?.querySelector(".ps-checkout-actions");
+  if (actions && !elements.checkoutPendingPanel?.hidden) return;
+  if (actions) actions.hidden = false;
+}
+
+function hideCheckoutPendingPanel() {
+  if (elements.checkoutPendingPanel) elements.checkoutPendingPanel.hidden = true;
+  const actions = elements.checkoutModal?.querySelector(".ps-checkout-actions");
+  if (actions && !elements.checkoutSplitPanel?.hidden) return;
+  if (actions) actions.hidden = false;
+}
+
+function hideCheckoutPaymentPanels() {
+  hideCheckoutSplitPanel();
+  hideCheckoutPendingPanel();
+}
+
+function readCheckoutPendingFormValues() {
+  return {
+    name: elements.checkoutPendingName?.value?.trim() || "",
+    mobile: elements.checkoutPendingMobile?.value?.trim() || ""
+  };
+}
+
+function buildSessionCreditProfile(session, formValues = {}) {
+  const primary = session?.customers?.[0] || {};
+  return normalizeCreditCustomer({
+    name: formValues.name || session?.displayName || primary.name || "",
+    mobile: formValues.mobile || session?.mobile || primary.mobile || ""
+  });
+}
+
+function hasCheckoutCreditProfile(session, formValues = {}) {
+  try {
+    buildSessionCreditProfile(session, formValues);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function prefillCheckoutPendingFields(session) {
+  const primary = session?.customers?.[0] || {};
+  if (elements.checkoutPendingName) {
+    elements.checkoutPendingName.value = session?.displayName || primary.name || "";
+  }
+  if (elements.checkoutPendingMobile) {
+    elements.checkoutPendingMobile.value = session?.mobile || primary.mobile || "";
+  }
+}
+
+function showCheckoutPendingPanel() {
+  hideCheckoutSplitPanel();
+  prefillCheckoutPendingFields(state.checkoutDraft?.session);
+  const actions = elements.checkoutModal?.querySelector(".ps-checkout-actions");
+  if (actions) actions.hidden = true;
+  if (elements.checkoutPendingPanel) elements.checkoutPendingPanel.hidden = false;
+  elements.checkoutPendingName?.focus();
+}
+
+function showCheckoutSplitPanel() {
+  hideCheckoutPendingPanel();
+  const grandTotal = Number(state.checkoutDraft?.grandTotal || 0);
+  const info = computeDiscount(grandTotal, readCheckoutDiscount());
+  if (elements.checkoutSplitOnlineAmount) elements.checkoutSplitOnlineAmount.value = String(info.finalTotal);
+  if (elements.checkoutSplitCashAmount) elements.checkoutSplitCashAmount.value = "0";
+  const actions = elements.checkoutModal?.querySelector(".ps-checkout-actions");
+  if (actions) actions.hidden = true;
+  if (elements.checkoutSplitPanel) elements.checkoutSplitPanel.hidden = false;
+  updateCheckoutSplitValidation();
+  elements.checkoutSplitOnlineAmount?.focus();
+}
+
+function readCheckoutSplitInput() {
+  const cash = Number(elements.checkoutSplitCashAmount?.value || 0);
+  const online = Number(elements.checkoutSplitOnlineAmount?.value || 0);
+  return { cash: Number.isFinite(cash) ? cash : 0, online: Number.isFinite(online) ? online : 0 };
+}
+
+function updateCheckoutSplitValidation() {
+  if (!elements.checkoutSplitPanel || elements.checkoutSplitPanel.hidden) return;
+  const grandTotal = Number(state.checkoutDraft?.grandTotal || 0);
+  const info = computeDiscount(grandTotal, readCheckoutDiscount());
+  const { cash, online } = readCheckoutSplitInput();
+  const entered = cash + online;
+  const match = entered === info.finalTotal;
+  if (elements.checkoutSplitPaymentHint) {
+    elements.checkoutSplitPaymentHint.textContent = match
+      ? `Total: ${formatCurrency(entered)}`
+      : `Must equal ${formatCurrency(info.finalTotal)} (entered ${formatCurrency(entered)})`;
+    elements.checkoutSplitPaymentHint.classList.toggle("split-payment-hint--error", !match);
+  }
+  if (elements.checkoutSplitConfirmBtn) elements.checkoutSplitConfirmBtn.disabled = !match;
 }
 
 function closeCheckoutModal() {
   if (elements.checkoutModal) elements.checkoutModal.hidden = true;
+  hideCheckoutPaymentPanels();
+  if (elements.checkoutPendingName) elements.checkoutPendingName.value = "";
+  if (elements.checkoutPendingMobile) elements.checkoutPendingMobile.value = "";
   state.checkoutDraft = null;
 }
 
@@ -971,7 +1172,36 @@ async function runCheckoutBackground(sessionSnapshot, checkoutMeta) {
   }
 }
 
-async function confirmCheckout(method) {
+async function syncPendingCheckoutToSheet(draft, sittingRecord, foodResults) {
+  try {
+    await syncPendingOrderToSheet({
+      orderId: `sitting-${draft.sessionId}`,
+      tableId: draft.session.sittingId,
+      customerName: sittingRecord.customerName,
+      customerMobile: sittingRecord.customerMobile,
+      itemsSummary: `Private Sitting (${draft.sitting.durationMinutes} min)`,
+      grossTotal: sittingRecord.grossTotal,
+      discountAmount: sittingRecord.discountAmount,
+      total: sittingRecord.amount
+    });
+    await Promise.all(foodResults.map((result) => syncPendingOrderToSheet({
+      orderId: result.orderId,
+      tableId: result.tableId,
+      customerName: result.customerName,
+      customerMobile: result.customerMobile,
+      itemsSummary: (result.items || [])
+        .map((item) => `${item.name || "Item"} x${Number(item.qty || 0)}`)
+        .join(", "),
+      grossTotal: result.grossTotal,
+      discountAmount: result.discountAmount,
+      total: result.total
+    })));
+  } catch (error) {
+    console.warn("[pending] Sheet sync failed", error);
+  }
+}
+
+async function confirmCheckout(method, customerProfile = null) {
   if (state.checkoutSubmitting) return;
   const draft = state.checkoutDraft;
   if (!draft) return;
@@ -989,6 +1219,27 @@ async function confirmCheckout(method) {
     remainingDiscount -= applied;
     return { orderId: order.orderId || order.id, discount: applied };
   });
+  const sittingFinal = draft.sittingAmount - sittingDiscount;
+  const foodFinals = draft.foodOrders.map((order) => {
+    const entry = foodOrderDiscounts.find((row) => row.orderId === (order.orderId || order.id));
+    return Number(order.total || 0) - Number(entry?.discount || 0);
+  });
+  const isPending = method === "pending";
+  const isSplit = !isPending && method && typeof method === "object";
+  let sittingPayment = method;
+  let foodPayments = foodOrderDiscounts.map(() => method);
+  if (isSplit) {
+    const allocations = allocateSplitAcrossPayments(
+      [sittingFinal, ...foodFinals],
+      method,
+      discountInfo.finalTotal
+    );
+    sittingPayment = { cash: allocations[0].cashAmount, online: allocations[0].onlineAmount };
+    foodPayments = foodOrderDiscounts.map((entry, index) => ({
+      cash: allocations[index + 1].cashAmount,
+      online: allocations[index + 1].onlineAmount
+    }));
+  }
 
   try {
     const liveSession = getLiveSession(draft.sessionId) || draft.session;
@@ -997,7 +1248,68 @@ async function confirmCheckout(method) {
     const sheetRowNumber = resolveSheetRowNumber(liveSession) || resolveSheetRowNumber(draft.session);
     const sessionDateKey = getSessionDateKey(liveSession);
 
-    await recordSittingPayment(draft.sessionId, draft.sittingAmount, method, {
+    if (isPending) {
+      const profile = buildSessionCreditProfile(
+        draft.session,
+        customerProfile || readCheckoutPendingFormValues()
+      );
+
+      const sittingRecord = await recordSittingCreditPending(
+        draft.sessionId,
+        draft.sittingAmount,
+        profile,
+        { type: "amount", value: sittingDiscount }
+      );
+
+      const foodResults = await Promise.all(
+        foodOrderDiscounts
+          .filter((entry) => entry.orderId)
+          .map((entry) => markOrderCreditPending(entry.orderId, profile, {
+            type: "amount",
+            value: entry.discount
+          }))
+      );
+
+      await completePrivateSession(draft.sessionId, {
+        durationMinutes: draft.sitting.durationMinutes,
+        billedMinutes: draft.sitting.billedMinutes,
+        billedAmount: draft.sittingAmount,
+        sittingAmount: draft.sittingAmount,
+        foodAmount: draft.foodAmount,
+        grossTotal: discountInfo.grossTotal,
+        discountType: discountInfo.discountType,
+        discountValue: discountInfo.discountValue,
+        discountAmount: discountInfo.discountAmount,
+        grandTotal: discountInfo.finalTotal,
+        paymentMethod: "pending",
+        paymentStatus: "credit_pending",
+        customerName: profile.customerName,
+        customerMobile: profile.customerMobile,
+        customerMobileNormalized: profile.customerMobileNormalized,
+        creditedAt: serverTimestamp()
+      });
+
+      void syncPendingCheckoutToSheet(draft, sittingRecord, foodResults);
+
+      closeCheckoutModal();
+      closeSessionModal();
+      showToast(`${draft.session.sittingId} checked out on udhaar — ${formatCurrency(discountInfo.finalTotal)}`);
+
+      if (sessionSnapshot) {
+        runCheckoutBackground(sessionSnapshot, {
+          sessionId: draft.sessionId,
+          checkOutLabel,
+          durationMinutes: draft.sitting.durationMinutes,
+          sheetRowNumber,
+          sessionDateKey
+        });
+      }
+      return;
+    }
+
+    const sessionPayment = normalizePaymentAmounts(discountInfo.finalTotal, method);
+
+    await recordSittingPayment(draft.sessionId, draft.sittingAmount, sittingPayment, {
       type: "amount",
       value: sittingDiscount
     });
@@ -1005,7 +1317,7 @@ async function confirmCheckout(method) {
     await Promise.all(
       foodOrderDiscounts
         .filter((entry) => entry.orderId)
-        .map((entry) => verifyOrderPayment(entry.orderId, method, {
+        .map((entry, index) => verifyOrderPayment(entry.orderId, foodPayments[index], {
           type: "amount",
           value: entry.discount
         }))
@@ -1022,7 +1334,9 @@ async function confirmCheckout(method) {
       discountValue: discountInfo.discountValue,
       discountAmount: discountInfo.discountAmount,
       grandTotal: discountInfo.finalTotal,
-      paymentMethod: method
+      paymentMethod: sessionPayment.paymentMethod,
+      cashAmount: sessionPayment.cashAmount,
+      onlineAmount: sessionPayment.onlineAmount
     });
 
     closeCheckoutModal();
@@ -1038,8 +1352,8 @@ async function confirmCheckout(method) {
         sessionDateKey
       });
     }
-  } catch {
-    showToast("Checkout failed. Please try again.");
+  } catch (error) {
+    showToast(error?.message || "Checkout failed. Please try again.");
   } finally {
     state.checkoutSubmitting = false;
     setCheckoutBusy(false);
@@ -1072,9 +1386,46 @@ function bindPrivateSittingUi() {
   });
   elements.checkoutCashBtn?.addEventListener("click", () => confirmCheckout("cash"));
   elements.checkoutOnlineBtn?.addEventListener("click", () => confirmCheckout("online"));
+  elements.checkoutSplitBtn?.addEventListener("click", showCheckoutSplitPanel);
+  elements.checkoutSplitBackBtn?.addEventListener("click", hideCheckoutSplitPanel);
+  elements.checkoutPendingBtn?.addEventListener("click", handleCheckoutPendingClick);
+  elements.checkoutPendingBackBtn?.addEventListener("click", hideCheckoutPendingPanel);
+  elements.checkoutPendingConfirmBtn?.addEventListener("click", () => {
+    try {
+      buildSessionCreditProfile(state.checkoutDraft?.session, readCheckoutPendingFormValues());
+    } catch (error) {
+      showToast(error?.message || "Name and mobile required for udhaar");
+      return;
+    }
+    void confirmCheckout("pending");
+  });
+  elements.checkoutSplitConfirmBtn?.addEventListener("click", () => {
+    const grandTotal = Number(state.checkoutDraft?.grandTotal || 0);
+    const info = computeDiscount(grandTotal, readCheckoutDiscount());
+    const input = readCheckoutSplitInput();
+    try {
+      normalizePaymentAmounts(info.finalTotal, input);
+    } catch (error) {
+      showToast(error?.message || "Split amounts must match final payable");
+      return;
+    }
+    void confirmCheckout(input);
+  });
+  elements.checkoutSplitOnlineAmount?.addEventListener("input", updateCheckoutSplitValidation);
+  elements.checkoutSplitCashAmount?.addEventListener("input", updateCheckoutSplitValidation);
   elements.checkoutDiscountType?.addEventListener("change", updateCheckoutDiscountDisplay);
   elements.checkoutDiscountValue?.addEventListener("input", updateCheckoutDiscountDisplay);
   window.addEventListener("ps-food-order-modal-closed", handleFoodOrderModalClosed);
+}
+
+function handleCheckoutPendingClick() {
+  const session = state.checkoutDraft?.session;
+  if (!session) return;
+  if (hasCheckoutCreditProfile(session)) {
+    void confirmCheckout("pending");
+    return;
+  }
+  showCheckoutPendingPanel();
 }
 
 export async function initPrivateSitting() {

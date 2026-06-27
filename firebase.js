@@ -683,11 +683,11 @@ export async function placePrivateSittingFoodOrder(tableId, sessionId, cartItems
 }
 
 export async function recordSittingPayment(sessionId, amount, paymentMethod = "cash", discount = null) {
-  const method = paymentMethod === "online" ? "online" : "cash";
   const paymentDocument = doc(db, "dailySummaries", getTodayKey(), "payments", `sitting-${sessionId}`);
   const summaryDocument = dailySummaryRef();
   const discountInfo = computeDiscount(amount, discount);
   const finalAmount = discountInfo.finalTotal;
+  const payment = normalizePaymentAmounts(finalAmount, paymentMethod);
 
   await runTransaction(db, async (transaction) => {
     const paymentSnapshot = await transaction.get(paymentDocument);
@@ -698,8 +698,8 @@ export async function recordSittingPayment(sessionId, amount, paymentMethod = "c
       total: increment(finalAmount),
       grossTotal: increment(discountInfo.grossTotal),
       discountTotal: increment(discountInfo.discountAmount),
-      cash: increment(method === "cash" ? finalAmount : 0),
-      online: increment(method === "online" ? finalAmount : 0),
+      cash: increment(payment.cashAmount),
+      online: increment(payment.onlineAmount),
       privateSittings: increment(1),
       privateSittingTotal: increment(finalAmount),
       updatedAt: serverTimestamp()
@@ -710,7 +710,9 @@ export async function recordSittingPayment(sessionId, amount, paymentMethod = "c
       amount: finalAmount,
       grossTotal: discountInfo.grossTotal,
       discountAmount: discountInfo.discountAmount,
-      paymentMethod: method,
+      paymentMethod: payment.paymentMethod,
+      cashAmount: payment.cashAmount,
+      onlineAmount: payment.onlineAmount,
       type: "private_sitting",
       paidAt: serverTimestamp()
     });
@@ -721,8 +723,61 @@ export async function recordSittingPayment(sessionId, amount, paymentMethod = "c
     amount: finalAmount,
     grossTotal: discountInfo.grossTotal,
     discountAmount: discountInfo.discountAmount,
-    paymentMethod: method
+    paymentMethod: payment.paymentMethod,
+    cashAmount: payment.cashAmount,
+    onlineAmount: payment.onlineAmount
   });
+}
+
+export async function recordSittingCreditPending(sessionId, amount, customerProfile, discount = null) {
+  const paymentDocument = doc(db, "dailySummaries", getTodayKey(), "payments", `sitting-pending-${sessionId}`);
+  const summaryDocument = dailySummaryRef();
+  const customerFields = normalizeCreditCustomer(customerProfile);
+  const discountInfo = computeDiscount(amount, discount);
+  const finalAmount = discountInfo.finalTotal;
+
+  await runTransaction(db, async (transaction) => {
+    const paymentSnapshot = await transaction.get(paymentDocument);
+    if (paymentSnapshot.exists()) return;
+
+    transaction.set(summaryDocument, {
+      date: getTodayKey(),
+      pendingTotal: increment(finalAmount),
+      pendingOrders: increment(1),
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    transaction.set(paymentDocument, {
+      sessionId,
+      amount: finalAmount,
+      grossTotal: discountInfo.grossTotal,
+      discountAmount: discountInfo.discountAmount,
+      paymentMethod: "pending",
+      type: "private_sitting",
+      customerName: customerFields.customerName,
+      customerMobile: customerFields.customerMobile,
+      customerMobileNormalized: customerFields.customerMobileNormalized,
+      creditedAt: serverTimestamp()
+    });
+  });
+
+  await logAuditEntry("sitting_credit_pending", null, {
+    sessionId,
+    amount: finalAmount,
+    grossTotal: discountInfo.grossTotal,
+    discountAmount: discountInfo.discountAmount,
+    customerName: customerFields.customerName,
+    customerMobile: customerFields.customerMobileNormalized
+  });
+
+  return {
+    sessionId,
+    amount: finalAmount,
+    grossTotal: discountInfo.grossTotal,
+    discountAmount: discountInfo.discountAmount,
+    customerName: customerFields.customerName,
+    customerMobile: customerFields.customerMobileNormalized
+  };
 }
 
 export async function createPrivateSession(payload) {
@@ -1123,6 +1178,99 @@ export function computeDiscount(grossTotal, discount = null) {
   };
 }
 
+// Resolves cash/online amounts from stored order/session data (backward compatible).
+export function resolvePaymentAmounts(record = {}) {
+  const total = Math.round(Number(record.total ?? record.finalTotal ?? record.grandTotal ?? record.billedAmount ?? 0));
+  const cashStored = record.cashAmount;
+  const onlineStored = record.onlineAmount;
+  if (Number.isFinite(Number(cashStored)) && Number.isFinite(Number(onlineStored))) {
+    return {
+      cashAmount: Math.round(Number(cashStored)),
+      onlineAmount: Math.round(Number(onlineStored))
+    };
+  }
+  if (record.paymentMethod === "online") {
+    return { cashAmount: 0, onlineAmount: total };
+  }
+  if (record.paymentMethod === "pending" || record.paymentStatus === "credit_pending") {
+    return { cashAmount: 0, onlineAmount: 0 };
+  }
+  return { cashAmount: total, onlineAmount: 0 };
+}
+
+// Normalizes cash / online / split payment input against a final payable total.
+export function normalizePaymentAmounts(finalTotal, paymentInput = "cash") {
+  const total = Math.max(0, Math.round(Number(finalTotal || 0)));
+  if (paymentInput && typeof paymentInput === "object" && !Array.isArray(paymentInput)) {
+    const cash = Math.max(0, Math.round(Number(paymentInput.cash ?? paymentInput.cashAmount ?? 0)));
+    const online = Math.max(0, Math.round(Number(paymentInput.online ?? paymentInput.onlineAmount ?? 0)));
+    if (cash + online !== total) {
+      throw new Error(`Split payment must equal ${formatCurrency(total)} (entered ${formatCurrency(cash + online)})`);
+    }
+    let paymentMethod = "split";
+    if (online > 0 && cash === 0) paymentMethod = "online";
+    else if (cash > 0 && online === 0) paymentMethod = "cash";
+    return { paymentMethod, cashAmount: cash, onlineAmount: online };
+  }
+  const method = paymentInput === "online" ? "online" : "cash";
+  return {
+    paymentMethod: method,
+    cashAmount: method === "cash" ? total : 0,
+    onlineAmount: method === "online" ? total : 0
+  };
+}
+
+export function formatPaymentMethodLabel(record = {}) {
+  if (record.paymentMethod === "pending" || record.paymentStatus === "credit_pending") {
+    return "Pending";
+  }
+  const total = Math.round(Number(record.total ?? record.finalTotal ?? record.grandTotal ?? 0));
+  const amounts = resolvePaymentAmounts({ ...record, total });
+  if (amounts.cashAmount > 0 && amounts.onlineAmount > 0) {
+    return `Split: Cash ${formatCurrency(amounts.cashAmount)} + Online ${formatCurrency(amounts.onlineAmount)}`;
+  }
+  if (record.paymentMethod === "online" || amounts.onlineAmount > 0) return "Online";
+  return "Cash";
+}
+
+// Allocates a split payment across multiple payable parts (e.g. sitting + food orders).
+export function allocateSplitAcrossPayments(partAmounts, paymentInput, grandTotal = null) {
+  const amounts = partAmounts.map((amount) => Math.max(0, Math.round(Number(amount || 0))));
+  const total = grandTotal != null
+    ? Math.max(0, Math.round(Number(grandTotal)))
+    : amounts.reduce((sum, amount) => sum + amount, 0);
+  const payment = normalizePaymentAmounts(total, paymentInput);
+  if (!amounts.length) return [];
+
+  const allocations = [];
+  let cashAssigned = 0;
+  let onlineAssigned = 0;
+
+  amounts.forEach((amount, index) => {
+    if (index === amounts.length - 1) {
+      const cashAmount = payment.cashAmount - cashAssigned;
+      const onlineAmount = payment.onlineAmount - onlineAssigned;
+      let paymentMethod = payment.paymentMethod;
+      if (cashAmount > 0 && onlineAmount > 0) paymentMethod = "split";
+      else if (onlineAmount > 0) paymentMethod = "online";
+      else paymentMethod = "cash";
+      allocations.push({ paymentMethod, cashAmount, onlineAmount });
+      return;
+    }
+    const share = total > 0 ? amount / total : 0;
+    const cashAmount = Math.round(payment.cashAmount * share);
+    const onlineAmount = amount - cashAmount;
+    let paymentMethod = "cash";
+    if (cashAmount > 0 && onlineAmount > 0) paymentMethod = "split";
+    else if (onlineAmount > 0) paymentMethod = "online";
+    allocations.push({ paymentMethod, cashAmount, onlineAmount });
+    cashAssigned += cashAmount;
+    onlineAssigned += onlineAmount;
+  });
+
+  return allocations;
+}
+
 function cleanOrderItems(items = []) {
   return items
     .filter((item) => item.qty > 0)
@@ -1160,12 +1308,13 @@ function createReceiptNumber(orderId) {
   return `R-${String(orderId || createOrderId("ORD")).slice(0, 8).toUpperCase()}`;
 }
 
-function createReceiptPayload(order, paymentMethod, discountInfo = null) {
+function createReceiptPayload(order, paymentInput, discountInfo = null) {
   const items = normalizeOrderItems(order.items || []);
   const grossTotal = calculateTotal(items);
   const discount = discountInfo || computeDiscount(grossTotal, null);
   const total = discount.finalTotal;
   const orderId = order.orderId;
+  const payment = normalizePaymentAmounts(total, paymentInput ?? order.paymentMethod ?? "cash");
   return {
     receiptNumber: order.receiptNumber || createReceiptNumber(orderId),
     orderId,
@@ -1179,7 +1328,10 @@ function createReceiptPayload(order, paymentMethod, discountInfo = null) {
     discountAmount: discount.discountAmount,
     discountType: discount.discountType,
     discountValue: discount.discountValue,
-    paymentMethod: paymentMethod === "online" ? "Online" : "Cash",
+    paymentMethod: formatPaymentMethodLabel({ ...payment, total }),
+    cashAmount: payment.cashAmount,
+    onlineAmount: payment.onlineAmount,
+    paymentMethodKey: payment.paymentMethod,
     paymentStatus: "Verified",
     generatedAt: serverTimestamp()
   };
@@ -1245,7 +1397,6 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
 
   if (!cleanItems.length) return null;
 
-  const method = paymentMethod === "online" ? "online" : "cash";
   const customerFields = buildCounterCustomerFields(customerProfile);
   const newOrderId = createOrderId(tableId);
   const orderDocument = activeOrderRef(newOrderId);
@@ -1253,11 +1404,14 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
   const summaryDocument = dailySummaryRef();
   let orderIdForAudit = newOrderId;
   let discountForAudit = null;
+  let paymentForAudit = null;
 
   await runTransaction(db, async (transaction) => {
     const grossDue = calculateTotal(cleanItems);
     const discountInfo = computeDiscount(grossDue, discount);
     const amountDue = discountInfo.finalTotal;
+    const payment = normalizePaymentAmounts(amountDue, paymentMethod);
+    paymentForAudit = payment;
     const paymentDocument = paymentRef(newOrderId);
     const historyDocument = tableHistoryOrderRef(tableId, newOrderId);
     const receiptDocument = receiptRef(newOrderId);
@@ -1277,8 +1431,10 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
       status: "preparing",
       placedBy: "counter",
       paymentStatus: "verified_paid",
-      preferredPaymentMethod: method,
-      paymentMethod: method,
+      preferredPaymentMethod: payment.paymentMethod,
+      paymentMethod: payment.paymentMethod,
+      cashAmount: payment.cashAmount,
+      onlineAmount: payment.onlineAmount,
       timestamp: serverTimestamp(),
       paidAt: serverTimestamp(),
       kitchenStartedAt: serverTimestamp(),
@@ -1292,14 +1448,14 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
     transaction.set(legacyDocument, orderData);
 
     if (!paymentSnapshot.exists()) {
-      const receipt = createReceiptPayload(orderData, method, discountInfo);
+      const receipt = createReceiptPayload(orderData, paymentMethod, discountInfo);
       transaction.set(summaryDocument, {
         date: getTodayKey(),
         total: increment(amountDue),
         grossTotal: increment(discountInfo.grossTotal),
         discountTotal: increment(discountInfo.discountAmount),
-        cash: increment(method === "cash" ? amountDue : 0),
-        online: increment(method === "online" ? amountDue : 0),
+        cash: increment(payment.cashAmount),
+        online: increment(payment.onlineAmount),
         foodOrders: increment(1),
         updatedAt: serverTimestamp()
       }, { merge: true });
@@ -1310,7 +1466,9 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
         amount: amountDue,
         grossTotal: discountInfo.grossTotal,
         discountAmount: discountInfo.discountAmount,
-        paymentMethod: method,
+        paymentMethod: payment.paymentMethod,
+        cashAmount: payment.cashAmount,
+        onlineAmount: payment.onlineAmount,
         type: "food_order",
         paidAt: serverTimestamp()
       });
@@ -1333,7 +1491,9 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
         customerMobile: customerFields.customerMobile,
         customerMobileNormalized: customerFields.customerMobileNormalized,
         paymentStatus: "verified_paid",
-        paymentMethod: method,
+        paymentMethod: payment.paymentMethod,
+        cashAmount: payment.cashAmount,
+        onlineAmount: payment.onlineAmount,
         orderedAt: orderData.timestamp,
         paidAt: serverTimestamp(),
         receiptNumber: receipt.receiptNumber,
@@ -1347,7 +1507,9 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
     total: discountForAudit?.finalTotal ?? 0,
     grossTotal: discountForAudit?.grossTotal ?? null,
     discountAmount: discountForAudit?.discountAmount ?? 0,
-    paymentMethod: method
+    paymentMethod: paymentForAudit?.paymentMethod ?? "cash",
+    cashAmount: paymentForAudit?.cashAmount ?? 0,
+    onlineAmount: paymentForAudit?.onlineAmount ?? 0
   });
 
   return getDoc(orderDocument);
@@ -1502,9 +1664,6 @@ export async function markOrderCreditPending(orderId, customerProfile, discount 
     if (order.paymentStatus === "voided") {
       throw new Error("Voided orders cannot be marked pending");
     }
-    if (order.paymentStatus === "session_hold" || order.privateSessionId) {
-      throw new Error("Private sitting orders cannot be marked pending");
-    }
 
     tableId = order.tableId;
     currentOrderId = order.orderId || orderId;
@@ -1565,6 +1724,7 @@ export async function markOrderCreditPending(orderId, customerProfile, discount 
       placedBy: order.placedBy || "customer",
       paymentStatus: "credit_pending",
       paymentMethod: "pending",
+      privateSessionId: order.privateSessionId || null,
       orderedAt: order.timestamp || null,
       creditedAt: serverTimestamp(),
       savedAt: serverTimestamp(),
@@ -1670,9 +1830,6 @@ export async function voidActiveOrder(orderId, remarks) {
   if (order.paymentStatus === "voided") {
     throw new Error("Payment already voided for this order");
   }
-  if (order.paymentStatus === "session_hold" || order.privateSessionId) {
-    throw new Error("Private sitting orders cannot be voided");
-  }
 
   const tableId = order.tableId;
   const currentOrderId = order.orderId || orderId;
@@ -1713,6 +1870,7 @@ export async function voidActiveOrder(orderId, remarks) {
     customerName: order.customerName || null,
     customerMobile: order.customerMobile || null,
     customerMobileNormalized: order.customerMobileNormalized || null,
+    privateSessionId: order.privateSessionId || null,
     orderedAt: order.timestamp || null,
     voidedAt: serverTimestamp(),
     savedAt: serverTimestamp()
@@ -1955,9 +2113,9 @@ export async function requestCashAtCounter(tableId) {
 async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = "paid", discount = null) {
   const orderDocument = activeOrderRef(orderId);
   const summaryDocument = dailySummaryRef();
-  const method = paymentMethod === "online" ? "online" : "cash";
   let tableId = null;
   let discountInfo = null;
+  let paymentForAudit = null;
 
   await runTransaction(db, async (transaction) => {
     const orderSnapshot = await transaction.get(orderDocument);
@@ -1970,20 +2128,24 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
     const grossDue = calculateTotal(payableItems);
     discountInfo = computeDiscount(grossDue, discount);
     const amountDue = discountInfo.finalTotal;
+    const payment = normalizePaymentAmounts(amountDue, paymentMethod);
+    paymentForAudit = payment;
     const paymentDocument = paymentRef(currentOrderId);
     const historyDocument = tableHistoryOrderRef(tableId, currentOrderId);
     const receiptDocument = receiptRef(currentOrderId);
     const paymentSnapshot = await transaction.get(paymentDocument);
     const receipt = createReceiptPayload(
       { ...order, orderId: currentOrderId, items: payableItems, total: amountDue },
-      method,
+      paymentMethod,
       discountInfo
     );
 
     transaction.update(orderDocument, {
       status: nextStatus,
       paymentStatus: "verified_paid",
-      paymentMethod: method,
+      paymentMethod: payment.paymentMethod,
+      cashAmount: payment.cashAmount,
+      onlineAmount: payment.onlineAmount,
       paidAt: serverTimestamp(),
       kitchenStartedAt: serverTimestamp(),
       items: payableItems,
@@ -2006,8 +2168,8 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
         total: increment(amountDue),
         grossTotal: increment(discountInfo.grossTotal),
         discountTotal: increment(discountInfo.discountAmount),
-        cash: increment(method === "cash" ? amountDue : 0),
-        online: increment(method === "online" ? amountDue : 0),
+        cash: increment(payment.cashAmount),
+        online: increment(payment.onlineAmount),
         foodOrders: increment(1),
         updatedAt: serverTimestamp()
       }, { merge: true });
@@ -2018,7 +2180,9 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
         amount: amountDue,
         grossTotal: discountInfo.grossTotal,
         discountAmount: discountInfo.discountAmount,
-        paymentMethod: method,
+        paymentMethod: payment.paymentMethod,
+        cashAmount: payment.cashAmount,
+        onlineAmount: payment.onlineAmount,
         type: "food_order",
         paidAt: serverTimestamp()
       });
@@ -2041,7 +2205,9 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
         customerMobile: order.customerMobile || null,
         customerMobileNormalized: order.customerMobileNormalized || null,
         paymentStatus: "verified_paid",
-        paymentMethod: method,
+        paymentMethod: payment.paymentMethod,
+        cashAmount: payment.cashAmount,
+        onlineAmount: payment.onlineAmount,
         orderedAt: order.timestamp || null,
         paidAt: serverTimestamp(),
         receiptNumber: receipt.receiptNumber,
@@ -2052,7 +2218,9 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
 
   await logAuditEntry("order_paid", tableId, {
     orderId,
-    paymentMethod: method,
+    paymentMethod: paymentForAudit?.paymentMethod ?? "cash",
+    cashAmount: paymentForAudit?.cashAmount ?? 0,
+    onlineAmount: paymentForAudit?.onlineAmount ?? 0,
     grossTotal: discountInfo?.grossTotal ?? null,
     discountAmount: discountInfo?.discountAmount ?? 0,
     finalTotal: discountInfo?.finalTotal ?? null
@@ -2263,11 +2431,12 @@ export function buildReportFromOrders(paidOrders, startKey, endKey, options = {}
     const total = Number(order.total || 0);
     const gross = Number(order.grossTotal ?? total);
     const discount = Number(order.discountAmount || 0);
-    const method = order.paymentMethod === "online" ? "online" : "cash";
+    const amounts = resolvePaymentAmounts({ ...order, total });
     report.total += total;
     report.grossTotal += gross;
     report.discountTotal += discount;
-    report[method] += total;
+    report.cash += amounts.cashAmount;
+    report.online += amounts.onlineAmount;
     if (order.placedBy === "counter") report.counter += 1;
     else report.customer += 1;
     addOrderItems(order);
@@ -2531,18 +2700,32 @@ export async function fetchDayWiseReport(startKey, endKey) {
   const sittingGrossTotal = sittings.reduce((sum, session) => sum + Number(session.grossTotal ?? session.grandTotal ?? session.billedAmount ?? 0), 0);
   const sittingDiscountTotal = sittings.reduce((sum, session) => sum + Number(session.discountAmount || 0), 0);
 
-  const foodCash = paidFoodOrders
-    .filter((order) => order.paymentMethod !== "online")
-    .reduce((sum, order) => sum + Number(order.total || 0), 0);
-  const foodOnline = paidFoodOrders
-    .filter((order) => order.paymentMethod === "online")
-    .reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const foodCash = paidFoodOrders.reduce((sum, order) => {
+    const amounts = resolvePaymentAmounts(order);
+    return sum + amounts.cashAmount;
+  }, 0);
+  const foodOnline = paidFoodOrders.reduce((sum, order) => {
+    const amounts = resolvePaymentAmounts(order);
+    return sum + amounts.onlineAmount;
+  }, 0);
   const sittingCash = sittings
-    .filter((session) => session.paymentMethod !== "online")
-    .reduce((sum, session) => sum + Number(session.grandTotal ?? session.billedAmount ?? 0), 0);
+    .filter((session) => session.paymentMethod !== "pending" && session.paymentStatus !== "credit_pending")
+    .reduce((sum, session) => {
+    const amounts = resolvePaymentAmounts({
+      ...session,
+      total: session.grandTotal ?? session.billedAmount ?? 0
+    });
+    return sum + amounts.cashAmount;
+  }, 0);
   const sittingOnline = sittings
-    .filter((session) => session.paymentMethod === "online")
-    .reduce((sum, session) => sum + Number(session.grandTotal ?? session.billedAmount ?? 0), 0);
+    .filter((session) => session.paymentMethod !== "pending" && session.paymentStatus !== "credit_pending")
+    .reduce((sum, session) => {
+    const amounts = resolvePaymentAmounts({
+      ...session,
+      total: session.grandTotal ?? session.billedAmount ?? 0
+    });
+    return sum + amounts.onlineAmount;
+  }, 0);
 
   const grossTotal = paidFoodGross
     + pendingOrderGross
@@ -2724,7 +2907,7 @@ export function buildWhatsAppDirectUrl(mobile, text = "") {
   return text ? `${base}?text=${encodeURIComponent(text)}` : base;
 }
 
-export function buildPrivateSittingCheckoutReceipt(draft, method, discountInfo = null) {
+export function buildPrivateSittingCheckoutReceipt(draft, paymentInput, discountInfo = null) {
   const session = draft?.session || {};
   const sitting = draft?.sitting || {};
   const durationMinutes = Number(sitting.durationMinutes || 0);
@@ -2748,6 +2931,7 @@ export function buildPrivateSittingCheckoutReceipt(draft, method, discountInfo =
   const discountAmount = Number(discountInfo?.discountAmount || 0);
   const finalTotal = Number(discountInfo?.finalTotal ?? draft?.grandTotal ?? grossTotal);
   const sessionId = draft?.sessionId || session.sessionId || session.id || "";
+  const payment = normalizePaymentAmounts(finalTotal, paymentInput ?? "cash");
   return {
     receiptNumber: `PS-${String(sessionId).slice(0, 8).toUpperCase()}`,
     orderId: sessionId,
@@ -2760,7 +2944,9 @@ export function buildPrivateSittingCheckoutReceipt(draft, method, discountInfo =
     grossTotal,
     discountAmount,
     tax: 0,
-    paymentMethod: method === "online" ? "Online" : "Cash",
+    paymentMethod: formatPaymentMethodLabel({ ...payment, total: finalTotal }),
+    cashAmount: payment.cashAmount,
+    onlineAmount: payment.onlineAmount,
     paymentStatus: "Verified",
     generatedAt: new Date()
   };
@@ -2772,7 +2958,10 @@ export function buildReceiptFromOrder(order, paymentMethod = "cash") {
   const grossTotal = Number(order?.grossTotal ?? total);
   const discountAmount = Number(order?.discountAmount || 0);
   const orderId = order?.orderId || order?.id || "";
-  const method = paymentMethod === "online" ? "online" : "cash";
+  const paymentInput = order?.cashAmount != null
+    ? { cash: order.cashAmount, online: order.onlineAmount }
+    : (paymentMethod || order?.paymentMethod || "cash");
+  const payment = normalizePaymentAmounts(total, paymentInput);
   return {
     receiptNumber: order?.receiptNumber || createReceiptNumber(orderId),
     orderId,
@@ -2785,7 +2974,9 @@ export function buildReceiptFromOrder(order, paymentMethod = "cash") {
     grossTotal,
     discountAmount,
     tax: 0,
-    paymentMethod: method === "online" ? "Online" : "Cash",
+    paymentMethod: formatPaymentMethodLabel({ ...payment, total }),
+    cashAmount: payment.cashAmount,
+    onlineAmount: payment.onlineAmount,
     paymentStatus: order?.paymentStatus === "verified_paid" ? "Verified" : "Pending",
     generatedAt: new Date()
   };

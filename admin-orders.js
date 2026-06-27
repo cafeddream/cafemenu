@@ -9,6 +9,7 @@ import {
   formatCurrency,
   formatTableDisplayName,
   formatTime,
+  normalizePaymentAmounts,
   subscribeActiveOrders,
   markOrderCreditPending,
   maskMobile,
@@ -55,8 +56,6 @@ const state = {
   pendingPaymentIsCounterOrder: false,
   pendingPaymentGross: 0,
   pendingPaymentCustomerProfile: null,
-  canVoidOrder: true,
-  canMarkPending: true,
   paymentVoidMode: false,
   hoverPreview: null,
   orderTableId: null,
@@ -91,6 +90,13 @@ const elements = {
   paymentMethodActions: document.querySelector("#paymentMethodActions"),
   paidCashBtn: document.querySelector("#paidCashBtn"),
   paidOnlineBtn: document.querySelector("#paidOnlineBtn"),
+  paidSplitBtn: document.querySelector("#paidSplitBtn"),
+  splitPaymentPanel: document.querySelector("#splitPaymentPanel"),
+  splitOnlineAmount: document.querySelector("#splitOnlineAmount"),
+  splitCashAmount: document.querySelector("#splitCashAmount"),
+  splitPaymentHint: document.querySelector("#splitPaymentHint"),
+  splitPaymentBackBtn: document.querySelector("#splitPaymentBackBtn"),
+  splitConfirmBtn: document.querySelector("#splitConfirmBtn"),
   paidPendingBtn: document.querySelector("#paidPendingBtn"),
   pendingCustomerPanel: document.querySelector("#pendingCustomerPanel"),
   pendingCustomerName: document.querySelector("#pendingCustomerName"),
@@ -149,13 +155,24 @@ function bindUi() {
   });
   elements.paidCashBtn.addEventListener("click", () => confirmPaidWithMethod("cash"));
   elements.paidOnlineBtn.addEventListener("click", () => confirmPaidWithMethod("online"));
+  elements.paidSplitBtn?.addEventListener("click", showSplitPaymentPanel);
+  elements.splitPaymentBackBtn?.addEventListener("click", hideSplitPaymentPanel);
+  elements.splitConfirmBtn?.addEventListener("click", () => void confirmSplitPayment());
+  elements.splitOnlineAmount?.addEventListener("input", updateSplitPaymentValidation);
+  elements.splitCashAmount?.addEventListener("input", updateSplitPaymentValidation);
   elements.paidPendingBtn?.addEventListener("click", handlePendingPaymentClick);
   elements.pendingCustomerConfirmBtn?.addEventListener("click", confirmPendingCustomerPanel);
   elements.voidOrderBtn?.addEventListener("click", showVoidOrderPanel);
   elements.voidOrderBackBtn?.addEventListener("click", hideVoidOrderPanel);
   elements.voidOrderConfirmBtn?.addEventListener("click", confirmVoidOrder);
-  elements.paymentDiscountType?.addEventListener("change", updatePaymentDiscountDisplay);
-  elements.paymentDiscountValue?.addEventListener("input", updatePaymentDiscountDisplay);
+  elements.paymentDiscountType?.addEventListener("change", () => {
+    updatePaymentDiscountDisplay();
+    updateSplitPaymentValidation();
+  });
+  elements.paymentDiscountValue?.addEventListener("input", () => {
+    updatePaymentDiscountDisplay();
+    updateSplitPaymentValidation();
+  });
   elements.closeAdminOrder.addEventListener("click", closeAdminOrderModal);
   elements.adminOrderModal.addEventListener("click", (event) => {
     if (event.target === elements.adminOrderModal) closeAdminOrderModal();
@@ -519,6 +536,7 @@ function mobileOrderCardHtml(order) {
       ${customerLine}
       ${paymentVoided ? `<div class="payment-alert void-alert">Payment void — ${escapeHtml(order.voidRemarks || "no payment")}</div>` : ""}
       ${paymentCredit ? "<div class=\"payment-alert pending-alert\">Udhaar — payment pending</div>" : ""}
+      ${isSessionHold ? "<div class=\"payment-alert\">Private sitting — settle at checkout or choose payment</div>" : ""}
       ${paymentClaimed ? "<div class=\"payment-alert\">Customer says payment done - verify UPI</div>" : ""}
       ${cashRequested ? "<div class=\"payment-alert cash-alert\">Customer will pay cash at counter</div>" : ""}
       <ul class="ps-order-lines">${itemLines || "<li class=\"ps-order-line\"><span>No items</span></li>"}</ul>
@@ -529,7 +547,9 @@ function mobileOrderCardHtml(order) {
       <div class="card-actions" data-table="${escapeHtml(order.tableId)}" data-order="${escapeHtml(order.orderId || order.id)}" data-status="${escapeHtml(status)}">
         ${paymentClaimed ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"reject-pay\">Reject Payment Claim</button>" : ""}
         ${status === "new" || status === "preparing" ? "<button class=\"ghost-btn\" type=\"button\" data-action=\"cancel\">Cancel Order</button>" : ""}
-        ${status !== "paid" && !paymentVerified && !isSessionHold && !paymentVoided && !paymentCredit ? "<button class=\"primary-btn\" type=\"button\" data-action=\"paid\">Confirm Payment</button>" : ""}
+        ${status !== "paid" && !paymentVerified && !paymentVoided && !paymentCredit
+    ? `<button class="primary-btn" type="button" data-action="paid">${isSessionHold ? "Payment" : "Confirm Payment"}</button>`
+    : ""}
         <button class="ghost-btn" type="button" data-action="share">Share Receipt</button>
         <button class="danger-btn order-clear-btn" type="button" data-action="clear-order" ${clearOrderEnabled ? "" : "disabled"} title="${clearOrderEnabled ? "Clear this order from the table" : "Serve all items before clearing"}">Clear Order</button>
       </div>
@@ -786,6 +806,7 @@ function setPaymentModalVoidMode(enabled) {
   if (elements.voidOrderPanel) elements.voidOrderPanel.hidden = !enabled;
   if (enabled) {
     hidePendingCustomerPanel();
+    hideSplitPaymentPanel();
   } else if (elements.voidOrderRemarks) {
     elements.voidOrderRemarks.value = "";
   }
@@ -802,7 +823,62 @@ function hideVoidOrderPanel() {
 
 function hidePendingCustomerPanel() {
   if (elements.pendingCustomerPanel) elements.pendingCustomerPanel.hidden = true;
-  if (elements.paymentMethodActions) elements.paymentMethodActions.hidden = state.paymentVoidMode;
+  if (elements.paymentMethodActions) {
+    elements.paymentMethodActions.hidden = state.paymentVoidMode
+      || !elements.splitPaymentPanel?.hidden;
+  }
+}
+
+function hideSplitPaymentPanel() {
+  if (elements.splitPaymentPanel) elements.splitPaymentPanel.hidden = true;
+  if (elements.paymentMethodActions) {
+    elements.paymentMethodActions.hidden = state.paymentVoidMode
+      || !elements.pendingCustomerPanel?.hidden;
+  }
+}
+
+function showSplitPaymentPanel() {
+  const info = computeDiscount(state.pendingPaymentGross, readPaymentDiscount());
+  if (elements.splitOnlineAmount) elements.splitOnlineAmount.value = String(info.finalTotal);
+  if (elements.splitCashAmount) elements.splitCashAmount.value = "0";
+  hidePendingCustomerPanel();
+  if (elements.paymentMethodActions) elements.paymentMethodActions.hidden = true;
+  if (elements.splitPaymentPanel) elements.splitPaymentPanel.hidden = false;
+  updateSplitPaymentValidation();
+  elements.splitOnlineAmount?.focus();
+}
+
+function readSplitPaymentInput() {
+  const cash = Number(elements.splitCashAmount?.value || 0);
+  const online = Number(elements.splitOnlineAmount?.value || 0);
+  return { cash: Number.isFinite(cash) ? cash : 0, online: Number.isFinite(online) ? online : 0 };
+}
+
+function updateSplitPaymentValidation() {
+  if (!elements.splitPaymentPanel || elements.splitPaymentPanel.hidden) return;
+  const info = computeDiscount(state.pendingPaymentGross, readPaymentDiscount());
+  const { cash, online } = readSplitPaymentInput();
+  const entered = cash + online;
+  const match = entered === info.finalTotal;
+  if (elements.splitPaymentHint) {
+    elements.splitPaymentHint.textContent = match
+      ? `Total: ${formatCurrency(entered)}`
+      : `Must equal ${formatCurrency(info.finalTotal)} (entered ${formatCurrency(entered)})`;
+    elements.splitPaymentHint.classList.toggle("split-payment-hint--error", !match);
+  }
+  if (elements.splitConfirmBtn) elements.splitConfirmBtn.disabled = !match;
+}
+
+async function confirmSplitPayment() {
+  const info = computeDiscount(state.pendingPaymentGross, readPaymentDiscount());
+  const input = readSplitPaymentInput();
+  try {
+    normalizePaymentAmounts(info.finalTotal, input);
+  } catch (error) {
+    showToast(error?.message || "Split amounts must match final payable");
+    return;
+  }
+  await confirmPaidWithMethod(input);
 }
 
 function showPendingCustomerPanel(order, cartProfile) {
@@ -812,6 +888,7 @@ function showPendingCustomerPanel(order, cartProfile) {
   if (elements.pendingCustomerMobile) {
     elements.pendingCustomerMobile.value = cartProfile?.mobile || order?.customerMobile || order?.customerMobileNormalized || "";
   }
+  hideSplitPaymentPanel();
   if (elements.paymentMethodActions) elements.paymentMethodActions.hidden = true;
   if (elements.pendingCustomerPanel) elements.pendingCustomerPanel.hidden = false;
   elements.pendingCustomerName?.focus();
@@ -863,27 +940,21 @@ async function syncPendingOrderRecord(meta) {
 function openPaymentMethodModal(tableId, options = {}) {
   const order = options.orderId ? state.orders.get(options.orderId) : null;
   const amount = Number(options.amount ?? order?.total ?? 0);
-  const isPrivateSittingOrder = Boolean(
-    order?.paymentStatus === "session_hold" || order?.privateSessionId
-  );
   state.pendingPaidTable = tableId;
   state.pendingPaidOrderId = options.orderId || null;
   state.pendingPaymentItems = options.items ? cloneOrderItems(options.items) : null;
   state.pendingPaymentIsCounterOrder = Boolean(options.isCounterOrder);
   state.pendingPaymentGross = amount;
   state.pendingPaymentCustomerProfile = options.customerProfile || null;
-  state.canVoidOrder = !isPrivateSittingOrder;
-  state.canMarkPending = !isPrivateSittingOrder;
   hideVoidOrderPanel();
   hidePendingCustomerPanel();
+  hideSplitPaymentPanel();
   elements.paymentMethodTable.innerHTML = `
     <span>${options.isCounterOrder ? "Choose payment for" : "Mark"} ${escapeHtml(formatTableDisplayName(tableId))}${options.isCounterOrder ? "" : " paid by"}:</span>
     <strong>Bill Total: ${formatCurrency(amount)}</strong>
   `;
   if (elements.paymentDiscountType) elements.paymentDiscountType.value = "amount";
   if (elements.paymentDiscountValue) elements.paymentDiscountValue.value = "";
-  if (elements.voidOrderBtn) elements.voidOrderBtn.hidden = !state.canVoidOrder;
-  if (elements.paidPendingBtn) elements.paidPendingBtn.hidden = !state.canMarkPending;
   updatePaymentDiscountDisplay();
   elements.paymentMethodModal.hidden = false;
 }
@@ -909,19 +980,14 @@ function closePaymentMethodModal() {
   state.pendingPaymentIsCounterOrder = false;
   state.pendingPaymentGross = 0;
   state.pendingPaymentCustomerProfile = null;
-  state.canVoidOrder = true;
-  state.canMarkPending = true;
   hideVoidOrderPanel();
   hidePendingCustomerPanel();
+  hideSplitPaymentPanel();
   if (elements.paymentDiscountValue) elements.paymentDiscountValue.value = "";
   elements.paymentMethodModal.hidden = true;
 }
 
 function handlePendingPaymentClick() {
-  if (!state.canMarkPending) {
-    showToast("Private sitting orders cannot be marked pending");
-    return;
-  }
   const order = state.pendingPaidOrderId ? state.orders.get(state.pendingPaidOrderId) : null;
   if (hasCompleteCreditProfile(order, state.pendingPaymentCustomerProfile)) {
     void confirmPaidWithMethod("pending");
@@ -945,11 +1011,6 @@ function confirmPendingCustomerPanel() {
 }
 
 async function confirmVoidOrder() {
-  if (!state.canVoidOrder) {
-    showToast("Private sitting orders cannot be voided");
-    return;
-  }
-
   const tableId = state.pendingPaidTable;
   if (!tableId) return;
 
@@ -1014,6 +1075,8 @@ async function confirmPaidWithMethod(method) {
 
   elements.paidCashBtn.disabled = true;
   elements.paidOnlineBtn.disabled = true;
+  if (elements.paidSplitBtn) elements.paidSplitBtn.disabled = true;
+  if (elements.splitConfirmBtn) elements.splitConfirmBtn.disabled = true;
   if (elements.paidPendingBtn) elements.paidPendingBtn.disabled = true;
   if (elements.pendingCustomerConfirmBtn) elements.pendingCustomerConfirmBtn.disabled = true;
 
@@ -1071,12 +1134,24 @@ async function confirmPaidWithMethod(method) {
   } finally {
     elements.paidCashBtn.disabled = false;
     elements.paidOnlineBtn.disabled = false;
+    if (elements.paidSplitBtn) elements.paidSplitBtn.disabled = false;
+    updateSplitPaymentValidation();
     if (elements.paidPendingBtn) elements.paidPendingBtn.disabled = false;
     if (elements.pendingCustomerConfirmBtn) elements.pendingCustomerConfirmBtn.disabled = false;
   }
 }
 
 function paymentMethodLabel(method) {
+  if (method && typeof method === "object") {
+    const cash = Number(method.cash ?? method.cashAmount ?? 0);
+    const online = Number(method.online ?? method.onlineAmount ?? 0);
+    if (cash > 0 && online > 0) {
+      return `Split (${formatCurrency(online)} + ${formatCurrency(cash)})`;
+    }
+    if (online > 0) return "Online Payment";
+    return "Cash Payment";
+  }
+  if (method === "split") return "Split Payment";
   return method === "online" ? "Online Payment" : "Cash Payment";
 }
 
