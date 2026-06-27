@@ -16,6 +16,8 @@
   min-height: 100dvh;
   background: linear-gradient(180deg, #ffffff 0%, var(--ps-bg) 52%);
   color: var(--ps-text);
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 .ps-manager-page .ps-manager-header {
@@ -212,6 +214,9 @@
 
 .ps-manager-main {
   padding: 0 0 calc(78px + env(safe-area-inset-bottom));
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 #psOrders.ps-view {
@@ -1157,6 +1162,17 @@ body.ps-orders-detail-open {
 #psSettings.ps-view,
 #psExpenses.ps-view {
   padding: 12px 12px 78px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+#psSettingsPanel,
+.ps-settings-card.admin-settings-card {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .admin-dashboard-pos {

@@ -2911,6 +2911,8 @@ body.staff-login-active .ps-splash {
 .admin-settings-card {
   display: grid;
   gap: 14px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .admin-settings-head {
@@ -2918,11 +2920,14 @@ body.staff-login-active .ps-splash {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .admin-settings-head h3,
 .admin-section h4 {
   margin: 0;
+  min-width: 0;
 }
 
 .admin-settings-actions {
@@ -3116,17 +3121,20 @@ body.staff-login-active .ps-splash {
 .admin-compact-table {
   display: grid;
   gap: 2px;
-  padding: 4px 6px 8px;
+  padding: 4px 0 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .admin-compact-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px 32px 32px;
+  grid-template-columns: minmax(0, 1fr) minmax(52px, 72px) 32px 32px;
   gap: 6px;
   align-items: center;
   min-height: 36px;
-  padding: 2px 4px;
+  padding: 2px 0;
   border-radius: 6px;
+  min-width: 0;
 }
 
 .admin-compact-row:hover {
@@ -3174,11 +3182,13 @@ body.staff-login-active .ps-splash {
 
 .admin-inline-add {
   display: grid;
-  grid-template-columns: 1fr 1.2fr 72px auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 72px auto;
   gap: 6px;
   align-items: center;
   padding-top: 6px;
   border-top: 1px solid var(--line);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .admin-inline-add input,
@@ -3198,7 +3208,12 @@ body.staff-login-active .ps-splash {
 }
 
 [data-admin-panel-wrap="sittings"] .admin-inline-add {
-  grid-template-columns: 1fr 80px 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(56px, 80px) minmax(0, 1fr) auto auto;
+}
+
+.admin-tab-panel {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .admin-inline-add .admin-checkbox {
@@ -3316,12 +3331,30 @@ body.staff-login-active .ps-splash {
 @media (max-width: 640px) {
   .admin-edit-controls,
   .admin-add-form,
-  .admin-inline-add {
+  .admin-inline-add,
+  [data-admin-panel-wrap="sittings"] .admin-inline-add {
     grid-template-columns: 1fr;
   }
 
   .admin-compact-row {
-    grid-template-columns: minmax(0, 1fr) 64px 30px 30px;
+    grid-template-columns: minmax(0, 1fr) 52px 28px 28px;
+    gap: 4px;
+  }
+
+  .admin-compact-price {
+    min-height: 28px;
+    padding: 2px 4px;
+    font-size: 12px;
+  }
+
+  .admin-icon-btn {
+    min-height: 28px;
+    min-width: 28px;
+    font-size: 12px;
+  }
+
+  .admin-settings-actions {
+    margin-left: auto;
   }
 
   .admin-toolbar {
