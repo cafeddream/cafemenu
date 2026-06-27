@@ -6,6 +6,7 @@ const ROW_H = 8;
 const HEADER_H = 9;
 const TITLE_H = 8;
 const LINE_H = 4;
+const SECTION_GAP = 6;
 
 const C = {
   brand: [255, 107, 53],
@@ -264,32 +265,19 @@ function drawRowBackground(doc, y, rowH, bg) {
   doc.rect(PAGE.left, y, PAGE.width, rowH, "FD");
 }
 
-function drawSectionTotalRow(doc, columns, label, value, y, nextSectionMin = 0) {
-  if (nextSectionMin > 0 && y + ROW_H + TITLE_H + nextSectionMin > PAGE.bottom) {
-    activeTableSection = null;
-    y = startNewPage(doc);
-  }
-  const savedTableSection = activeTableSection;
-  activeTableSection = null;
-  y = ensureSpace(doc, y, ROW_H + 1);
-  activeTableSection = savedTableSection;
-  drawRowBackground(doc, y, ROW_H, C.brandDark);
+function drawKeyValueSection(doc, title, rows, y, nextSectionMin = 0) {
+  const minAfterTitle = ROW_H * Math.max(rows.length, 1);
+  y = drawSectionTitle(doc, title, y, minAfterTitle + SECTION_GAP + nextSectionMin);
 
-  setText(doc, C.white);
-  doc.setFontSize(8);
-  doc.setFont(undefined, "bold");
-
-  if (columns.length === 2 && !columns[0].label) {
-    doc.text(label, PAGE.left + 2, y + 5.5);
-    doc.text(value, PAGE.left + columns[0].w + columns[1].w - 2, y + 5.5, { align: "right" });
+  if (!rows.length) {
+    y = drawKeyValueRow(doc, "No records in this period.", "-", y, 0);
   } else {
-    doc.text(label, PAGE.left + 2, y + 5.5);
-    doc.text(value, PAGE.left + PAGE.width - 2, y + 5.5, { align: "right" });
+    rows.forEach(([label, value], index) => {
+      y = drawKeyValueRow(doc, label, value, y, index);
+    });
   }
 
-  setText(doc, C.ink);
-  doc.setFont(undefined, "normal");
-  return y + ROW_H;
+  return y + SECTION_GAP;
 }
 
 function drawKeyValueRow(doc, label, value, y, rowIndex) {
@@ -397,42 +385,23 @@ function drawFoodOrderRow(doc, columns, cells, y, rowIndex, options = {}) {
   return y + rowH;
 }
 
-function drawKeyValueSection(doc, title, rows, totalLabel, totalValue, y, nextSectionMin = 0) {
-  const minAfterTitle = ROW_H * Math.max(rows.length, 1) + ROW_H;
-  y = drawSectionTitle(doc, title, y, minAfterTitle);
-
-  if (!rows.length) {
-    y = drawKeyValueRow(doc, "No records in this period.", "-", y, 0);
-  } else {
-    rows.forEach(([label, value], index) => {
-      y = drawKeyValueRow(doc, label, value, y, index);
-    });
-  }
-
-  return drawSectionTotalRow(doc, KV_COLS, totalLabel, totalValue, y, nextSectionMin);
-}
-
 function beginTableSection(doc, title, columns, y, skipPageCheck = false) {
-  const minAfterTitle = HEADER_H + ROW_H + ROW_H;
+  y += SECTION_GAP;
+  const minAfterTitle = HEADER_H + ROW_H + SECTION_GAP;
   y = drawSectionTitle(doc, title, y, minAfterTitle, skipPageCheck);
   activeTableSection = { columns };
   y = drawTableHeader(doc, columns, y);
   return y;
 }
 
-function endTableSection(doc, columns, totalLabel, totalValue, y, nextSectionMin = 0) {
-  y = drawSectionTotalRow(doc, columns, totalLabel, totalValue, y, nextSectionMin);
+function endTableSection(doc, y) {
   activeTableSection = null;
-  return y;
+  return y + SECTION_GAP;
 }
 
 function drawEmptyRow(doc, columns, message, y) {
   const cells = columns.map((_, index) => (index === 0 ? message : ""));
   return drawTableRow(doc, columns, cells, y, 0);
-}
-
-function sumOrderNet(orders) {
-  return orders.reduce((sum, order) => sum + orderNetAmount(order), 0);
 }
 
 export async function buildSalesReportPdf(report) {
@@ -448,9 +417,9 @@ export async function buildSalesReportPdf(report) {
     String(row.description || "Expense"),
     fmtMoney(row.amount || 0)
   ]);
-  const expenseSectionMin = TITLE_H + ROW_H * Math.max(expenseRows.length, 1) + ROW_H;
-  const netCollectionMin = TITLE_H + ROW_H * 3 + ROW_H;
-  const tableSectionMin = TITLE_H + HEADER_H + ROW_H + ROW_H;
+  const expenseSectionMin = TITLE_H + ROW_H * Math.max(expenseRows.length, 1) + SECTION_GAP;
+  const netCollectionMin = TITLE_H + ROW_H * 3 + SECTION_GAP;
+  const tableSectionMin = TITLE_H + HEADER_H + ROW_H + SECTION_GAP;
 
   y = drawKeyValueSection(doc, "Summary", [
     ["Net Collection (paid)", fmtMoney(report.total || 0)],
@@ -465,14 +434,12 @@ export async function buildSalesReportPdf(report) {
     ["Cancelled After Payment", `${report.cancelledWithPaymentCount || 0} orders · ${fmtMoney(report.cancelledWithPaymentAmount || 0)}`],
     ["Void Orders (not collected)", `${report.voidOrderCount || 0} orders · ${fmtMoney(report.voidOrderGross ?? report.voidOrderAmount ?? 0)}`],
     ["Pending / Udhaar (not collected)", `${report.pendingOrderCount || 0} orders · ${fmtMoney(report.pendingOrderGross ?? report.pendingOrderTotal ?? 0)}`]
-  ], "Section Total", fmtMoney(report.total || 0), y, expenseSectionMin);
+  ], y, expenseSectionMin);
 
   y = drawKeyValueSection(
     doc,
     "Daily Expenses",
     expenseRows,
-    "Section Total",
-    fmtMoney(report.expenseTotal || 0),
     y,
     netCollectionMin
   );
@@ -482,7 +449,7 @@ export async function buildSalesReportPdf(report) {
     ["Sales (paid)", fmtMoney(report.total || 0)],
     ["Expenses", fmtMoney(report.expenseTotal || 0)],
     ["Net Collection", fmtMoney(netAfterExpenses)]
-  ], "Section Total", fmtMoney(netAfterExpenses), y, tableSectionMin);
+  ], y, tableSectionMin);
 
   const foodOrders = report.foodOrderDetails || [];
   y = beginTableSection(doc, "Food Orders (All Tables)", FOOD_COLS, y, true);
@@ -510,7 +477,7 @@ export async function buildSalesReportPdf(report) {
       });
     });
   }
-  y = endTableSection(doc, FOOD_COLS, "Section Total", fmtMoney(sumOrderNet(foodOrders)), y, tableSectionMin);
+  y = endTableSection(doc, y);
 
   const pendingOrders = report.pendingOrderDetails || [];
   y = beginTableSection(doc, "Pending Orders (Udhaar)", PENDING_COLS, y, true);
@@ -533,13 +500,9 @@ export async function buildSalesReportPdf(report) {
       ], y, index, { noTruncateIndices: [2, 4], multiLine: true });
     });
   }
-  y = endTableSection(doc, PENDING_COLS, "Section Total", fmtMoney(sumOrderNet(pendingOrders)), y, tableSectionMin);
+  y = endTableSection(doc, y);
 
   const sittings = report.sittingDetails || [];
-  const sittingNetTotal = sittings.reduce(
-    (sum, session) => sum + Number(session.grandTotal ?? session.billedAmount ?? 0),
-    0
-  );
   y = beginTableSection(doc, "Private Sittings", SITTING_COLS, y, true);
   if (!sittings.length) {
     y = drawEmptyRow(doc, SITTING_COLS, "No private sittings in this period.", y);
@@ -560,10 +523,9 @@ export async function buildSalesReportPdf(report) {
       ], y, index, { noTruncateIndices: [2], multiLine: true });
     });
   }
-  y = endTableSection(doc, SITTING_COLS, "Section Total", fmtMoney(sittingNetTotal), y, tableSectionMin);
+  y = endTableSection(doc, y);
 
   const cancellations = report.cancellationDetails || [];
-  const cancelTotal = cancellations.reduce((sum, row) => sum + Number(row.amount || 0), 0);
   y = beginTableSection(doc, "Cancelled Orders", CANCEL_COLS, y, true);
   if (!cancellations.length) {
     y = drawEmptyRow(doc, CANCEL_COLS, "No cancelled orders in this period.", y);
@@ -579,11 +541,9 @@ export async function buildSalesReportPdf(report) {
     });
   }
   const menuItems = report.items || [];
-  const menuSectionMin = menuItems.length ? tableSectionMin : 0;
-  y = endTableSection(doc, CANCEL_COLS, "Section Total", fmtMoney(cancelTotal), y, menuSectionMin);
+  y = endTableSection(doc, y);
 
   if (menuItems.length) {
-    const menuTotal = menuItems.reduce((sum, item) => sum + Number(item.total || 0), 0);
     y = beginTableSection(doc, "Menu Items Sold", MENU_COLS, y, true);
     menuItems.forEach((item, index) => {
       y = drawTableRow(doc, MENU_COLS, [
@@ -592,7 +552,7 @@ export async function buildSalesReportPdf(report) {
         fmtMoney(item.total || 0)
       ], y, index, { multiLine: true });
     });
-    y = endTableSection(doc, MENU_COLS, "Section Total", fmtMoney(menuTotal), y);
+    y = endTableSection(doc, y);
   }
 
   drawPageFooter(doc, doc.internal.getNumberOfPages());
