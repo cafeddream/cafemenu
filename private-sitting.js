@@ -28,6 +28,7 @@ import {
   updatePrivateSession,
   verifyOrderPayment
 } from "./firebase.js";
+import { ensureOpenSessionOrPrompt } from "./business-session.js";
 import { openAdminOrderModal } from "./admin-orders.js";
 import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, formatCheckInLabel, isValidPdfBase64, mergeCustomersWithPhotos, preloadJsPdf, withTimeout } from "./private-sitting-pdf.js";
 import { initIdCropCamera, openGalleryPhotoPicker, openIdCropCamera } from "./private-sitting-camera.js";
@@ -775,6 +776,7 @@ function validateCheckInDraft(draft) {
 
 async function submitCheckIn() {
   if (state.checkInSubmitting) return;
+  if (!(await ensureOpenSessionOrPrompt())) return;
   syncDraftFromForm();
   const draft = state.checkInDraft;
   if (!draft || !validateCheckInDraft(draft)) return;

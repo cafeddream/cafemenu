@@ -1,14 +1,12 @@
 import {
+  closeBusinessSession,
   fetchActiveOrdersOnce,
   fetchActivePrivateSessionsOnce,
-  fetchDayWiseReport,
-  getTodayKey
+  getBusinessSessionState
 } from "./firebase.js";
-import { attachExpensesToReport } from "./expense-sync.js";
 import { downloadSalesReportPdf } from "./report-pdf.js";
 import { isReportSyncConfigured } from "./report-sync.js";
-import { isReportDayUploaded, uploadReportToDrive } from "./report-scheduler.js";
-import { getJsPdf } from "./private-sitting-pdf.js";
+import { uploadSessionReportForDate } from "./report-scheduler.js";
 
 export const CLOSE_DAY_ERRORS = {
   unserved: "Please orders unserved, cannot close cafe",
@@ -27,10 +25,12 @@ export async function closeDayForToday() {
     throw new Error(CLOSE_DAY_ERRORS.appsScript);
   }
 
-  const dateKey = getTodayKey();
-  if (await isReportDayUploaded(dateKey)) {
+  const state = await getBusinessSessionState();
+  if (state.status !== "open" || !state.businessDateKey) {
     throw new Error(CLOSE_DAY_ERRORS.alreadyClosed);
   }
+
+  const dateKey = state.businessDateKey;
 
   const [orders, sessions] = await Promise.all([
     fetchActiveOrdersOnce(),
@@ -45,10 +45,8 @@ export async function closeDayForToday() {
     throw new Error(CLOSE_DAY_ERRORS.sitting);
   }
 
-  await getJsPdf();
-  const report = await fetchDayWiseReport(dateKey, dateKey);
-  await attachExpensesToReport(report, dateKey);
-  await uploadReportToDrive(dateKey, report);
+  const report = await uploadSessionReportForDate(dateKey);
   await downloadSalesReportPdf(report);
+  await closeBusinessSession();
   return { dateKey };
 }

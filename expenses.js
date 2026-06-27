@@ -1,4 +1,5 @@
 import { auth, showToast } from "./firebase.js";
+import { ensureOpenSessionOrPrompt } from "./business-session.js";
 import { isExpenseSyncConfigured, saveExpense } from "./expense-sync.js";
 
 const SUBMIT_LABEL = "Submit Expense";
@@ -46,6 +47,7 @@ function allowUiPaint() {
 async function handleExpenseSubmit(event) {
   event.preventDefault();
   if (!elements.form) return;
+  if (!(await ensureOpenSessionOrPrompt())) return;
 
   const description = elements.description?.value?.trim() || "";
   const amount = Number(elements.amount?.value || 0);

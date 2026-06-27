@@ -26,6 +26,7 @@ import {
   voidActiveOrder,
   voidPendingCounterOrder
 } from "./firebase.js";
+import { ensureOpenSessionOrPrompt } from "./business-session.js";
 import { syncPendingOrderToSheet } from "./report-sync.js";
 import {
   shareReceiptForOrder,
@@ -686,7 +687,7 @@ async function handleOrderAction(button) {
       return;
     }
     if (action === "paid") {
-      openPaymentMethodModal(tableId, { orderId });
+      void openPaymentMethodModal(tableId, { orderId });
       button.disabled = false;
       return;
     }
@@ -974,7 +975,8 @@ async function syncPendingOrderRecord(meta) {
   }
 }
 
-function openPaymentMethodModal(tableId, options = {}) {
+async function openPaymentMethodModal(tableId, options = {}) {
+  if (!(await ensureOpenSessionOrPrompt())) return;
   const order = options.orderId ? state.orders.get(options.orderId) : null;
   const amount = Number(options.amount ?? order?.total ?? 0);
   state.pendingPaidTable = tableId;
@@ -1203,6 +1205,7 @@ function formatDateTime(value) {
 }
 
 export async function openAdminOrderModal(tableId, options = {}) {
+  if (!(await ensureOpenSessionOrPrompt())) return;
   state.orderModalOptions = {
     deferPayment: Boolean(options.deferPayment),
     sessionId: options.sessionId || null
@@ -1357,7 +1360,7 @@ async function placeAdminOrder() {
 
     const customerProfile = readOrderCustomerProfile();
     closeAdminOrderModal();
-    openPaymentMethodModal(tableId, {
+    void openPaymentMethodModal(tableId, {
       items,
       amount: total,
       isCounterOrder: true,

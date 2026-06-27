@@ -5,7 +5,9 @@ import {
   getYesterdayKey,
   markReportArchived,
   markReportPurged,
-  purgeReportDataForDate
+  purgeReportDataForDate,
+  closeBusinessSession,
+  getBusinessSessionState
 } from "./firebase.js";
 import { buildSalesReportPdfBase64 } from "./report-pdf.js";
 import { isReportSyncConfigured, syncSalesReportToDrive } from "./report-sync.js";
@@ -101,6 +103,33 @@ function isReportEmpty(report) {
   return !hasSales && !hasExpenses;
 }
 
+export async function uploadSessionReportForDate(dateKey) {
+  preloadJsPdf();
+  const report = await fetchDayWiseReport(dateKey, dateKey);
+  await attachExpensesToReport(report, dateKey);
+  if (!isReportEmpty(report)) {
+    await uploadReportToDrive(dateKey, report);
+  }
+  return report;
+}
+
+export async function autoCloseOpenBusinessSession() {
+  const state = await getBusinessSessionState();
+  if (state.status !== "open" || !state.businessDateKey) return null;
+
+  const dateKey = state.businessDateKey;
+  if (isReportSyncConfigured()) {
+    try {
+      await uploadSessionReportForDate(dateKey);
+    } catch (error) {
+      console.warn("[report] Auto-close report upload failed for", dateKey, error);
+    }
+  }
+
+  await closeBusinessSession();
+  return { dateKey };
+}
+
 function msUntilNextMidnight() {
   const now = new Date();
   const next = new Date(now);
@@ -171,6 +200,10 @@ export async function runDailyReportForDate(dateKey) {
 
   runningDateKey = dateKey;
   try {
+    await autoCloseOpenBusinessSession().catch((error) => {
+      console.warn("[report] Auto-close open session failed", error);
+    });
+
     const alreadyUploaded = await isAlreadyUploaded(dateKey);
 
     if (!alreadyUploaded) {
@@ -202,6 +235,7 @@ export function runYesterdayReportIfNeeded() {
 }
 
 export function startDailyReportScheduler() {
+  autoCloseOpenBusinessSession().catch((error) => console.warn("[report] Startup auto-close failed", error));
   retryPendingPurges().catch((error) => console.warn("[report] Pending purge check failed", error));
   runYesterdayReportIfNeeded().catch((error) => console.warn("[report] Daily report failed", error));
   scheduleNextMidnight(() => runYesterdayReportIfNeeded());
