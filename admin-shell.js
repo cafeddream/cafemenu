@@ -60,6 +60,15 @@ function setActiveTab(tabId) {
   document.body.dataset.activeTab = tabId;
   closeManagerMenu();
 
+  const categoryTabs = document.querySelector("#adminCategoryTabs");
+  if (categoryTabs) {
+    if (tabId !== "orders") {
+      categoryTabs.hidden = true;
+    } else {
+      categoryTabs.hidden = document.body.classList.contains("ps-orders-detail-open");
+    }
+  }
+
   if (tabId === "sittings" || tabId === "settings") {
     refreshPrivateSittingView(tabId);
   }
