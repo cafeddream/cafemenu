@@ -368,7 +368,7 @@ body[data-active-tab="orders"] .ps-manager-main {
   justify-content: center;
   gap: 3px;
   min-height: 118px;
-  padding: 14px 12px 12px;
+  padding: 14px 34px 12px 12px;
   color: #fff;
   text-align: left;
   overflow: hidden;
@@ -390,12 +390,14 @@ body[data-active-tab="orders"] .ps-manager-main {
 
 .ps-sitting-card .ps-sitting-no {
   position: absolute;
-  top: 4px;
-  left: 8px;
-  font-size: 28px;
+  right: 8px;
+  bottom: 4px;
+  left: auto;
+  top: auto;
+  font-size: 30px;
   font-weight: 900;
   line-height: 1;
-  opacity: 0.22;
+  opacity: 0.18;
   pointer-events: none;
 }
 
@@ -1799,15 +1801,15 @@ body.ps-orders-detail-open {
   #psSittings .ps-sitting-card {
     min-height: 0;
     align-items: flex-start;
-    padding: 8px 10px 7px;
+    padding: 8px 26px 7px 10px;
     gap: 2px;
     justify-content: center;
   }
 
   #psSittings .ps-sitting-card .ps-sitting-no {
-    font-size: 18px;
-    top: 2px;
-    left: 6px;
+    font-size: 20px;
+    right: 6px;
+    bottom: 3px;
   }
 
   #psSittings .ps-sitting-card strong {
