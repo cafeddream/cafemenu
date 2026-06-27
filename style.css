@@ -3218,21 +3218,58 @@ body.staff-login-active .ps-splash {
   width: min(100%, 420px);
   display: grid;
   gap: 12px;
-  padding: 18px;
+  padding: 0 0 16px;
   border-radius: 12px;
   background: #ffffff;
   color: var(--ink);
   border: 1px solid var(--line);
 }
 
+.admin-pin-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-pin-head h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.admin-pin-close {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #dc2626;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.admin-pin-close:active {
+  transform: scale(0.96);
+}
+
 .admin-pin-help {
   margin: 0;
+  padding: 0 16px;
   color: var(--muted);
 }
 
 .admin-pin-field {
   display: grid;
   gap: 6px;
+  padding: 0 16px;
 }
 
 .admin-pin-field input {
@@ -3244,15 +3281,36 @@ body.staff-login-active .ps-splash {
   color: var(--ink);
 }
 
+.admin-pin-change-btn {
+  justify-self: start;
+  margin: -2px 16px 0;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary-dark);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
 .admin-pin-error {
   margin: 0;
+  padding: 0 16px;
   color: #b91c1c;
 }
 
 .admin-pin-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: stretch;
   gap: 8px;
+  padding: 0 16px;
+}
+
+.admin-pin-actions .primary-btn {
+  width: 100%;
 }
 
 @media (max-width: 640px) {

@@ -42,30 +42,38 @@ function ensurePinModal() {
   pinModal.hidden = true;
   pinModal.innerHTML = `
     <section class="admin-pin-panel" role="dialog" aria-modal="true" aria-labelledby="adminPinTitle">
-      <h2 id="adminPinTitle">Admin Security PIN</h2>
+      <div class="admin-pin-head">
+        <h2 id="adminPinTitle">Admin Security PIN</h2>
+        <button class="admin-pin-close" type="button" id="adminPinClose" aria-label="Close">×</button>
+      </div>
       <p class="admin-pin-help" id="adminPinHelp"></p>
-      <label class="admin-pin-field">
-        <span id="adminPinLabel">PIN</span>
+      <label class="admin-pin-field" id="adminPinFieldWrap">
+        <span id="adminPinLabel">Enter PIN</span>
         <input id="adminPinInput" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
       </label>
-      <label class="admin-pin-field" id="adminPinConfirmWrap" hidden>
-        <span>Confirm PIN</span>
-        <input id="adminPinConfirmInput" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
-      </label>
-      <label class="admin-pin-field" id="adminPinOldWrap" hidden>
+      <label class="admin-pin-field hidden" id="adminPinOldWrap">
         <span>Current PIN</span>
         <input id="adminPinOldInput" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
       </label>
-      <p class="admin-pin-error" id="adminPinError" hidden></p>
+      <label class="admin-pin-field hidden" id="adminPinConfirmWrap">
+        <span>Confirm PIN</span>
+        <input id="adminPinConfirmInput" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
+      </label>
+      <button class="admin-pin-change-btn hidden" type="button" id="adminPinChangeBtn">Change PIN</button>
+      <p class="admin-pin-error hidden" id="adminPinError"></p>
       <div class="admin-pin-actions">
-        <button class="ghost-btn" type="button" id="adminPinCancel">Cancel</button>
-        <button class="primary-btn" type="button" id="adminPinSubmit">Continue</button>
+        <button class="primary-btn" type="button" id="adminPinSubmit">Submit</button>
       </div>
     </section>
   `;
   document.body.appendChild(pinModal);
 
-  pinModal.querySelector("#adminPinCancel")?.addEventListener("click", closePinModal);
+  pinModal.querySelector("#adminPinClose")?.addEventListener("click", closePinModal);
+  pinModal.querySelector("#adminPinChangeBtn")?.addEventListener("click", () => {
+    state.pinModalMode = "change";
+    configurePinModalUi("change");
+    pinModal.querySelector("#adminPinOldInput")?.focus();
+  });
   pinModal.querySelector("#adminPinSubmit")?.addEventListener("click", submitPinModal);
   pinModal.addEventListener("click", (event) => {
     if (event.target === pinModal) closePinModal();
@@ -81,51 +89,85 @@ function closePinModal() {
   pinModal.querySelector("#adminPinConfirmInput").value = "";
   pinModal.querySelector("#adminPinOldInput").value = "";
   const error = pinModal.querySelector("#adminPinError");
-  if (error) error.hidden = true;
+  if (error) {
+    error.textContent = "";
+    error.classList.add("hidden");
+  }
 }
 
 function setPinError(message) {
   const error = pinModal?.querySelector("#adminPinError");
   if (!error) return;
   error.textContent = message;
-  error.hidden = !message;
+  error.classList.toggle("hidden", !message);
 }
 
-function openPinModal(mode = "unlock") {
-  ensurePinModal();
-  state.pinModalMode = mode;
+function configurePinModalUi(mode) {
   const title = pinModal.querySelector("#adminPinTitle");
   const help = pinModal.querySelector("#adminPinHelp");
   const label = pinModal.querySelector("#adminPinLabel");
   const confirmWrap = pinModal.querySelector("#adminPinConfirmWrap");
   const oldWrap = pinModal.querySelector("#adminPinOldWrap");
+  const changeBtn = pinModal.querySelector("#adminPinChangeBtn");
   const submit = pinModal.querySelector("#adminPinSubmit");
 
-  confirmWrap.hidden = mode !== "set" && mode !== "change";
-  oldWrap.hidden = mode !== "change";
+  confirmWrap.classList.add("hidden");
+  oldWrap.classList.add("hidden");
+  changeBtn.classList.add("hidden");
   setPinError("");
+  pinModal.querySelector("#adminPinInput").value = "";
+  pinModal.querySelector("#adminPinConfirmInput").value = "";
+  pinModal.querySelector("#adminPinOldInput").value = "";
 
   if (mode === "set") {
     title.textContent = "Set Security PIN";
     help.textContent = "Choose a 4 to 8 digit PIN. You will need it to manage menu and sittings.";
     label.textContent = "New PIN";
-    submit.textContent = "Save PIN";
-  } else if (mode === "change") {
+    confirmWrap.classList.remove("hidden");
+    submit.textContent = "Submit";
+    return;
+  }
+
+  if (mode === "change") {
     title.textContent = "Change Security PIN";
     help.textContent = "Enter your current PIN, then choose a new one.";
     label.textContent = "New PIN";
-    submit.textContent = "Update PIN";
-  } else {
-    title.textContent = "Unlock Admin Configuration";
-    help.textContent = isPinCooldownActive()
-      ? `Too many wrong attempts. Try again in ${Math.ceil(getPinCooldownRemainingMs() / 1000)} seconds.`
-      : "Enter your security PIN to manage menu items and private sittings.";
-    label.textContent = "PIN";
-    submit.textContent = "Unlock";
+    oldWrap.classList.remove("hidden");
+    confirmWrap.classList.remove("hidden");
+    submit.textContent = "Submit";
+    return;
   }
 
+  title.textContent = "Unlock Admin Configuration";
+  help.textContent = isPinCooldownActive()
+    ? `Too many wrong attempts. Try again in ${Math.ceil(getPinCooldownRemainingMs() / 1000)} seconds.`
+    : "Enter your security PIN to manage menu items and private sittings.";
+  label.textContent = "Enter PIN";
+  if (state.securityConfig?.pinHash) {
+    changeBtn.classList.remove("hidden");
+  }
+  submit.textContent = "Submit";
+}
+
+async function openPinModal(mode = "unlock") {
+  ensurePinModal();
+  if (!state.securityConfig) {
+    try {
+      state.securityConfig = await getSecurityConfig();
+    } catch (error) {
+      console.warn("Security config load failed:", error?.code || error?.message || error);
+    }
+  }
+  if (mode === "unlock" && !state.securityConfig?.pinHash) {
+    mode = "set";
+  }
+  state.pinModalMode = mode;
+  configurePinModalUi(mode);
   pinModal.hidden = false;
-  pinModal.querySelector("#adminPinInput")?.focus();
+  const focusTarget = mode === "change"
+    ? pinModal.querySelector("#adminPinOldInput")
+    : pinModal.querySelector("#adminPinInput");
+  focusTarget?.focus();
 }
 
 async function submitPinModal() {
@@ -140,7 +182,7 @@ async function submitPinModal() {
     }
     if (!state.securityConfig?.pinHash) {
       closePinModal();
-      openPinModal("set");
+      await openPinModal("set");
       return;
     }
     const result = await verifySecurityPin(pin);
@@ -404,12 +446,13 @@ function bindAdminSettingsEvents(container) {
 
     const action = target.dataset.adminAction;
     if (action === "unlock") {
-      if (!state.securityConfig?.pinHash) openPinModal("set");
-      else openPinModal("unlock");
+      await refreshAdminData();
+      if (!state.securityConfig?.pinHash) await openPinModal("set");
+      else await openPinModal("unlock");
       return;
     }
     if (action === "change-pin") {
-      openPinModal("change");
+      await openPinModal("change");
       return;
     }
     if (action === "lock") {
