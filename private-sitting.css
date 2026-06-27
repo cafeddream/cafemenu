@@ -213,6 +213,43 @@
   padding: 0 0 calc(78px + env(safe-area-inset-bottom));
 }
 
+.ps-counter-orders-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px 10px;
+}
+
+.ps-counter-orders-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.ps-counter-orders-head .primary-btn {
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.ps-counter-orders-head--alert h2 {
+  color: #6ee7b7;
+}
+
+.ps-counter-order-list {
+  padding: 0 12px 78px;
+}
+
+.ps-counter-order-list .ps-order-list {
+  display: grid;
+  gap: 10px;
+}
+
+#psOrders.ps-view {
+  padding: 0;
+}
+
 body[data-active-tab="orders"] .ps-manager-main {
   padding-top: 0;
 }

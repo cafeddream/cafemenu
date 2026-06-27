@@ -13,62 +13,12 @@ service cloud.firestore {
         && tableId in get(runtimePath).data.allowedTables)
         || tableId in [
         'PS 1', 'PS 2', 'PS 3', 'PS 4', 'PS 5', 'PS 6', 'PS 7', 'PS 8', 'PS 9', 'PS 10',
-        'COUNTER', 'H 1', 'H 2', 'H 3', 'H 4', 'HUT',
-        'T 1', 'T 2', 'T 3', 'T 4',
-        'D 1', 'D 2', 'D 3', 'D 4', 'D 5', 'D 6', 'D 7', 'D 8', 'D 9', 'D 10'
+        'COUNTER'
       ];
     }
 
     function validOrderItems(items) {
       return items is list && items.size() > 0 && items.size() <= 80;
-    }
-
-    function validCustomerStatus() {
-      let status = request.resource.data.status;
-      return status == 'new' || status == 'preparing' || status == 'served';
-    }
-
-    function validCustomerProfile() {
-      let data = request.resource.data;
-      return data.customerName is string
-        && data.customerName.size() > 0
-        && data.customerName.size() <= 60
-        && data.customerMobile is string
-        && data.customerMobile.matches('^[6-9][0-9]{9}$')
-        && data.customerMobileNormalized is string
-        && data.customerMobileNormalized == data.customerMobile;
-    }
-
-    function customerPlacesOrderFor(tableId) {
-      let data = request.resource.data;
-      return data.tableId == tableId
-        && validTable(data.tableId)
-        && data.placedBy == 'customer'
-        && validOrderItems(data.items)
-        && validCustomerStatus()
-        && validCustomerProfile()
-        && data.paymentStatus == 'pending'
-        && data.total is number
-        && data.status != 'paid';
-    }
-
-    function customerPlacesActiveOrder() {
-      return customerPlacesOrderFor(request.resource.data.tableId);
-    }
-
-    function customerPaymentUpdate() {
-      return resource != null
-        && request.resource.data.placedBy == resource.data.placedBy
-        && request.resource.data.tableId == resource.data.tableId
-        && request.resource.data.paymentStatus == 'customer_claimed_paid'
-        && request.resource.data.preferredPaymentMethod == 'online'
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly([
-            'paymentStatus',
-            'preferredPaymentMethod',
-            'paymentClaimedAt',
-            'updatedAt'
-          ]);
     }
 
     function validStaffSessionHoldOrder() {
@@ -93,20 +43,12 @@ service cloud.firestore {
     match /activeOrders/{orderId} {
       allow get: if true;
       allow list: if true;
-      allow create: if staffCreatesOrder() || customerPlacesActiveOrder();
-      allow update: if isStaff() || customerPaymentUpdate();
-      allow delete: if isStaff();
+      allow create, update, delete: if isStaff();
     }
 
     match /orders/{tableId}/current/order {
       allow read: if validTable(tableId);
-      allow create: if validTable(tableId) && (staffCreatesOrder() || customerPlacesOrderFor(tableId));
-      allow update: if validTable(tableId) && (
-        isStaff() ||
-        customerPlacesOrderFor(tableId) ||
-        customerPaymentUpdate()
-      );
-      allow delete: if validTable(tableId) && isStaff();
+      allow create, update, delete: if validTable(tableId) && isStaff();
     }
 
     match /receipts/{orderId} {

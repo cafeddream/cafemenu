@@ -17,10 +17,7 @@ Step 3b: In Firebase Authentication, enable Email/Password and create a staff us
 Staff sign in on admin/kitchen pages only. Deploy firestore.rules from this repo.
 
 Step 4: Upload all files to GitHub and enable GitHub Pages for the repository.
-
-Step 5: Generate QR codes for each table URL, such as:
-https://yourname.github.io/your-repo/index.html?table=T1
-Print one QR code per table.
+Staff take counter orders from admin.html; kitchen uses kitchen.html.
 */
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
@@ -81,9 +78,7 @@ export const CONFIG = {
   ],
   TABLE_SECTIONS: [
     { id: "private-sitting", name: "Private Sitting", tables: ["PS 1", "PS 2", "PS 3", "PS 4", "PS 5", "PS 6", "PS 7", "PS 8", "PS 9", "PS 10"] },
-    { id: "party-hall", name: "Party Hall", tables: ["COUNTER", "H 1", "H 2", "H 3", "H 4", "HUT"] },
-    { id: "tatoo-studio", name: "Tatoo Studio", tables: ["T 1", "T 2", "T 3", "T 4"] },
-    { id: "hotel", name: "Hotel", tables: ["D 1", "D 2", "D 3", "D 4", "D 5", "D 6", "D 7", "D 8", "D 9", "D 10"] }
+    { id: "counter", name: "Counter", tables: ["COUNTER"] }
   ],
   FIREBASE: {
     apiKey: "AIzaSyCTooPUmZqPwPWF_GUB_bI_7ULIYqE_PU8",
@@ -141,9 +136,14 @@ export function getPrivateSittings() {
 }
 
 export function getTableSections() {
-  return runtimeConfigData?.tableSections?.length
+  const raw = runtimeConfigData?.tableSections?.length
     ? runtimeConfigData.tableSections
     : DEFAULT_TABLE_SECTIONS;
+  const privateSitting = raw.find((section) => section.id === "private-sitting")
+    || DEFAULT_TABLE_SECTIONS.find((section) => section.id === "private-sitting");
+  const counter = raw.find((section) => section.id === "counter")
+    || DEFAULT_TABLE_SECTIONS.find((section) => section.id === "counter");
+  return [privateSitting, counter].filter(Boolean);
 }
 
 export function getAllowedTables() {
@@ -1348,49 +1348,6 @@ export async function logAuditEntry(action, tableId, details = {}) {
   });
 }
 
-// Places a new independent order. Table ID is only a location/grouping label.
-export async function placeOrAppendOrder(tableId, cartItems, placedBy = "customer", customerProfile = null) {
-  const cleanItems = cleanOrderItems(cartItems);
-
-  if (!cleanItems.length) return null;
-
-  const cleanProfile = customerProfile && placedBy === "customer"
-    ? {
-        customerName: String(customerProfile.name || "").trim().slice(0, 60),
-        customerMobile: normalizeIndianMobile(customerProfile.mobile),
-        customerMobileNormalized: normalizeIndianMobile(customerProfile.mobile)
-      }
-    : {};
-
-  const newOrderId = createOrderId(tableId);
-  const ref = activeOrderRef(newOrderId);
-  const legacyRef = orderRef(tableId);
-  const data = {
-      orderId: newOrderId,
-      tableId,
-      items: cleanItems,
-      total: calculateTotal(cleanItems),
-      status: "new",
-      placedBy,
-      paymentStatus: "pending",
-      preferredPaymentMethod: null,
-      timestamp: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      ...cleanProfile
-    };
-
-  await runTransaction(db, async (transaction) => {
-    transaction.set(ref, data);
-    transaction.set(legacyRef, data);
-  });
-
-  if (placedBy === "counter") {
-    await logAuditEntry("order_placed", tableId, { placedBy, orderId: newOrderId, total: data.total });
-  }
-
-  return getDoc(ref);
-}
-
 // Places a counter order only after staff chooses a payment method.
 export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMethod = "cash", discount = null, customerProfile = null) {
   const cleanItems = cleanOrderItems(cartItems);
@@ -1753,20 +1710,6 @@ export async function markOrderCreditPending(orderId, customerProfile, discount 
   };
 }
 
-// Finds live/current orders for a customer mobile across configured tables.
-export async function findActiveOrdersByMobile(mobile) {
-  const normalized = normalizeIndianMobile(mobile);
-  if (!normalized) return [];
-
-  const snapshot = await getDocs(collection(db, "activeOrders"));
-  return snapshot.docs
-    .map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() }))
-    .filter((order) => (
-      ACTIVE_ORDER_STATUSES.includes(order.status || "new")
-      && order.customerMobileNormalized === normalized
-    ));
-}
-
 // Cancels the current table order (staff only).
 export async function cancelOrder(tableId) {
   const snapshot = await getDoc(orderRef(tableId));
@@ -1953,44 +1896,6 @@ export async function voidPendingCounterOrder(tableId, items = [], grossTotal = 
   return getDoc(orderDocument);
 }
 
-// Resets a customer payment claim so staff can re-verify.
-export async function rejectPaymentClaim(tableId) {
-  await updateDoc(orderRef(tableId), {
-    paymentStatus: "pending",
-    preferredPaymentMethod: null,
-    paymentClaimedAt: null,
-    cashRequestedAt: null,
-    updatedAt: serverTimestamp()
-  });
-  await logAuditEntry("payment_claim_rejected", tableId);
-}
-
-export async function rejectActivePaymentClaim(orderId) {
-  const snapshot = await getDoc(activeOrderRef(orderId));
-  if (!snapshot.exists()) return;
-  await updateDoc(activeOrderRef(orderId), {
-    paymentStatus: "pending",
-    preferredPaymentMethod: null,
-    paymentClaimedAt: null,
-    cashRequestedAt: null,
-    updatedAt: serverTimestamp()
-  });
-  await logAuditEntry("payment_claim_rejected", snapshot.data().tableId, { orderId });
-}
-
-// Subscribes to a table's current order and returns the unsubscribe function.
-export function listenToOrder(tableId, callback, onError) {
-  return onSnapshot(orderRef(tableId), (snapshot) => {
-    callback(snapshot.exists() ? { id: tableId, ...snapshot.data() } : null);
-  }, onError);
-}
-
-export function listenToActiveOrder(orderId, callback, onError) {
-  return onSnapshot(activeOrderRef(orderId), (snapshot) => {
-    callback(snapshot.exists() ? { id: orderId, ...snapshot.data() } : null);
-  }, onError);
-}
-
 let activeOrdersSnapshot = [];
 let activeOrdersUnsubscribe = null;
 const activeOrdersListeners = new Set();
@@ -2042,10 +1947,6 @@ export function subscribeActiveOrders(listener, onError) {
   };
 }
 
-export function listenToActiveOrders(callback, onError) {
-  return subscribeActiveOrders(callback, onError);
-}
-
 // Updates one order status in Firestore.
 export async function updateOrderStatus(tableId, status) {
   await updateDoc(orderRef(tableId), {
@@ -2078,35 +1979,6 @@ export async function markOrderItemsServed(orderId, servedItemIds = []) {
       status: getOrderServingStatus(items),
       updatedAt: serverTimestamp()
     });
-  });
-}
-
-// Records that the customer says they completed the online UPI payment.
-export async function claimPaymentDone(tableId) {
-  await updateDoc(orderRef(tableId), {
-    paymentStatus: "customer_claimed_paid",
-    preferredPaymentMethod: "online",
-    paymentClaimedAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
-  });
-}
-
-export async function claimActiveOrderPaymentDone(orderId) {
-  await updateDoc(activeOrderRef(orderId), {
-    paymentStatus: "customer_claimed_paid",
-    preferredPaymentMethod: "online",
-    paymentClaimedAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
-  });
-}
-
-// Records that the customer wants to pay cash at the counter.
-export async function requestCashAtCounter(tableId) {
-  await updateDoc(orderRef(tableId), {
-    paymentStatus: "cash_at_counter",
-    preferredPaymentMethod: "cash",
-    cashRequestedAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
   });
 }
 

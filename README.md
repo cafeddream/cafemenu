@@ -1,61 +1,47 @@
-# Cafe D Dream — Table Ordering System
+# Cafe D Dream — Counter & Private Sitting
 
-Static PWA for QR table ordering, counter admin, and kitchen display. Data lives in **Firestore**; menu comes from a published **Google Sheet CSV**.
+Static PWA for counter ordering, private sitting management, and kitchen display. Data lives in **Firestore**; menu comes from a published **Google Sheet CSV**.
 
 ## Pages
 
 | Page | URL | Who |
 |------|-----|-----|
-| Customer menu | `index.html?table=T1` | Guests (QR per table) |
-| Counter | `admin.html` | Staff (sign-in required) |
+| Manager | `admin.html` | Staff (sign-in required) |
 | Kitchen | `kitchen.html` | Staff (sign-in required) |
+
+Walk-in food orders are taken at the **counter** from the Orders tab. Private sitting (PS 1–10) is managed separately on the Sitting tab.
 
 ## Setup
 
 1. **Firebase** — Create project, enable Firestore and **Email/Password** Authentication.
-2. **Staff user** — In Firebase Auth, create a user matching `CONFIG.STAFF_EMAIL` / `CONFIG.STAFF_PASSWORD` in [`firebase.js`](firebase.js).
+2. **Staff user** — In Firebase Auth, create a staff user with a strong password.
 3. **Firestore rules** — Deploy [`firestore.rules`](firestore.rules):
    ```bash
    firebase deploy --only firestore:rules
    ```
-4. **Config** — Edit `CONFIG` in [`firebase.js`](firebase.js): Firebase keys, Google Sheet CSV URL, UPI, tables, `KITCHEN_TIMER_MINUTES`.
+4. **Config** — Edit `CONFIG` in [`firebase.js`](firebase.js): Firebase keys, Google Sheet CSV URL, UPI, `KITCHEN_TIMER_MINUTES`.
 5. **Menu sheet** — Columns: `category`, `item_name`, `price`, `available`. Publish as CSV (or use `sample-menu.csv` locally).
-6. **Hosting** — Upload to GitHub Pages or any static host. Generate QR codes:  
-   `https://your-site/index.html?table=T1` (one per table).
+6. **Hosting** — Upload to GitHub Pages or any static host. Staff open `admin.html` only.
 
 ## Security (important if the repo is public on GitHub)
 
 ### What is OK to be public
-- **Firebase web config** (`apiKey`, `projectId`, etc.) — these are not secret; protection is **Firestore rules** + **Authentication**.
-- Customer menu code and table QR URLs.
+- **Firebase web config** (`apiKey`, `projectId`, etc.) — protection is **Firestore rules** + **Authentication**.
 
 ### What must NOT be in GitHub
-- **Staff password** — only exists in [Firebase Console → Authentication](https://console.firebase.google.com). Staff type it on the login screen; it is **not** stored in this project anymore.
-- Treat **UPI ID** as business info, not a login secret.
+- **Staff password** — only in Firebase Console → Authentication.
 
-### What staff login actually protects
-Even if someone clones your repo, they **cannot** (with rules deployed):
-- Mark orders paid or change kitchen status without signing in as your Firebase staff user
-- Edit daily sales totals or paid history
-- Delete orders from the database
-
-They **can** still (by design, for QR ordering):
-- Place customer orders on a table if they know `?table=T1`
-
-So the benefit is **database rules + Firebase Auth**, not hiding the JavaScript. Create **one strong staff password** in Firebase only. If you previously committed a password to GitHub, **change it in Firebase Auth** immediately.
+### What staff login protects
+- Mark orders paid, kitchen status, daily sales, order deletion — all require staff sign-in.
 
 ### Checklist
-1. Deploy `firestore.rules` (required for customer QR orders after security update):
-   ```bash
-   firebase deploy --only firestore:rules
-   ```
-2. Google Cloud → Credentials → Browser API key → enable **Cloud Firestore API** and **Identity Toolkit API** (or use no API restriction for testing)
-3. Enable Email/Password auth; create one staff user with a strong password (not in code)
-4. Do not link `admin.html` on customer-facing posters (counter/kitchen URL only for staff)
+1. Deploy `firestore.rules` (staff-only writes on orders).
+2. Google Cloud → Credentials → enable **Cloud Firestore API** and **Identity Toolkit API**.
+3. Do not post `admin.html` on customer-facing posters.
 
 ## Private Sitting Manager (`admin.html`)
 
-The counter app opens as a **Manager** dashboard for PS 1–10 (occupancy, couple check-in, timers, billing). Food orders for Party Hall / Tattoo / Hotel are under the **Orders** tab.
+The manager app covers PS 1–10 (occupancy, couple check-in, timers, billing). Counter food orders are under the **Orders** tab.
 
 ### Google Drive + Sheet sync (Apps Script)
 
@@ -75,15 +61,5 @@ After redeploying [`google-apps-script/private-sitting-sync.gs`](google-apps-scr
 - **Midnight** (admin app open) or **first open next morning**: yesterday's sales PDF uploads to `Cafe D Dream/Sales Reports/YYYY-MM-DD/`
 - A summary row appends to the **Sales Reports** sheet tab
 - On successful upload, that day's Firebase report data is cleared (archive lives on Drive)
-- Manual **Generate PDF Report** was removed from the admin menu
 
 Keep the admin tablet/app open overnight for exact midnight upload, or rely on morning catch-up.
-
-## Features
-
-- Customer cart, UPI/cash payment flow, live order status on payment screen
-- Counter: clickable tables, take/add orders, mark paid, cancel order, reject payment claim, print bill
-- Private Sitting: PS dashboard, couple check-in with DOB calendar, front/back ID photos, PDF, Drive/Sheet sync, hourly checkout billing
-- Kitchen: 20-minute countdown timer (configurable), color green → red
-- Daily sales report auto-upload to Google Drive; Firebase keeps ~1 day live data
-- Menu cached in `localStorage` when the sheet is unreachable
