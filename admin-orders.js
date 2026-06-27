@@ -622,6 +622,10 @@ function bindGridCardActions() {
       const tableId = card?.dataset.table;
       if (!tableId) return;
       acknowledgeTableNotice(tableId);
+      if (card.classList.contains("table-card-empty")) {
+        void openAdminOrderModal(tableId);
+        return;
+      }
       openTableDetail(tableId);
     });
   });
