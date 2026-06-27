@@ -122,15 +122,15 @@ export function renderMenuList(container, items, cart, onQtyChange) {
     const qty = cart.get(key)?.qty || 0;
     return `
       <article class="item-card">
-        <div>
+        <div class="item-card-top">
           <h3 class="item-name">${escapeHtml(item.name)}</h3>
-          <div class="item-price">${formatCurrency(item.price)}</div>
+          <div class="qty-control" data-key="${escapeHtml(key)}">
+            <button class="qty-btn" type="button" data-action="minus" aria-label="Remove ${escapeHtml(item.name)}">-</button>
+            <span class="qty-value">${qty}</span>
+            <button class="qty-btn" type="button" data-action="plus" aria-label="Add ${escapeHtml(item.name)}">+</button>
+          </div>
         </div>
-        <div class="qty-control" data-key="${escapeHtml(key)}">
-          <button class="qty-btn" type="button" data-action="minus" aria-label="Remove ${escapeHtml(item.name)}">-</button>
-          <span class="qty-value">${qty}</span>
-          <button class="qty-btn" type="button" data-action="plus" aria-label="Add ${escapeHtml(item.name)}">+</button>
-        </div>
+        <div class="item-price">${formatCurrency(item.price)}</div>
       </article>
     `;
   }).join("");

@@ -530,6 +530,10 @@ body[data-active-tab="orders"] .ps-manager-main {
   box-shadow: none;
 }
 
+.ps-manager-page .admin-order-modal .item-card {
+  padding: 8px 10px;
+}
+
 .ps-manager-page .admin-order-modal .item-name,
 .ps-manager-page .admin-order-modal .cart-total,
 .ps-manager-page .admin-order-modal .cart-total span,
