@@ -11,6 +11,8 @@
   --ps-purple: #7b4bd8;
   --ps-pink: #d946a8;
   --ps-ruby: #b4233b;
+  --ps-header-h: 52px;
+  --ps-bottom-nav-h: 72px;
   min-height: 100dvh;
   background: radial-gradient(circle at top, #1d2431 0%, var(--ps-bg) 42%);
   color: var(--ps-text);
@@ -374,10 +376,6 @@ body[data-active-tab="orders"] .ps-manager-main {
 .ps-session-timer {
   color: #3ecf8e;
   font-size: 18px;
-}
-
-.ps-sitting-card.ps-wide {
-  grid-column: 1 / -1;
 }
 
 .ps-sitting-card .ps-sitting-no {
@@ -1653,6 +1651,7 @@ body[data-active-tab="orders"] .ps-manager-main {
   .admin-order-modal .item-name {
     font-size: 14px;
     line-height: 1.2;
+    -webkit-line-clamp: 2;
   }
 
   .admin-order-modal .qty-control {
@@ -1667,6 +1666,17 @@ body[data-active-tab="orders"] .ps-manager-main {
 
   .admin-order-menu-list {
     padding: 8px 10px 10px;
+    max-height: none;
+  }
+
+  #adminOrderCartScreen .cart-list {
+    max-height: none;
+  }
+
+  .ps-manager-page .history-modal.admin-order-modal {
+    height: min(86dvh, 680px);
+    min-height: min(86dvh, 680px);
+    max-height: min(86dvh, 680px);
   }
 
   .ps-sitting-grid {
@@ -1689,6 +1699,64 @@ body[data-active-tab="orders"] .ps-manager-main {
 
   .ps-order-summary-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) and (orientation: portrait) {
+  body[data-active-tab="sittings"] {
+    overflow: hidden;
+  }
+
+  body[data-active-tab="sittings"] .ps-manager-main {
+    overflow: hidden;
+  }
+
+  #psSittings.ps-view {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--ps-header-h) - var(--ps-bottom-nav-h));
+    overflow: hidden;
+    padding: 10px 10px 8px;
+    box-sizing: border-box;
+  }
+
+  #psSittings .ps-section-head {
+    flex-shrink: 0;
+    margin-bottom: 8px;
+  }
+
+  #psSittings .ps-section-head h2 {
+    font-size: 16px;
+  }
+
+  #psSittings .ps-sitting-grid {
+    flex: 1;
+    min-height: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  #psSittings .ps-sitting-card {
+    min-height: 0;
+    padding: 10px 8px;
+    gap: 2px;
+  }
+
+  #psSittings .ps-sitting-card .ps-sitting-no {
+    font-size: 22px;
+  }
+
+  #psSittings .ps-sitting-card strong {
+    font-size: 13px;
+  }
+
+  #psSittings .ps-sitting-card span {
+    font-size: 11px;
+  }
+
+  #psSittings .ps-sitting-card em {
+    font-size: 10px;
   }
 }
 

@@ -506,7 +506,7 @@ function sittingCardHtml(sitting) {
   const occupied = Boolean(session);
   return `
     <button
-      class="ps-sitting-card ${sitting.wide ? "ps-wide" : ""} ${occupied ? "occupied" : "available"}"
+      class="ps-sitting-card ${occupied ? "occupied" : "available"}"
       type="button"
       data-sitting="${escapeHtml(sitting.id)}"
     >
