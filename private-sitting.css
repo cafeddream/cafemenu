@@ -364,13 +364,13 @@ body[data-active-tab="orders"] .ps-manager-main {
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   gap: 3px;
   min-height: 118px;
-  padding: 14px 10px 12px;
+  padding: 14px 12px 12px;
   color: #fff;
-  text-align: center;
+  text-align: left;
   overflow: hidden;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -405,6 +405,8 @@ body[data-active-tab="orders"] .ps-manager-main {
   position: relative;
   z-index: 1;
   line-height: 1.15;
+  width: 100%;
+  text-align: left;
 }
 
 .ps-sitting-card strong {
@@ -1796,7 +1798,8 @@ body.ps-orders-detail-open {
 
   #psSittings .ps-sitting-card {
     min-height: 0;
-    padding: 8px 6px 7px;
+    align-items: flex-start;
+    padding: 8px 10px 7px;
     gap: 2px;
     justify-content: center;
   }
