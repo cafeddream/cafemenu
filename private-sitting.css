@@ -1935,6 +1935,68 @@ body[data-active-tab="expenses"] .ps-manager-header {
     font-size: 9px;
     letter-spacing: 0.03em;
   }
+
+  body[data-active-tab="orders"]:not(.ps-orders-detail-open) {
+    overflow: hidden;
+  }
+
+  body[data-active-tab="orders"]:not(.ps-orders-detail-open) .ps-manager-main {
+    overflow: hidden;
+    padding-bottom: 0;
+  }
+
+  body[data-active-tab="orders"]:not(.ps-orders-detail-open) #psOrders.ps-view {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--ps-header-h) - var(--ps-bottom-nav-h));
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  body[data-active-tab="orders"]:not(.ps-orders-detail-open) #adminCategoryTabs {
+    flex-shrink: 0;
+  }
+
+  body[data-active-tab="orders"]:not(.ps-orders-detail-open) #psOrdersGrid {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  body[data-active-tab="orders"]:not(.ps-orders-detail-open) .admin-dashboard-pos {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  body[data-active-tab="orders"]:not(.ps-orders-detail-open) .admin-section-panel-pos {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 8px;
+  }
+
+  body[data-active-tab="orders"]:not(.ps-orders-detail-open) .section-table-row-pos {
+    flex: 1;
+    min-height: 0;
+    grid-auto-rows: minmax(0, 1fr);
+    align-content: stretch;
+    overflow: hidden;
+  }
+
+  body[data-active-tab="orders"]:not(.ps-orders-detail-open) .table-card-mobile {
+    min-height: 0;
+    height: 100%;
+  }
+
+  body[data-active-tab="orders"]:not(.ps-orders-detail-open) .table-card-face {
+    min-height: 0;
+    height: 100%;
+  }
 }
 
 .expense-sync-hint {
