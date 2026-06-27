@@ -1150,7 +1150,10 @@ body.ps-orders-detail-open {
   align-self: center;
 }
 
-#psSittings.ps-view,
+#psSittings.ps-view {
+  padding: 6px 12px 78px;
+}
+
 #psSettings.ps-view,
 #psExpenses.ps-view {
   padding: 12px 12px 78px;
@@ -1778,17 +1781,8 @@ body.ps-orders-detail-open {
     flex-direction: column;
     height: calc(100dvh - var(--ps-header-h) - var(--ps-bottom-nav-h));
     overflow: hidden;
-    padding: 10px 10px 8px;
+    padding: 4px 10px 8px;
     box-sizing: border-box;
-  }
-
-  #psSittings .ps-section-head {
-    flex-shrink: 0;
-    margin-bottom: 8px;
-  }
-
-  #psSittings .ps-section-head h2 {
-    font-size: 16px;
   }
 
   #psSittings .ps-sitting-grid {
