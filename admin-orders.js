@@ -56,6 +56,7 @@ const state = {
   pendingPaymentIsCounterOrder: false,
   pendingPaymentGross: 0,
   pendingPaymentCustomerProfile: null,
+  splitPaymentDriver: null,
   paymentVoidMode: false,
   hoverPreview: null,
   orderTableId: null,
@@ -159,8 +160,16 @@ function bindUi() {
   elements.paidSplitBtn?.addEventListener("click", showSplitPaymentPanel);
   elements.splitPaymentBackBtn?.addEventListener("click", hideSplitPaymentPanel);
   elements.splitConfirmBtn?.addEventListener("click", () => void confirmSplitPayment());
-  elements.splitOnlineAmount?.addEventListener("input", updateSplitPaymentValidation);
-  elements.splitCashAmount?.addEventListener("input", updateSplitPaymentValidation);
+  elements.splitOnlineAmount?.addEventListener("input", () => {
+    state.splitPaymentDriver = "online";
+    syncSplitAmounts("online");
+    updateSplitPaymentValidation();
+  });
+  elements.splitCashAmount?.addEventListener("input", () => {
+    state.splitPaymentDriver = "cash";
+    syncSplitAmounts("cash");
+    updateSplitPaymentValidation();
+  });
   elements.paidPendingBtn?.addEventListener("click", handlePendingPaymentClick);
   elements.pendingCustomerConfirmBtn?.addEventListener("click", confirmPendingCustomerPanel);
   elements.voidOrderBtn?.addEventListener("click", showVoidOrderPanel);
@@ -168,10 +177,12 @@ function bindUi() {
   elements.voidOrderConfirmBtn?.addEventListener("click", confirmVoidOrder);
   elements.paymentDiscountType?.addEventListener("change", () => {
     updatePaymentDiscountDisplay();
+    syncSplitAmounts();
     updateSplitPaymentValidation();
   });
   elements.paymentDiscountValue?.addEventListener("input", () => {
     updatePaymentDiscountDisplay();
+    syncSplitAmounts();
     updateSplitPaymentValidation();
   });
   elements.closeAdminOrder.addEventListener("click", closeAdminOrderModal);
@@ -844,7 +855,26 @@ function hideSplitPaymentPanel() {
   }
 }
 
+function syncSplitAmounts(driver = state.splitPaymentDriver || "cash") {
+  if (!elements.splitPaymentPanel || elements.splitPaymentPanel.hidden) return;
+  const finalTotal = computeDiscount(state.pendingPaymentGross, readPaymentDiscount()).finalTotal;
+  if (driver === "online") {
+    const online = Number(elements.splitOnlineAmount?.value || 0);
+    const safeOnline = Number.isFinite(online) ? Math.max(0, online) : 0;
+    const cash = Math.max(0, finalTotal - safeOnline);
+    if (elements.splitCashAmount) elements.splitCashAmount.value = String(cash);
+    return;
+  }
+  const cash = Number(elements.splitCashAmount?.value || 0);
+  const safeCash = Number.isFinite(cash) ? Math.max(0, cash) : 0;
+  const online = Math.max(0, finalTotal - safeCash);
+  if (elements.splitOnlineAmount) {
+    elements.splitOnlineAmount.value = String(online);
+  }
+}
+
 function showSplitPaymentPanel() {
+  state.splitPaymentDriver = null;
   const info = computeDiscount(state.pendingPaymentGross, readPaymentDiscount());
   if (elements.splitOnlineAmount) elements.splitOnlineAmount.value = String(info.finalTotal);
   if (elements.splitCashAmount) elements.splitCashAmount.value = "0";
@@ -852,7 +882,7 @@ function showSplitPaymentPanel() {
   if (elements.paymentMethodActions) elements.paymentMethodActions.hidden = true;
   if (elements.splitPaymentPanel) elements.splitPaymentPanel.hidden = false;
   updateSplitPaymentValidation();
-  elements.splitOnlineAmount?.focus();
+  elements.splitCashAmount?.focus();
 }
 
 function readSplitPaymentInput() {

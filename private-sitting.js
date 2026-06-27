@@ -48,6 +48,7 @@ const state = {
   checkInSubmitting: false,
   checkoutDraft: null,
   checkoutSubmitting: false,
+  checkoutSplitDriver: null,
   foodOrderReturnSessionId: null,
   timerHandle: null,
   settingsMounted: false
@@ -1019,6 +1020,7 @@ function updateCheckoutDiscountDisplay() {
   elements.checkoutFinalPayable.textContent = info.discountAmount > 0
     ? `Final Payable: ${formatCurrency(info.finalTotal)} (− ${formatCurrency(info.discountAmount)})`
     : `Final Payable: ${formatCurrency(info.finalTotal)}`;
+  syncCheckoutSplitAmounts();
   updateCheckoutSplitValidation();
 }
 
@@ -1084,8 +1086,28 @@ function showCheckoutPendingPanel() {
   elements.checkoutPendingName?.focus();
 }
 
+function syncCheckoutSplitAmounts(driver = state.checkoutSplitDriver || "cash") {
+  if (!elements.checkoutSplitPanel || elements.checkoutSplitPanel.hidden) return;
+  const grandTotal = Number(state.checkoutDraft?.grandTotal || 0);
+  const finalTotal = computeDiscount(grandTotal, readCheckoutDiscount()).finalTotal;
+  if (driver === "online") {
+    const online = Number(elements.checkoutSplitOnlineAmount?.value || 0);
+    const safeOnline = Number.isFinite(online) ? Math.max(0, online) : 0;
+    const cash = Math.max(0, finalTotal - safeOnline);
+    if (elements.checkoutSplitCashAmount) elements.checkoutSplitCashAmount.value = String(cash);
+    return;
+  }
+  const cash = Number(elements.checkoutSplitCashAmount?.value || 0);
+  const safeCash = Number.isFinite(cash) ? Math.max(0, cash) : 0;
+  const online = Math.max(0, finalTotal - safeCash);
+  if (elements.checkoutSplitOnlineAmount) {
+    elements.checkoutSplitOnlineAmount.value = String(online);
+  }
+}
+
 function showCheckoutSplitPanel() {
   hideCheckoutPendingPanel();
+  state.checkoutSplitDriver = null;
   const grandTotal = Number(state.checkoutDraft?.grandTotal || 0);
   const info = computeDiscount(grandTotal, readCheckoutDiscount());
   if (elements.checkoutSplitOnlineAmount) elements.checkoutSplitOnlineAmount.value = String(info.finalTotal);
@@ -1094,7 +1116,7 @@ function showCheckoutSplitPanel() {
   if (actions) actions.hidden = true;
   if (elements.checkoutSplitPanel) elements.checkoutSplitPanel.hidden = false;
   updateCheckoutSplitValidation();
-  elements.checkoutSplitOnlineAmount?.focus();
+  elements.checkoutSplitCashAmount?.focus();
 }
 
 function readCheckoutSplitInput() {
@@ -1449,8 +1471,16 @@ function bindPrivateSittingUi() {
     }
     void confirmCheckout(input);
   });
-  elements.checkoutSplitOnlineAmount?.addEventListener("input", updateCheckoutSplitValidation);
-  elements.checkoutSplitCashAmount?.addEventListener("input", updateCheckoutSplitValidation);
+  elements.checkoutSplitOnlineAmount?.addEventListener("input", () => {
+    state.checkoutSplitDriver = "online";
+    syncCheckoutSplitAmounts("online");
+    updateCheckoutSplitValidation();
+  });
+  elements.checkoutSplitCashAmount?.addEventListener("input", () => {
+    state.checkoutSplitDriver = "cash";
+    syncCheckoutSplitAmounts("cash");
+    updateCheckoutSplitValidation();
+  });
   elements.checkoutDiscountType?.addEventListener("change", updateCheckoutDiscountDisplay);
   elements.checkoutDiscountValue?.addEventListener("input", updateCheckoutDiscountDisplay);
   window.addEventListener("ps-food-order-modal-closed", handleFoodOrderModalClosed);
