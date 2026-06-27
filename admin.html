@@ -30,6 +30,7 @@
       </button>
       <nav class="ps-menu-dropdown" id="managerMenuDropdown" hidden aria-label="Manager menu">
         <a class="ps-menu-dropdown-item" href="./kitchen.html">Kitchen View</a>
+        <button class="ps-menu-dropdown-item" id="todayCollectionBtn" type="button">Today's Collection</button>
         <button class="ps-menu-dropdown-item ps-menu-dropdown-logout" id="closeDayBtn" type="button">Close Day</button>
       </nav>
     </div>
@@ -386,6 +387,37 @@
   </div>
 
   <span id="todayCollection" hidden>Today's Collection: Rs 0</span>
+
+  <div class="modal-backdrop modal-front" id="todayCollectionModal" hidden>
+    <section class="history-modal ps-close-day-modal ps-today-collection-modal" role="dialog" aria-modal="true" aria-labelledby="todayCollectionTitle">
+      <div class="modal-head">
+        <h2 id="todayCollectionTitle">Today's Collection</h2>
+      </div>
+      <p class="ps-today-collection-date" id="todayCollectionDate"></p>
+      <div class="ps-today-collection-rows">
+        <div class="ps-today-collection-row">
+          <span>Cash Collection</span>
+          <strong id="todayCollectionCash">Rs 0</strong>
+        </div>
+        <div class="ps-today-collection-row">
+          <span>Online Collection</span>
+          <strong id="todayCollectionOnline">Rs 0</strong>
+        </div>
+        <div class="ps-today-collection-row">
+          <span>Expenses</span>
+          <strong id="todayCollectionExpenses">Rs 0</strong>
+        </div>
+        <div class="ps-today-collection-row ps-today-collection-row-net">
+          <span>Net Cash Collection</span>
+          <strong id="todayCollectionNetCash">Rs 0</strong>
+        </div>
+      </div>
+      <p class="ps-today-collection-hint" id="todayCollectionHint" hidden>Expenses unavailable — Apps Script URL not configured.</p>
+      <div class="modal-foot ps-close-day-actions">
+        <button class="primary-btn" id="todayCollectionClose" type="button">Close</button>
+      </div>
+    </section>
+  </div>
 
   <div class="modal-backdrop modal-front" id="closeDayModal" hidden>
     <section class="history-modal ps-close-day-modal" role="dialog" aria-modal="true" aria-labelledby="closeDayTitle">

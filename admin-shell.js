@@ -5,9 +5,17 @@ import { initPrivateSitting, refreshPrivateSittingView } from "./private-sitting
 import { startDailyReportScheduler } from "./report-scheduler.js";
 import { requireStaffAuth } from "./staff-auth.js";
 import { closeDayForToday } from "./close-day.js";
+import {
+  closeTodayCollectionModal,
+  initTodayCollection,
+  isTodayCollectionModalOpen,
+  openTodayCollectionModal
+} from "./today-collection.js";
 
 const elements = {
   restaurant: document.querySelector("#adminRestaurant"),
+  todayCollectionBtn: document.querySelector("#todayCollectionBtn"),
+  todayCollectionModal: document.querySelector("#todayCollectionModal"),
   closeDayBtn: document.querySelector("#closeDayBtn"),
   closeDayModal: document.querySelector("#closeDayModal"),
   closeDayNo: document.querySelector("#closeDayNo"),
@@ -137,12 +145,22 @@ function bindShellUi() {
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      if (isTodayCollectionModalOpen()) {
+        closeTodayCollectionModal();
+        return;
+      }
       if (elements.closeDayModal && !elements.closeDayModal.hidden) {
         closeCloseDayModal();
         return;
       }
       if (isManagerMenuOpen()) closeManagerMenu();
     }
+  });
+
+  elements.todayCollectionBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeManagerMenu();
+    void openTodayCollectionModal();
   });
 
   elements.closeDayBtn?.addEventListener("click", (event) => {
@@ -173,6 +191,7 @@ function setRestaurantBrandName(element, name) {
 function startManagerApp() {
   try {
     setRestaurantBrandName(elements.restaurant, CONFIG.RESTAURANT_NAME);
+    initTodayCollection();
     bindShellUi();
     const sittingRoute = /^#\/sitting\/[^/]+$/i.test(location.hash);
     setActiveTab(sittingRoute ? "sittings" : "orders");
