@@ -131,7 +131,9 @@ const elements = {
 export function initAdminOrders() {
   if (!elements.tableGrid) return;
   registerServiceWorker();
-  elements.restaurant.textContent = CONFIG.RESTAURANT_NAME;
+  const brandText = elements.restaurant?.querySelector(".ps-brand-text");
+  if (brandText) brandText.textContent = CONFIG.RESTAURANT_NAME;
+  else if (elements.restaurant) elements.restaurant.textContent = CONFIG.RESTAURANT_NAME;
   bindUi();
   startAdminApp();
 }

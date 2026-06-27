@@ -33,19 +33,36 @@
 }
 
 .ps-manager-page .ps-brand-mark {
-  display: flex;
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  max-width: calc(100% - 48px);
+  margin: 0;
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  line-height: 1.1;
 }
 
 .ps-manager-page .ps-brand-icon {
   width: 26px;
   height: 26px;
+  display: block;
   flex: 0 0 auto;
   border-radius: 7px;
   object-fit: cover;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+}
+
+.ps-manager-page .ps-brand-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ps-manager-page .brand-title {
@@ -1612,6 +1629,46 @@ body[data-active-tab="orders"] .ps-manager-main {
 }
 
 @media (max-width: 720px) {
+  .ps-manager-page .ps-brand-mark {
+    gap: 7px;
+    max-width: calc(100% - 44px);
+  }
+
+  .ps-manager-page .ps-brand-icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .ps-manager-page .ps-brand-mark,
+  .ps-manager-page .brand-title {
+    font-size: 16px;
+  }
+
+  .admin-order-modal .item-card-top {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .admin-order-modal .item-name {
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  .admin-order-modal .qty-control {
+    grid-template-columns: 28px 20px 28px;
+  }
+
+  .admin-order-modal .qty-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 16px;
+  }
+
+  .admin-order-menu-list {
+    padding: 8px 10px 10px;
+  }
+
   .ps-sitting-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

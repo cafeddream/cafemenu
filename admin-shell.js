@@ -163,11 +163,16 @@ function hideSplash() {
   setTimeout(() => elements.splash.remove(), 450);
 }
 
+function setRestaurantBrandName(element, name) {
+  if (!element) return;
+  const textEl = element.querySelector(".ps-brand-text");
+  if (textEl) textEl.textContent = name;
+  else element.textContent = name;
+}
+
 function startManagerApp() {
   try {
-    if (elements.restaurant) {
-      elements.restaurant.textContent = CONFIG.RESTAURANT_NAME;
-    }
+    setRestaurantBrandName(elements.restaurant, CONFIG.RESTAURANT_NAME);
     bindShellUi();
     const sittingRoute = /^#\/sitting\/[^/]+$/i.test(location.hash);
     setActiveTab(sittingRoute ? "sittings" : "orders");
