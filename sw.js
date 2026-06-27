@@ -1,4 +1,4 @@
-const CACHE_NAME = "cafe-d-dream-v123";
+const CACHE_NAME = "cafe-d-dream-v124";
 const APP_SHELL = [
   "./",
   "./admin.html",
@@ -29,6 +29,8 @@ const APP_SHELL = [
   "./manifest.json",
   "./sample-menu.csv",
   "./icon-192.png",
+  "./icon-512.png",
+  "./icon-maskable-512.png",
   "./assets/icons/gpay.svg",
   "./assets/icons/paytm.svg",
   "./assets/icons/phonepe.svg",

@@ -261,6 +261,10 @@ function subscribeToTables() {
     const flashedOrder = notifications[0]?.order || null;
     const flashedTable = flashedOrder?.tableId || null;
     notifications.forEach(({ order, isNewOrder }) => notifyAdminOrder(order, isNewOrder));
+    if (state.detailTableId && getOrdersForTable(state.detailTableId).length === 0) {
+      state.detailTableId = null;
+      clearTableDetailHash();
+    }
     renderTables(flashedTable);
   }, () => showToast("Connection error, please refresh"));
 }
@@ -693,6 +697,10 @@ async function handleOrderAction(button) {
     if (action === "clear-order") {
       await clearActiveOrder(orderId);
       showToast("Order cleared.");
+      const remaining = getOrdersForTable(tableId).filter((order) => (order.orderId || order.id) !== orderId);
+      if (!remaining.length && state.detailTableId === tableId) {
+        closeTableDetail();
+      }
       return;
     }
     if (action === "share") shareTableBill(tableId, orderId);
