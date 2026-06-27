@@ -1832,19 +1832,19 @@ button:disabled {
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #12151c;
-  color: var(--text);
+  background: #ffffff;
+  color: var(--ink);
   font-size: 14px;
 }
 
 .payment-alert.pending-alert {
   background: rgba(255, 180, 60, 0.14);
-  color: #ffcc80;
+  color: #b45309;
 }
 
 .ps-order-status-pending {
   background: rgba(255, 180, 60, 0.18);
-  color: #ffcc80;
+  color: #b45309;
 }
 
 #paymentMethodActions,
@@ -2086,8 +2086,8 @@ button:disabled {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: #10141c;
-  color: #f5f7fb;
+  background: #fffaf7;
+  color: var(--ink);
   font-size: 22px;
   font-weight: 800;
   text-align: center;
@@ -2164,8 +2164,8 @@ body.staff-login-active .ps-splash {
 }
 
 .kitchen-page {
-  --kitchen-surface: #262626;
-  --kitchen-border: rgba(255, 255, 255, 0.12);
+  --kitchen-surface: #ffffff;
+  --kitchen-border: rgba(35, 35, 35, 0.12);
   --kitchen-accent-new: var(--primary);
   --kitchen-accent-preparing: var(--blue);
   --kitchen-accent-urgent: #e8a317;
@@ -2178,8 +2178,8 @@ body.staff-login-active .ps-splash {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #1a1a1a;
-  color: #ffffff;
+  background: #fffaf7;
+  color: var(--ink);
 }
 
 .kitchen-page #kitchenMain {
@@ -2190,12 +2190,12 @@ body.staff-login-active .ps-splash {
 }
 
 .kitchen-header {
-  background: rgba(26, 26, 26, 0.95);
-  border-bottom-color: #333333;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom-color: var(--line);
 }
 
 .kitchen-header .subtle {
-  color: #d6d6d6;
+  color: var(--muted);
 }
 
 .kitchen-header-actions {
@@ -2280,22 +2280,22 @@ body.staff-login-active .ps-splash {
 
 .kitchen-card.preparing {
   border-color: color-mix(in srgb, var(--kitchen-accent-preparing) 65%, transparent);
-  background: linear-gradient(165deg, #2a3140 0%, var(--kitchen-surface) 52%);
+  background: linear-gradient(165deg, #eef4ff 0%, var(--kitchen-surface) 52%);
 }
 
 .kitchen-card.timer-active:not(.preparing) {
   border-color: color-mix(in srgb, var(--kitchen-accent-new) 55%, transparent);
-  background: linear-gradient(165deg, #2e2824 0%, var(--kitchen-surface) 52%);
+  background: linear-gradient(165deg, #fff3eb 0%, var(--kitchen-surface) 52%);
 }
 
 .kitchen-card.timer-urgent {
   border-color: color-mix(in srgb, var(--kitchen-accent-urgent) 75%, transparent);
-  background: linear-gradient(165deg, #332a1f 0%, var(--kitchen-surface) 52%);
+  background: linear-gradient(165deg, #fff8e8 0%, var(--kitchen-surface) 52%);
 }
 
 .kitchen-card.timer-expired {
   border-color: color-mix(in srgb, var(--kitchen-accent-expired) 80%, transparent);
-  background: linear-gradient(165deg, #331f1f 0%, var(--kitchen-surface) 52%);
+  background: linear-gradient(165deg, #ffecec 0%, var(--kitchen-surface) 52%);
 }
 
 .kitchen-card.timer-urgent .kitchen-timer-ring,
@@ -2358,7 +2358,7 @@ body.staff-login-active .ps-splash {
 }
 
 .kitchen-timer-track {
-  stroke: rgba(255, 255, 255, 0.14);
+  stroke: rgba(35, 35, 35, 0.14);
 }
 
 .kitchen-timer-ring {
@@ -2389,7 +2389,7 @@ body.staff-login-active .ps-splash {
 .kitchen-timer-text strong {
   font-size: 15px;
   font-weight: 900;
-  color: #ffffff;
+  color: var(--ink);
 }
 
 .kitchen-items-wrap {
@@ -2477,9 +2477,9 @@ body.staff-login-active .ps-splash {
 }
 
 .kitchen-card .ghost-btn {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.22);
+  background: var(--soft);
+  color: var(--ink);
+  border-color: var(--line);
 }
 
 .kitchen-card .primary-btn {
@@ -2933,8 +2933,8 @@ body.staff-login-active .ps-splash {
   align-items: center;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(239, 68, 68, 0.16);
-  color: #fecaca;
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
   font-size: 12px;
   font-weight: 700;
 }
@@ -2943,7 +2943,7 @@ body.staff-login-active .ps-splash {
   display: grid;
   gap: 10px;
   padding-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--line);
 }
 
 .admin-section-head {
@@ -2963,9 +2963,9 @@ body.staff-login-active .ps-splash {
   display: grid;
   gap: 8px;
   padding: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.18);
+  background: #ffffff;
 }
 
 .admin-edit-meta {
@@ -2974,7 +2974,7 @@ body.staff-login-active .ps-splash {
 }
 
 .admin-edit-meta span {
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -2990,10 +2990,10 @@ body.staff-login-active .ps-splash {
 .admin-add-form select {
   min-height: 40px;
   padding: 8px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #10141c;
-  color: #f5f7fb;
+  background: #ffffff;
+  color: var(--ink);
 }
 
 .admin-add-form {
@@ -3020,7 +3020,7 @@ body.staff-login-active .ps-splash {
 
 .admin-empty-note {
   margin: 0;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--muted);
 }
 
 .admin-settings-card.admin-compact {
@@ -3035,23 +3035,23 @@ body.staff-login-active .ps-splash {
 .admin-tab {
   flex: 1;
   min-height: 36px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.2);
-  color: rgba(255, 255, 255, 0.75);
+  background: #ffffff;
+  color: var(--muted);
   font-weight: 700;
 }
 
 .admin-tab.active {
-  background: rgba(255, 193, 7, 0.18);
-  border-color: rgba(255, 193, 7, 0.45);
-  color: #ffd666;
+  background: rgba(255, 107, 53, 0.12);
+  border-color: rgba(255, 107, 53, 0.35);
+  color: var(--primary-dark);
 }
 
 .admin-help-note {
   margin: 0;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--muted);
 }
 
 .admin-import-banner {
@@ -3061,8 +3061,8 @@ body.staff-login-active .ps-splash {
   gap: 8px;
   padding: 8px 10px;
   border-radius: 8px;
-  background: rgba(255, 193, 7, 0.12);
-  color: #ffd666;
+  background: rgba(255, 193, 7, 0.14);
+  color: #b45309;
   font-size: 12px;
 }
 
@@ -3076,10 +3076,10 @@ body.staff-login-active .ps-splash {
   flex: 1;
   min-height: 36px;
   padding: 6px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #10141c;
-  color: #f5f7fb;
+  background: #ffffff;
+  color: var(--ink);
 }
 
 .admin-menu-groups {
@@ -3090,9 +3090,9 @@ body.staff-login-active .ps-splash {
 }
 
 .admin-category-group {
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.14);
+  background: #ffffff;
 }
 
 .admin-category-head {
@@ -3107,7 +3107,7 @@ body.staff-login-active .ps-splash {
 
 .admin-category-head span {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--muted);
 }
 
 .admin-compact-table {
@@ -3127,7 +3127,7 @@ body.staff-login-active .ps-splash {
 }
 
 .admin-compact-row:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(35, 35, 35, 0.04);
 }
 
 .admin-compact-label {
@@ -3138,7 +3138,7 @@ body.staff-login-active .ps-splash {
 }
 
 .admin-compact-label small {
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--muted);
   font-size: 11px;
 }
 
@@ -3146,10 +3146,10 @@ body.staff-login-active .ps-splash {
   width: 100%;
   min-height: 32px;
   padding: 4px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--line);
   border-radius: 6px;
-  background: #10141c;
-  color: #f5f7fb;
+  background: #ffffff;
+  color: var(--ink);
   font-size: 13px;
 }
 
@@ -3157,15 +3157,15 @@ body.staff-login-active .ps-splash {
   min-height: 32px;
   min-width: 32px;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--line);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #f5f7fb;
+  background: var(--soft);
+  color: var(--ink);
   font-weight: 700;
 }
 
 .admin-icon-danger {
-  color: #fecaca;
+  color: #b91c1c;
   border-color: rgba(239, 68, 68, 0.35);
 }
 
@@ -3175,17 +3175,17 @@ body.staff-login-active .ps-splash {
   gap: 6px;
   align-items: center;
   padding-top: 6px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--line);
 }
 
 .admin-inline-add input,
 .admin-inline-add select {
   min-height: 36px;
   padding: 6px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--line);
   border-radius: 6px;
-  background: #10141c;
-  color: #f5f7fb;
+  background: #ffffff;
+  color: var(--ink);
   font-size: 13px;
 }
 
@@ -3217,14 +3217,14 @@ body.staff-login-active .ps-splash {
   gap: 12px;
   padding: 18px;
   border-radius: 12px;
-  background: #171b24;
-  color: #f5f7fb;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #ffffff;
+  color: var(--ink);
+  border: 1px solid var(--line);
 }
 
 .admin-pin-help {
   margin: 0;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--muted);
 }
 
 .admin-pin-field {
@@ -3235,15 +3235,15 @@ body.staff-login-active .ps-splash {
 .admin-pin-field input {
   min-height: 44px;
   padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #10141c;
-  color: #f5f7fb;
+  background: #ffffff;
+  color: var(--ink);
 }
 
 .admin-pin-error {
   margin: 0;
-  color: #fecaca;
+  color: #b91c1c;
 }
 
 .admin-pin-actions {
