@@ -14,6 +14,8 @@ import {
 
 const elements = {
   restaurant: document.querySelector("#adminRestaurant"),
+  header: document.querySelector(".ps-manager-header"),
+  categoryTabs: document.querySelector("#adminCategoryTabs"),
   todayCollectionBtn: document.querySelector("#todayCollectionBtn"),
   todayCollectionModal: document.querySelector("#todayCollectionModal"),
   closeDayBtn: document.querySelector("#closeDayBtn"),
@@ -31,6 +33,33 @@ const elements = {
 
 let activeTab = "orders";
 let closeDayRunning = false;
+
+function syncManagerChromeMetrics() {
+  if (elements.header) {
+    document.documentElement.style.setProperty(
+      "--ps-header-measured",
+      `${elements.header.offsetHeight}px`
+    );
+  }
+  if (elements.categoryTabs && !elements.categoryTabs.hidden) {
+    document.documentElement.style.setProperty(
+      "--ps-tabs-measured",
+      `${elements.categoryTabs.offsetHeight}px`
+    );
+  }
+}
+
+function initManagerChromeMetrics() {
+  syncManagerChromeMetrics();
+  if (typeof ResizeObserver !== "undefined") {
+    const observer = new ResizeObserver(() => syncManagerChromeMetrics());
+    if (elements.header) observer.observe(elements.header);
+    if (elements.categoryTabs) observer.observe(elements.categoryTabs);
+  } else {
+    window.addEventListener("resize", syncManagerChromeMetrics);
+  }
+  window.addEventListener("orientationchange", syncManagerChromeMetrics);
+}
 
 export function closeManagerMenu() {
   if (!elements.menuDropdown) return;
@@ -59,6 +88,7 @@ function setActiveTab(tabId) {
   });
   document.body.dataset.activeTab = tabId;
   closeManagerMenu();
+  requestAnimationFrame(syncManagerChromeMetrics);
 
   if (tabId === "sittings" || tabId === "settings") {
     refreshPrivateSittingView(tabId);
@@ -193,12 +223,14 @@ function startManagerApp() {
     setRestaurantBrandName(elements.restaurant, CONFIG.RESTAURANT_NAME);
     initTodayCollection();
     bindShellUi();
+    initManagerChromeMetrics();
     const sittingRoute = /^#\/sitting\/[^/]+$/i.test(location.hash);
     setActiveTab(sittingRoute ? "sittings" : "orders");
     initPrivateSitting();
     initAdminOrders();
     initExpenses();
     startDailyReportScheduler();
+    requestAnimationFrame(syncManagerChromeMetrics);
   } catch (error) {
     console.error("Manager app init failed:", error);
   } finally {
