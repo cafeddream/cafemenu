@@ -777,13 +777,53 @@ async function submitCheckIn() {
   }
 }
 
+function renderSessionFoodOrdersDetail(foodOrders = []) {
+  return foodOrders.map((order) => {
+    const items = order.items || [];
+    const itemLines = items.length
+      ? items.map((item) => `
+        <li class="ps-session-food-line">
+          <span>${Number(item.qty || 0)}× ${escapeHtml(item.name || "Item")}</span>
+          <strong>${formatCurrency(Number(item.price || 0) * Number(item.qty || 0))}</strong>
+        </li>
+      `).join("")
+      : `<li class="ps-session-food-line"><span>No items</span></li>`;
+    return `
+      <section class="ps-session-food-order">
+        <header class="ps-session-food-order-head">
+          <span>Order #${escapeHtml(String(order.orderId || order.id || "").slice(0, 8))}</span>
+          <strong>${formatCurrency(order.total || 0)}</strong>
+        </header>
+        <ul class="ps-session-food-items">${itemLines}</ul>
+      </section>
+    `;
+  }).join("");
+}
+
+function bindSessionFoodOrdersToggle() {
+  const toggle = elements.sessionBody?.querySelector(".ps-food-orders-toggle");
+  const panel = elements.sessionBody?.querySelector(".ps-session-food-orders");
+  if (!toggle || !panel) return;
+
+  toggle.addEventListener("click", () => {
+    const open = panel.hidden;
+    panel.hidden = !open;
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    toggle.classList.toggle("is-open", open);
+  });
+}
+
 function renderSessionBody(session) {
   if (!session || !elements.sessionBody) return;
   const customers = session.customers || [];
   const foodOrders = getSessionFoodOrders(session);
-  const foodBadge = foodOrders.length
-    ? `<span class="ps-food-badge">${foodOrders.length}</span>`
+  const foodCount = foodOrders.length;
+  const foodBadge = foodCount
+    ? `<span class="ps-food-badge">${foodCount}</span>`
     : "";
+  const foodCountCell = foodCount > 0
+    ? `<button type="button" class="ps-food-orders-toggle" aria-expanded="false" aria-label="Show ${foodCount} food order${foodCount === 1 ? "" : "s"}">${foodCount}</button>`
+    : "<strong>0</strong>";
 
   elements.sessionBody.innerHTML = `
     <div class="ps-session-head">
@@ -801,9 +841,12 @@ function renderSessionBody(session) {
     `).join("")}
     <div class="ps-session-bill">
       <span>Rate</span><strong>₹${session.ratePerHour}/hr</strong>
-      <span>Food orders</span><strong>${foodOrders.length}</strong>
+      <span>Food orders</span>${foodCountCell}
+      ${foodCount ? `<div class="ps-session-food-orders" hidden>${renderSessionFoodOrdersDetail(foodOrders)}</div>` : ""}
     </div>
   `;
+
+  bindSessionFoodOrdersToggle();
 
   if (elements.orderFoodBtn) {
     elements.orderFoodBtn.innerHTML = `Order Food${foodBadge}`;
