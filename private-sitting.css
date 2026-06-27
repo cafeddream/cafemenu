@@ -28,10 +28,11 @@
   gap: 10px;
   width: 100%;
   padding: 8px 12px;
+  padding-top: max(8px, env(safe-area-inset-top));
   min-height: 52px;
   box-sizing: border-box;
-  background: #0f1218;
-  border-bottom: 1px solid var(--ps-line);
+  background: transparent;
+  border-bottom: 0;
 }
 
 .ps-manager-page .ps-brand-mark {
