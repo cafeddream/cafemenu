@@ -3208,7 +3208,7 @@ body.staff-login-active .ps-splash {
 }
 
 [data-admin-panel-wrap="sittings"] .admin-inline-add {
-  grid-template-columns: minmax(0, 1fr) minmax(56px, 80px) minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(72px, 96px) auto;
 }
 
 .admin-tab-panel {

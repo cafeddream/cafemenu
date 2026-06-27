@@ -20,8 +20,6 @@ import {
   verifySecurityPin
 } from "./firebase.js";
 
-const SITTING_THEMES = ["ps-green", "ps-gold", "ps-purple", "ps-pink", "ps-ruby"];
-
 const state = {
   menuItems: [],
   securityConfig: null,
@@ -338,7 +336,7 @@ function menuTabHtml() {
 function compactSittingRowHtml(sitting) {
   return `
     <div class="admin-compact-row" data-sitting-id="${escapeHtml(sitting.id)}">
-      <span class="admin-compact-label">${escapeHtml(sitting.id)} <small>${escapeHtml(sitting.theme || "ps-green")}</small></span>
+      <span class="admin-compact-label">${escapeHtml(sitting.id)}</span>
       <input class="admin-compact-price" type="number" min="0" step="10" value="${Number(sitting.ratePerHour)}" data-sitting-rate="${escapeHtml(sitting.id)}" aria-label="Rate for ${escapeHtml(sitting.id)}">
       <button class="admin-icon-btn" type="button" data-sitting-save="${escapeHtml(sitting.id)}" title="Save rate">✓</button>
       <button class="admin-icon-btn admin-icon-danger" type="button" data-sitting-delete="${escapeHtml(sitting.id)}" title="Delete">×</button>
@@ -355,13 +353,6 @@ function sittingsTabHtml() {
       <form class="admin-inline-add" id="adminAddSittingForm">
         <input type="text" name="id" placeholder="PS 11" required maxlength="12">
         <input type="number" name="ratePerHour" placeholder="₹/hr" min="0" step="10" required>
-        <select name="theme">
-          ${SITTING_THEMES.map((theme) => `<option value="${theme}">${theme}</option>`).join("")}
-        </select>
-        <label class="admin-checkbox">
-          <input type="checkbox" name="wide">
-          <span>Wide</span>
-        </label>
         <button class="primary-btn" type="submit">Add</button>
       </form>
     </div>
@@ -374,7 +365,6 @@ function unlockedCardHtml() {
       <div class="admin-settings-head">
         <h3>Admin Configuration</h3>
         <div class="admin-settings-actions">
-          <button class="ghost-btn" type="button" data-admin-action="change-pin">PIN</button>
           <button class="secondary-btn" type="button" data-admin-action="lock">Lock</button>
         </div>
       </div>
@@ -449,10 +439,6 @@ function bindAdminSettingsEvents(container) {
       await refreshAdminData();
       if (!state.securityConfig?.pinHash) await openPinModal("set");
       else await openPinModal("unlock");
-      return;
-    }
-    if (action === "change-pin") {
-      await openPinModal("change");
       return;
     }
     if (action === "lock") {
@@ -546,9 +532,7 @@ function bindAdminSettingsEvents(container) {
       try {
         await upsertPrivateSitting({
           id: form.id.value,
-          ratePerHour: form.ratePerHour.value,
-          theme: form.theme.value,
-          wide: form.wide.checked
+          ratePerHour: form.ratePerHour.value
         });
         showToast("Sitting saved");
         form.reset();

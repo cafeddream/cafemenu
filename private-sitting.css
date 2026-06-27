@@ -372,70 +372,71 @@ body[data-active-tab="orders"] .ps-manager-main {
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 3px;
+  gap: 4px;
   min-height: 118px;
-  padding: 14px 34px 12px 12px;
-  color: #fff;
+  padding: 12px;
+  border: 1px solid var(--ps-line);
+  border-radius: 16px;
+  background: var(--ps-panel);
+  color: var(--ps-text);
   text-align: left;
   overflow: hidden;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
-  transition: transform 0.08s ease, filter 0.08s ease;
+  box-shadow: 0 4px 14px rgba(36, 24, 16, 0.06);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
 }
 
 .ps-sitting-card:active {
   transform: scale(0.97);
-  filter: brightness(0.92);
+}
+
+.ps-sitting-id {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ps-muted);
+  line-height: 1.1;
+}
+
+.ps-sitting-price {
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--ps-text);
+}
+
+.ps-sitting-price small {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ps-muted);
+}
+
+.ps-sitting-card em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ps-sitting-card.available em {
+  color: var(--ps-green);
+}
+
+.ps-sitting-card.occupied {
+  background: #fff5f5;
+  border-color: rgba(180, 35, 59, 0.28);
+}
+
+.ps-sitting-card.occupied em {
+  color: var(--ps-ruby);
 }
 
 .ps-session-timer {
   color: #15803d;
   font-size: 18px;
 }
-
-.ps-sitting-card .ps-sitting-no {
-  position: absolute;
-  right: 8px;
-  bottom: 4px;
-  left: auto;
-  top: auto;
-  font-size: 30px;
-  font-weight: 900;
-  line-height: 1;
-  opacity: 0.18;
-  pointer-events: none;
-}
-
-.ps-sitting-card strong,
-.ps-sitting-card > span:not(.ps-sitting-no),
-.ps-sitting-card em {
-  position: relative;
-  z-index: 1;
-  line-height: 1.15;
-  width: 100%;
-  text-align: left;
-}
-
-.ps-sitting-card strong {
-  font-size: 15px;
-}
-
-.ps-sitting-card > span:not(.ps-sitting-no) {
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.ps-sitting-card em {
-  font-style: normal;
-  font-size: 11px;
-  font-weight: 900;
-  text-transform: uppercase;
-  opacity: 0.9;
-}
-
-.ps-sitting-card.available { background: linear-gradient(160deg, #1d6b49, #14553a); }
-.ps-sitting-card.occupied { background: linear-gradient(160deg, #9f2238, #761828); }
 
 .ps-session-actions,
 .ps-checkout-actions {
@@ -1863,22 +1864,20 @@ body[data-active-tab="expenses"] .ps-manager-header {
   #psSittings .ps-sitting-card {
     min-height: 0;
     align-items: flex-start;
-    padding: 8px 26px 7px 10px;
-    gap: 2px;
+    padding: 8px 10px;
+    gap: 3px;
     justify-content: center;
   }
 
-  #psSittings .ps-sitting-card .ps-sitting-no {
-    font-size: 20px;
-    right: 6px;
-    bottom: 3px;
+  #psSittings .ps-sitting-id {
+    font-size: 10px;
   }
 
-  #psSittings .ps-sitting-card strong {
-    font-size: 12px;
+  #psSittings .ps-sitting-price {
+    font-size: 18px;
   }
 
-  #psSittings .ps-sitting-card > span:not(.ps-sitting-no) {
+  #psSittings .ps-sitting-price small {
     font-size: 10px;
   }
 
