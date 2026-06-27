@@ -160,52 +160,6 @@ function setCheckoutBusy(busy) {
     );
   });
 }
-  if (!elements.confirmCheckIn) return;
-  if (busy) {
-    if (!elements.confirmCheckIn.dataset.originalLabel) {
-      elements.confirmCheckIn.dataset.originalLabel = elements.confirmCheckIn.textContent || CHECK_IN_BTN_LABEL;
-    }
-    elements.confirmCheckIn.disabled = true;
-    elements.confirmCheckIn.textContent = "Checking in...";
-    return;
-  }
-  elements.confirmCheckIn.disabled = false;
-  elements.confirmCheckIn.textContent = elements.confirmCheckIn.dataset.originalLabel || CHECK_IN_BTN_LABEL;
-}
-
-function setCheckoutBusy(busy) {
-  const buttons = [
-    elements.checkoutCashBtn,
-    elements.checkoutOnlineBtn,
-    elements.checkoutSplitBtn,
-    elements.checkoutSplitConfirmBtn
-  ];
-  buttons.forEach((button) => {
-    if (!button) return;
-    if (busy) {
-      if (!button.dataset.originalLabel) {
-        button.dataset.originalLabel = button.textContent
-          || (button.id === "psCheckoutCash"
-            ? CHECKOUT_CASH_LABEL
-            : button.id === "psCheckoutOnline"
-              ? CHECKOUT_ONLINE_LABEL
-              : "Split");
-      }
-      button.disabled = true;
-      if (button.id !== "psCheckoutSplit") {
-        button.textContent = "Processing...";
-      }
-      return;
-    }
-    button.disabled = false;
-    button.textContent = button.dataset.originalLabel
-      || (button.id === "psCheckoutCash"
-        ? CHECKOUT_CASH_LABEL
-        : button.id === "psCheckoutOnline"
-          ? CHECKOUT_ONLINE_LABEL
-          : "Split");
-  });
-}
 
 function showCheckInError(message) {
   if (!elements.checkInError) return;
