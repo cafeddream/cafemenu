@@ -35,16 +35,22 @@ let activeTab = "orders";
 let closeDayRunning = false;
 
 function syncManagerChromeMetrics() {
-  if (elements.header) {
-    document.documentElement.style.setProperty(
-      "--ps-header-measured",
-      `${elements.header.offsetHeight}px`
-    );
+  const headerHeight = elements.header?.offsetHeight ?? 0;
+  const tabsHeight = elements.categoryTabs && !elements.categoryTabs.hidden
+    ? elements.categoryTabs.offsetHeight
+    : 0;
+
+  if (headerHeight) {
+    document.documentElement.style.setProperty("--ps-header-measured", `${headerHeight}px`);
+    document.documentElement.style.setProperty("--ps-sticky-tabs-top", `${headerHeight}px`);
   }
-  if (elements.categoryTabs && !elements.categoryTabs.hidden) {
+  if (tabsHeight) {
+    document.documentElement.style.setProperty("--ps-tabs-measured", `${tabsHeight}px`);
+  }
+  if (headerHeight && tabsHeight) {
     document.documentElement.style.setProperty(
-      "--ps-tabs-measured",
-      `${elements.categoryTabs.offsetHeight}px`
+      "--ps-orders-chrome-h",
+      `${headerHeight + tabsHeight}px`
     );
   }
 }
