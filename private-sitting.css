@@ -819,9 +819,57 @@ body[data-active-tab="orders"] .ps-manager-main {
   white-space: nowrap;
 }
 
-.ps-session-customer {
+.ps-session-customers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 10px;
   padding: 10px 0;
   border-bottom: 1px solid var(--ps-line);
+}
+
+.ps-session-customer {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--ps-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ps-session-customer-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: rgba(255, 107, 53, 0.12);
+  color: var(--brand, #ff6b35);
+}
+
+.ps-session-customer-icon .ps-session-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.ps-session-customer-name {
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.ps-session-customer-dob {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ps-muted, #9aa3b2);
+  font-size: 13px;
+}
+
+.ps-session-birthday-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: #ffcc80;
 }
 
 .ps-splash {
