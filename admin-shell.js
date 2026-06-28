@@ -14,8 +14,6 @@ import {
 
 const elements = {
   restaurant: document.querySelector("#adminRestaurant"),
-  header: document.querySelector(".ps-manager-header"),
-  categoryTabs: document.querySelector("#adminCategoryTabs"),
   todayCollectionBtn: document.querySelector("#todayCollectionBtn"),
   todayCollectionModal: document.querySelector("#todayCollectionModal"),
   closeDayBtn: document.querySelector("#closeDayBtn"),
@@ -33,39 +31,6 @@ const elements = {
 
 let activeTab = "orders";
 let closeDayRunning = false;
-
-function syncManagerChromeMetrics() {
-  const headerHeight = elements.header?.offsetHeight ?? 0;
-  const tabsHeight = elements.categoryTabs && !elements.categoryTabs.hidden
-    ? elements.categoryTabs.offsetHeight
-    : 0;
-
-  if (headerHeight) {
-    document.documentElement.style.setProperty("--ps-header-measured", `${headerHeight}px`);
-    document.documentElement.style.setProperty("--ps-sticky-tabs-top", `${headerHeight}px`);
-  }
-  if (tabsHeight) {
-    document.documentElement.style.setProperty("--ps-tabs-measured", `${tabsHeight}px`);
-  }
-  if (headerHeight && tabsHeight) {
-    document.documentElement.style.setProperty(
-      "--ps-orders-chrome-h",
-      `${headerHeight + tabsHeight}px`
-    );
-  }
-}
-
-function initManagerChromeMetrics() {
-  syncManagerChromeMetrics();
-  if (typeof ResizeObserver !== "undefined") {
-    const observer = new ResizeObserver(() => syncManagerChromeMetrics());
-    if (elements.header) observer.observe(elements.header);
-    if (elements.categoryTabs) observer.observe(elements.categoryTabs);
-  } else {
-    window.addEventListener("resize", syncManagerChromeMetrics);
-  }
-  window.addEventListener("orientationchange", syncManagerChromeMetrics);
-}
 
 export function closeManagerMenu() {
   if (!elements.menuDropdown) return;
@@ -94,7 +59,6 @@ function setActiveTab(tabId) {
   });
   document.body.dataset.activeTab = tabId;
   closeManagerMenu();
-  requestAnimationFrame(syncManagerChromeMetrics);
 
   if (tabId === "sittings" || tabId === "settings") {
     refreshPrivateSittingView(tabId);
@@ -229,14 +193,12 @@ function startManagerApp() {
     setRestaurantBrandName(elements.restaurant, CONFIG.RESTAURANT_NAME);
     initTodayCollection();
     bindShellUi();
-    initManagerChromeMetrics();
     const sittingRoute = /^#\/sitting\/[^/]+$/i.test(location.hash);
     setActiveTab(sittingRoute ? "sittings" : "orders");
     initPrivateSitting();
     initAdminOrders();
     initExpenses();
     startDailyReportScheduler();
-    requestAnimationFrame(syncManagerChromeMetrics);
   } catch (error) {
     console.error("Manager app init failed:", error);
   } finally {

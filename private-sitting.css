@@ -12,8 +12,6 @@
   --ps-pink: #d946a8;
   --ps-ruby: #b4233b;
   --ps-header-h: 52px;
-  --ps-tabs-h: 60px;
-  --ps-orders-chrome-fallback: calc(var(--ps-header-h) + var(--ps-tabs-h));
   --ps-bottom-nav-h: 72px;
   min-height: 100dvh;
   background: linear-gradient(180deg, #ffffff 0%, var(--ps-bg) 52%);
@@ -281,10 +279,6 @@
 
 body[data-active-tab="orders"] .ps-manager-main {
   padding-top: 0;
-}
-
-body[data-active-tab="orders"] {
-  scroll-padding-top: var(--ps-orders-chrome-h, var(--ps-orders-chrome-fallback));
 }
 
 .ps-bottom-nav {
@@ -1252,7 +1246,7 @@ body.ps-orders-detail-open {
 
 .ps-manager-page #adminCategoryTabs {
   flex-shrink: 0;
-  height: auto;
+  height: 68px;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -1279,8 +1273,7 @@ body[data-active-tab="expenses"] .ps-manager-main {
 }
 
 body[data-active-tab="settings"] .ps-manager-header,
-body[data-active-tab="expenses"] .ps-manager-header,
-body[data-active-tab="orders"] .ps-manager-header {
+body[data-active-tab="expenses"] .ps-manager-header {
   background: rgba(255, 255, 255, 0.98);
   border-bottom: 1px solid var(--ps-line);
   backdrop-filter: blur(12px);
@@ -1882,22 +1875,6 @@ body[data-active-tab="orders"] .ps-manager-header {
     font-size: 16px;
   }
 
-  body[data-active-tab="orders"] .ps-manager-header {
-    min-height: 0;
-    height: auto;
-    align-items: flex-start;
-    padding: max(6px, env(safe-area-inset-top)) 12px 0;
-    gap: 0;
-    border-bottom: 0;
-  }
-
-  body[data-active-tab="orders"]:not(.ps-orders-detail-open) #adminCategoryTabs {
-    margin-top: -10px;
-    padding: 0 12px 8px;
-    background: rgba(255, 255, 255, 0.98);
-    border-bottom: 1px solid var(--ps-line);
-  }
-
   .admin-order-modal .item-card-top {
     flex-wrap: nowrap;
     align-items: center;
@@ -2011,26 +1988,6 @@ body[data-active-tab="orders"] .ps-manager-header {
   #psSittings .ps-sitting-card em {
     font-size: 9px;
     letter-spacing: 0.03em;
-  }
-
-  body[data-active-tab="orders"] .ps-manager-header {
-    min-height: 0;
-    height: auto;
-    align-items: flex-start;
-    padding: max(6px, env(safe-area-inset-top)) 12px 0;
-    gap: 0;
-    border-bottom: 0;
-  }
-
-  body[data-active-tab="orders"]:not(.ps-orders-detail-open) #adminCategoryTabs {
-    position: sticky;
-    top: var(--ps-sticky-tabs-top, var(--ps-header-measured, var(--ps-header-h)));
-    z-index: 35;
-    margin-top: -10px;
-    padding: 0 12px 8px;
-    background: rgba(255, 255, 255, 0.98);
-    border-bottom: 1px solid var(--ps-line);
-    backdrop-filter: blur(12px);
   }
 }
 
