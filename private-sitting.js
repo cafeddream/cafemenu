@@ -111,9 +111,12 @@ const CHECKIN_FIELD_ICONS = {
 function checkInInputHtml({ name, type = "text", value = "", placeholder, iconKey, attrs = "", ariaLabel = "" }) {
   const icon = CHECKIN_FIELD_ICONS[iconKey] || "";
   const aria = ariaLabel ? ` aria-label="${escapeHtml(ariaLabel)}"` : "";
+  const isDate = type === "date";
+  const wrapClass = isDate ? "ps-field-input-wrap ps-field-input-wrap--date" : "ps-field-input-wrap";
+  const wrapAttrs = isDate && placeholder ? ` data-placeholder="${escapeHtml(placeholder)}"` : "";
   return `
     <label class="ps-field ps-field--icon">
-      <span class="ps-field-input-wrap">
+      <span class="${wrapClass}"${wrapAttrs}>
         <span class="ps-field-icon" aria-hidden="true">${icon}</span>
         <input type="${type}" name="${name}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}"${aria} ${attrs}>
       </span>
@@ -603,7 +606,7 @@ function customerBlockHtml(customer, index) {
         name: `dob-${index}`,
         type: "date",
         value: customer.dob,
-        placeholder: "Select date of birth",
+        placeholder: "Enter DOB here",
         iconKey: "dob",
         ariaLabel: "Date of birth",
         attrs: `max="${getMaxDobForAdult()}" required`

@@ -846,12 +846,25 @@ body[data-active-tab="orders"] .ps-manager-main {
   font-weight: 600;
 }
 
+.ps-checkin-form .ps-field-input-wrap--date:not(:focus-within):has(input:invalid)::after {
+  content: attr(data-placeholder);
+  position: absolute;
+  left: 42px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #a3a3a3;
+  font-size: inherit;
+  font-weight: 600;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
 .ps-checkin-form .ps-field--icon input[type="date"] {
   padding-right: 10px;
 }
 
 .ps-checkin-form .ps-field--icon input[type="date"]:invalid {
-  color: #a3a3a3;
+  color: transparent;
 }
 
 .ps-checkin-form .ps-field--icon input[type="date"]:valid,
