@@ -22,6 +22,10 @@ function orderHasUnservedItems(order) {
   return (order.items || []).some((item) => item.status !== "served");
 }
 
+export async function isTodayDayClosed() {
+  return isReportDayUploaded(getTodayKey());
+}
+
 export async function closeDayForToday() {
   if (!isReportSyncConfigured()) {
     throw new Error(CLOSE_DAY_ERRORS.appsScript);

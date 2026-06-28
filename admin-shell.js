@@ -4,7 +4,7 @@ import { initExpenses } from "./expenses.js";
 import { initPrivateSitting, refreshPrivateSittingView } from "./private-sitting.js";
 import { startDailyReportScheduler } from "./report-scheduler.js";
 import { requireStaffAuth } from "./staff-auth.js";
-import { closeDayForToday } from "./close-day.js";
+import { closeDayForToday, CLOSE_DAY_ERRORS, isTodayDayClosed } from "./close-day.js";
 import {
   closeTodayCollectionModal,
   initTodayCollection,
@@ -85,7 +85,20 @@ function setCloseDayBusy(busy) {
   if (elements.closeDayNo) elements.closeDayNo.disabled = busy;
 }
 
-function openCloseDayModal() {
+async function refreshCloseDayButtonState() {
+  if (!elements.closeDayBtn) return;
+  const closed = await isTodayDayClosed();
+  elements.closeDayBtn.disabled = closed;
+  elements.closeDayBtn.setAttribute("aria-disabled", closed ? "true" : "false");
+  elements.closeDayBtn.title = closed ? CLOSE_DAY_ERRORS.alreadyClosed : "";
+}
+
+async function openCloseDayModal() {
+  if (await isTodayDayClosed()) {
+    showToast(CLOSE_DAY_ERRORS.alreadyClosed);
+    await refreshCloseDayButtonState();
+    return;
+  }
   setCloseDayError();
   setCloseDayBusy(false);
   if (elements.closeDayModal) elements.closeDayModal.hidden = false;
@@ -105,12 +118,17 @@ async function confirmCloseDay() {
     await closeDayForToday();
     closeCloseDayModal();
     closeManagerMenu();
+    await refreshCloseDayButtonState();
     showToast("Day closed. Report saved to Drive and downloaded.");
   } catch (error) {
     console.error("Close day failed:", error);
     const message = error?.message || "Close day failed. Please try again.";
     setCloseDayError(message);
     showToast(message);
+    if (message === CLOSE_DAY_ERRORS.alreadyClosed) {
+      closeCloseDayModal();
+      await refreshCloseDayButtonState();
+    }
   } finally {
     setCloseDayBusy(false);
   }
@@ -166,7 +184,7 @@ function bindShellUi() {
   elements.closeDayBtn?.addEventListener("click", (event) => {
     event.stopPropagation();
     closeManagerMenu();
-    openCloseDayModal();
+    void openCloseDayModal();
   });
   elements.closeDayNo?.addEventListener("click", closeCloseDayModal);
   elements.closeDayYes?.addEventListener("click", confirmCloseDay);
@@ -193,6 +211,7 @@ function startManagerApp() {
     setRestaurantBrandName(elements.restaurant, CONFIG.RESTAURANT_NAME);
     initTodayCollection();
     bindShellUi();
+    void refreshCloseDayButtonState();
     const sittingRoute = /^#\/sitting\/[^/]+$/i.test(location.hash);
     setActiveTab(sittingRoute ? "sittings" : "orders");
     initPrivateSitting();

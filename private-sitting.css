@@ -171,6 +171,13 @@
   transform: scale(0.98);
 }
 
+.ps-menu-dropdown-item:disabled,
+.ps-menu-dropdown-item[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .ps-menu-dropdown-logout {
   color: #ff8f8f;
 }
