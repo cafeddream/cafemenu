@@ -1883,9 +1883,11 @@ body[data-active-tab="orders"] .ps-manager-header {
   }
 
   body[data-active-tab="orders"] .ps-manager-header {
-    min-height: auto;
+    min-height: 0;
+    height: auto;
     align-items: flex-start;
-    padding-bottom: 0;
+    padding: max(6px, env(safe-area-inset-top)) 12px 0;
+    gap: 0;
     border-bottom: 0;
   }
 
@@ -1894,14 +1896,6 @@ body[data-active-tab="orders"] .ps-manager-header {
     padding: 0 12px 10px;
     background: rgba(255, 255, 255, 0.98);
     border-bottom: 1px solid var(--ps-line);
-  }
-
-  body[data-active-tab="orders"]:not(.ps-orders-detail-open) #psOrdersGrid {
-    margin-top: 10px;
-  }
-
-  body[data-active-tab="orders"]:not(.ps-orders-detail-open) .admin-section-panel-pos {
-    padding-top: 16px;
   }
 
   .admin-order-modal .item-card-top {
@@ -2020,9 +2014,11 @@ body[data-active-tab="orders"] .ps-manager-header {
   }
 
   body[data-active-tab="orders"] .ps-manager-header {
-    min-height: auto;
+    min-height: 0;
+    height: auto;
     align-items: flex-start;
-    padding-bottom: 0;
+    padding: max(6px, env(safe-area-inset-top)) 12px 0;
+    gap: 0;
     border-bottom: 0;
   }
 
@@ -2035,15 +2031,6 @@ body[data-active-tab="orders"] .ps-manager-header {
     background: rgba(255, 255, 255, 0.98);
     border-bottom: 1px solid var(--ps-line);
     backdrop-filter: blur(12px);
-  }
-
-  body[data-active-tab="orders"]:not(.ps-orders-detail-open) #psOrdersGrid {
-    padding-top: 0;
-    margin-top: 10px;
-  }
-
-  body[data-active-tab="orders"]:not(.ps-orders-detail-open) .admin-section-panel-pos {
-    padding-top: 16px;
   }
 }
 
