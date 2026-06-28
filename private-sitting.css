@@ -1892,8 +1892,8 @@ body[data-active-tab="orders"] .ps-manager-header {
   }
 
   body[data-active-tab="orders"]:not(.ps-orders-detail-open) #adminCategoryTabs {
-    margin-top: 0;
-    padding: 0 12px 10px;
+    margin-top: -10px;
+    padding: 0 12px 8px;
     background: rgba(255, 255, 255, 0.98);
     border-bottom: 1px solid var(--ps-line);
   }
@@ -2026,8 +2026,8 @@ body[data-active-tab="orders"] .ps-manager-header {
     position: sticky;
     top: var(--ps-sticky-tabs-top, var(--ps-header-measured, var(--ps-header-h)));
     z-index: 35;
-    margin-top: 0;
-    padding: 0 12px 10px;
+    margin-top: -10px;
+    padding: 0 12px 8px;
     background: rgba(255, 255, 255, 0.98);
     border-bottom: 1px solid var(--ps-line);
     backdrop-filter: blur(12px);
