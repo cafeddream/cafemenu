@@ -1,6 +1,7 @@
 import { CONFIG, showToast } from "./firebase.js";
 import { initAdminOrders } from "./admin-orders.js";
 import { initExpenses } from "./expenses.js";
+import { initPartyOrders, refreshPartyView } from "./party-orders.js";
 import { initPrivateSitting, refreshPrivateSittingView } from "./private-sitting.js";
 import { startDailyReportScheduler } from "./report-scheduler.js";
 import { requireStaffAuth } from "./staff-auth.js";
@@ -15,6 +16,7 @@ import {
 const elements = {
   restaurant: document.querySelector("#adminRestaurant"),
   todayCollectionBtn: document.querySelector("#todayCollectionBtn"),
+  managerSettingsBtn: document.querySelector("#managerSettingsBtn"),
   todayCollectionModal: document.querySelector("#todayCollectionModal"),
   closeDayBtn: document.querySelector("#closeDayBtn"),
   closeDayModal: document.querySelector("#closeDayModal"),
@@ -62,6 +64,9 @@ function setActiveTab(tabId) {
 
   if (tabId === "sittings" || tabId === "settings") {
     refreshPrivateSittingView(tabId);
+  }
+  if (tabId === "party") {
+    refreshPartyView();
   }
 }
 
@@ -181,6 +186,11 @@ function bindShellUi() {
     void openTodayCollectionModal();
   });
 
+  elements.managerSettingsBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setActiveTab("settings");
+  });
+
   elements.closeDayBtn?.addEventListener("click", (event) => {
     event.stopPropagation();
     closeManagerMenu();
@@ -217,6 +227,7 @@ function startManagerApp() {
     initPrivateSitting();
     initAdminOrders();
     initExpenses();
+    initPartyOrders();
     startDailyReportScheduler();
   } catch (error) {
     console.error("Manager app init failed:", error);

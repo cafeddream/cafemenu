@@ -78,6 +78,10 @@ const elements = {
   checkoutSplitPanel: document.querySelector("#psSplitPanel"),
   checkoutSplitOnlineAmount: document.querySelector("#psSplitOnlineAmount"),
   checkoutSplitCashAmount: document.querySelector("#psSplitCashAmount"),
+  checkoutSplitCreditAmount: document.querySelector("#psSplitCreditAmount"),
+  checkoutSplitCreditCustomer: document.querySelector("#psSplitCreditCustomer"),
+  checkoutSplitCreditName: document.querySelector("#psSplitCreditName"),
+  checkoutSplitCreditMobile: document.querySelector("#psSplitCreditMobile"),
   checkoutSplitPaymentHint: document.querySelector("#psSplitPaymentHint"),
   checkoutSplitBackBtn: document.querySelector("#psSplitBackBtn"),
   checkoutSplitConfirmBtn: document.querySelector("#psSplitConfirmBtn"),
@@ -1023,7 +1027,6 @@ function updateCheckoutDiscountDisplay() {
   elements.checkoutFinalPayable.textContent = info.discountAmount > 0
     ? `Final Payable: ${formatCurrency(info.finalTotal)} (− ${formatCurrency(info.discountAmount)})`
     : `Final Payable: ${formatCurrency(info.finalTotal)}`;
-  syncCheckoutSplitAmounts();
   updateCheckoutSplitValidation();
 }
 
@@ -1089,32 +1092,13 @@ function showCheckoutPendingPanel() {
   elements.checkoutPendingName?.focus();
 }
 
-function syncCheckoutSplitAmounts(driver = state.checkoutSplitDriver || "cash") {
-  if (!elements.checkoutSplitPanel || elements.checkoutSplitPanel.hidden) return;
-  const grandTotal = Number(state.checkoutDraft?.grandTotal || 0);
-  const finalTotal = computeDiscount(grandTotal, readCheckoutDiscount()).finalTotal;
-  if (driver === "online") {
-    const online = Number(elements.checkoutSplitOnlineAmount?.value || 0);
-    const safeOnline = Number.isFinite(online) ? Math.max(0, online) : 0;
-    const cash = Math.max(0, finalTotal - safeOnline);
-    if (elements.checkoutSplitCashAmount) elements.checkoutSplitCashAmount.value = String(cash);
-    return;
-  }
-  const cash = Number(elements.checkoutSplitCashAmount?.value || 0);
-  const safeCash = Number.isFinite(cash) ? Math.max(0, cash) : 0;
-  const online = Math.max(0, finalTotal - safeCash);
-  if (elements.checkoutSplitOnlineAmount) {
-    elements.checkoutSplitOnlineAmount.value = String(online);
-  }
-}
-
 function showCheckoutSplitPanel() {
   hideCheckoutPendingPanel();
-  state.checkoutSplitDriver = null;
-  const grandTotal = Number(state.checkoutDraft?.grandTotal || 0);
-  const info = computeDiscount(grandTotal, readCheckoutDiscount());
-  if (elements.checkoutSplitOnlineAmount) elements.checkoutSplitOnlineAmount.value = String(info.finalTotal);
   if (elements.checkoutSplitCashAmount) elements.checkoutSplitCashAmount.value = "0";
+  if (elements.checkoutSplitOnlineAmount) elements.checkoutSplitOnlineAmount.value = "0";
+  if (elements.checkoutSplitCreditAmount) elements.checkoutSplitCreditAmount.value = "0";
+  if (elements.checkoutSplitCreditName) elements.checkoutSplitCreditName.value = "";
+  if (elements.checkoutSplitCreditMobile) elements.checkoutSplitCreditMobile.value = "";
   const actions = elements.checkoutModal?.querySelector(".ps-checkout-actions");
   if (actions) actions.hidden = true;
   if (elements.checkoutSplitPanel) elements.checkoutSplitPanel.hidden = false;
@@ -1125,20 +1109,31 @@ function showCheckoutSplitPanel() {
 function readCheckoutSplitInput() {
   const cash = Number(elements.checkoutSplitCashAmount?.value || 0);
   const online = Number(elements.checkoutSplitOnlineAmount?.value || 0);
-  return { cash: Number.isFinite(cash) ? cash : 0, online: Number.isFinite(online) ? online : 0 };
+  const credit = Number(elements.checkoutSplitCreditAmount?.value || 0);
+  return {
+    cash: Number.isFinite(cash) ? cash : 0,
+    online: Number.isFinite(online) ? online : 0,
+    credit: Number.isFinite(credit) ? credit : 0
+  };
 }
 
 function updateCheckoutSplitValidation() {
   if (!elements.checkoutSplitPanel || elements.checkoutSplitPanel.hidden) return;
   const grandTotal = Number(state.checkoutDraft?.grandTotal || 0);
   const info = computeDiscount(grandTotal, readCheckoutDiscount());
-  const { cash, online } = readCheckoutSplitInput();
-  const entered = cash + online;
+  const { cash, online, credit } = readCheckoutSplitInput();
+  const entered = cash + online + credit;
   const match = entered === info.finalTotal;
+  if (elements.checkoutSplitCreditCustomer) {
+    elements.checkoutSplitCreditCustomer.hidden = credit <= 0;
+  }
   if (elements.checkoutSplitPaymentHint) {
+    const remaining = info.finalTotal - entered;
     elements.checkoutSplitPaymentHint.textContent = match
       ? `Total: ${formatCurrency(entered)}`
-      : `Must equal ${formatCurrency(info.finalTotal)} (entered ${formatCurrency(entered)})`;
+      : (remaining > 0
+        ? `Remaining: ${formatCurrency(remaining)}`
+        : `Over by ${formatCurrency(-remaining)}`);
     elements.checkoutSplitPaymentHint.classList.toggle("split-payment-hint--error", !match);
   }
   if (elements.checkoutSplitConfirmBtn) elements.checkoutSplitConfirmBtn.disabled = !match;
@@ -1297,10 +1292,15 @@ async function confirmCheckout(method, customerProfile = null) {
       method,
       discountInfo.finalTotal
     );
-    sittingPayment = { cash: allocations[0].cashAmount, online: allocations[0].onlineAmount };
+    sittingPayment = {
+      cash: allocations[0].cashAmount,
+      online: allocations[0].onlineAmount,
+      credit: allocations[0].creditAmount || 0
+    };
     foodPayments = foodOrderDiscounts.map((entry, index) => ({
       cash: allocations[index + 1].cashAmount,
-      online: allocations[index + 1].onlineAmount
+      online: allocations[index + 1].onlineAmount,
+      credit: allocations[index + 1].creditAmount || 0
     }));
   }
 
@@ -1472,17 +1472,28 @@ function bindPrivateSittingUi() {
       showToast(error?.message || "Split amounts must match final payable");
       return;
     }
-    void confirmCheckout(input);
+    if (input.credit > 0) {
+      try {
+        buildSessionCreditProfile(state.checkoutDraft?.session, {
+          name: elements.checkoutSplitCreditName?.value || "",
+          mobile: elements.checkoutSplitCreditMobile?.value || ""
+        });
+      } catch (error) {
+        showToast(error?.message || "Name and mobile required for udhaar");
+        return;
+      }
+    }
+    if (input.credit === info.finalTotal && input.cash === 0 && input.online === 0) {
+      void confirmCheckout("pending", readCheckoutPendingFormValues());
+      return;
+    }
+    void confirmCheckout(input, input.credit > 0 ? {
+      name: elements.checkoutSplitCreditName?.value || "",
+      mobile: elements.checkoutSplitCreditMobile?.value || ""
+    } : null);
   });
-  elements.checkoutSplitOnlineAmount?.addEventListener("input", () => {
-    state.checkoutSplitDriver = "online";
-    syncCheckoutSplitAmounts("online");
-    updateCheckoutSplitValidation();
-  });
-  elements.checkoutSplitCashAmount?.addEventListener("input", () => {
-    state.checkoutSplitDriver = "cash";
-    syncCheckoutSplitAmounts("cash");
-    updateCheckoutSplitValidation();
+  [elements.checkoutSplitCashAmount, elements.checkoutSplitOnlineAmount, elements.checkoutSplitCreditAmount].forEach((input) => {
+    input?.addEventListener("input", updateCheckoutSplitValidation);
   });
   elements.checkoutDiscountType?.addEventListener("change", updateCheckoutDiscountDisplay);
   elements.checkoutDiscountValue?.addEventListener("input", updateCheckoutDiscountDisplay);

@@ -17,6 +17,8 @@ import {
   placeCounterOrderWithCredit,
   placeCounterOrderWithPayment,
   placePrivateSittingFoodOrder,
+  placePartyFoodOrder,
+  PARTY_ORDER_TABLE,
   registerServiceWorker,
   rejectActivePaymentClaim,
   showRichToast,
@@ -67,7 +69,7 @@ const state = {
   menuLoaded: false,
   menuSearchQuery: "",
   detailTableId: null,
-  orderModalOptions: { deferPayment: false, sessionId: null }
+  orderModalOptions: { deferPayment: false, sessionId: null, partyId: null, planOnly: false, onPlanConfirm: null }
 };
 
 let adminAudioContext = null;
@@ -95,6 +97,10 @@ const elements = {
   splitPaymentPanel: document.querySelector("#splitPaymentPanel"),
   splitOnlineAmount: document.querySelector("#splitOnlineAmount"),
   splitCashAmount: document.querySelector("#splitCashAmount"),
+  splitCreditAmount: document.querySelector("#splitCreditAmount"),
+  splitCreditCustomer: document.querySelector("#splitCreditCustomer"),
+  splitCreditName: document.querySelector("#splitCreditName"),
+  splitCreditMobile: document.querySelector("#splitCreditMobile"),
   splitPaymentHint: document.querySelector("#splitPaymentHint"),
   splitPaymentBackBtn: document.querySelector("#splitPaymentBackBtn"),
   splitConfirmBtn: document.querySelector("#splitConfirmBtn"),
@@ -160,15 +166,8 @@ function bindUi() {
   elements.paidSplitBtn?.addEventListener("click", showSplitPaymentPanel);
   elements.splitPaymentBackBtn?.addEventListener("click", hideSplitPaymentPanel);
   elements.splitConfirmBtn?.addEventListener("click", () => void confirmSplitPayment());
-  elements.splitOnlineAmount?.addEventListener("input", () => {
-    state.splitPaymentDriver = "online";
-    syncSplitAmounts("online");
-    updateSplitPaymentValidation();
-  });
-  elements.splitCashAmount?.addEventListener("input", () => {
-    state.splitPaymentDriver = "cash";
-    syncSplitAmounts("cash");
-    updateSplitPaymentValidation();
+  [elements.splitCashAmount, elements.splitOnlineAmount, elements.splitCreditAmount].forEach((input) => {
+    input?.addEventListener("input", updateSplitPaymentValidation);
   });
   elements.paidPendingBtn?.addEventListener("click", handlePendingPaymentClick);
   elements.pendingCustomerConfirmBtn?.addEventListener("click", confirmPendingCustomerPanel);
@@ -177,12 +176,10 @@ function bindUi() {
   elements.voidOrderConfirmBtn?.addEventListener("click", confirmVoidOrder);
   elements.paymentDiscountType?.addEventListener("change", () => {
     updatePaymentDiscountDisplay();
-    syncSplitAmounts();
     updateSplitPaymentValidation();
   });
   elements.paymentDiscountValue?.addEventListener("input", () => {
     updatePaymentDiscountDisplay();
-    syncSplitAmounts();
     updateSplitPaymentValidation();
   });
   elements.closeAdminOrder.addEventListener("click", closeAdminOrderModal);
@@ -863,29 +860,13 @@ function hideSplitPaymentPanel() {
   }
 }
 
-function syncSplitAmounts(driver = state.splitPaymentDriver || "cash") {
-  if (!elements.splitPaymentPanel || elements.splitPaymentPanel.hidden) return;
-  const finalTotal = computeDiscount(state.pendingPaymentGross, readPaymentDiscount()).finalTotal;
-  if (driver === "online") {
-    const online = Number(elements.splitOnlineAmount?.value || 0);
-    const safeOnline = Number.isFinite(online) ? Math.max(0, online) : 0;
-    const cash = Math.max(0, finalTotal - safeOnline);
-    if (elements.splitCashAmount) elements.splitCashAmount.value = String(cash);
-    return;
-  }
-  const cash = Number(elements.splitCashAmount?.value || 0);
-  const safeCash = Number.isFinite(cash) ? Math.max(0, cash) : 0;
-  const online = Math.max(0, finalTotal - safeCash);
-  if (elements.splitOnlineAmount) {
-    elements.splitOnlineAmount.value = String(online);
-  }
-}
-
 function showSplitPaymentPanel() {
-  state.splitPaymentDriver = null;
   const info = computeDiscount(state.pendingPaymentGross, readPaymentDiscount());
-  if (elements.splitOnlineAmount) elements.splitOnlineAmount.value = String(info.finalTotal);
   if (elements.splitCashAmount) elements.splitCashAmount.value = "0";
+  if (elements.splitOnlineAmount) elements.splitOnlineAmount.value = "0";
+  if (elements.splitCreditAmount) elements.splitCreditAmount.value = "0";
+  if (elements.splitCreditName) elements.splitCreditName.value = "";
+  if (elements.splitCreditMobile) elements.splitCreditMobile.value = "";
   hidePendingCustomerPanel();
   if (elements.paymentMethodActions) elements.paymentMethodActions.hidden = true;
   if (elements.splitPaymentPanel) elements.splitPaymentPanel.hidden = false;
@@ -896,19 +877,29 @@ function showSplitPaymentPanel() {
 function readSplitPaymentInput() {
   const cash = Number(elements.splitCashAmount?.value || 0);
   const online = Number(elements.splitOnlineAmount?.value || 0);
-  return { cash: Number.isFinite(cash) ? cash : 0, online: Number.isFinite(online) ? online : 0 };
+  const credit = Number(elements.splitCreditAmount?.value || 0);
+  return {
+    cash: Number.isFinite(cash) ? cash : 0,
+    online: Number.isFinite(online) ? online : 0,
+    credit: Number.isFinite(credit) ? credit : 0
+  };
 }
 
 function updateSplitPaymentValidation() {
   if (!elements.splitPaymentPanel || elements.splitPaymentPanel.hidden) return;
   const info = computeDiscount(state.pendingPaymentGross, readPaymentDiscount());
-  const { cash, online } = readSplitPaymentInput();
-  const entered = cash + online;
+  const { cash, online, credit } = readSplitPaymentInput();
+  const entered = cash + online + credit;
   const match = entered === info.finalTotal;
+  const needsCustomer = credit > 0;
+  if (elements.splitCreditCustomer) elements.splitCreditCustomer.hidden = !needsCustomer;
   if (elements.splitPaymentHint) {
+    const remaining = info.finalTotal - entered;
     elements.splitPaymentHint.textContent = match
       ? `Total: ${formatCurrency(entered)}`
-      : `Must equal ${formatCurrency(info.finalTotal)} (entered ${formatCurrency(entered)})`;
+      : (remaining > 0
+        ? `Remaining: ${formatCurrency(remaining)} (payable ${formatCurrency(info.finalTotal)})`
+        : `Over by ${formatCurrency(-remaining)}`);
     elements.splitPaymentHint.classList.toggle("split-payment-hint--error", !match);
   }
   if (elements.splitConfirmBtn) elements.splitConfirmBtn.disabled = !match;
@@ -921,6 +912,25 @@ async function confirmSplitPayment() {
     normalizePaymentAmounts(info.finalTotal, input);
   } catch (error) {
     showToast(error?.message || "Split amounts must match final payable");
+    return;
+  }
+  if (input.credit > 0) {
+    try {
+      normalizeCreditCustomer({
+        name: elements.splitCreditName?.value || "",
+        mobile: elements.splitCreditMobile?.value || ""
+      });
+    } catch (error) {
+      showToast(error?.message || "Name and mobile required for udhaar");
+      return;
+    }
+    state.pendingPaymentCustomerProfile = {
+      name: elements.splitCreditName?.value || "",
+      mobile: elements.splitCreditMobile?.value || ""
+    };
+  }
+  if (input.credit === info.finalTotal && input.cash === 0 && input.online === 0) {
+    await confirmPaidWithMethod("pending");
     return;
   }
   await confirmPaidWithMethod(input);
@@ -1116,6 +1126,16 @@ async function confirmPaidWithMethod(method) {
       showToast(error?.message || "Name and mobile required for udhaar");
       return;
     }
+  } else if (method && typeof method === "object" && (method.credit || 0) > 0) {
+    try {
+      customerProfile = resolveCreditCustomer(order, state.pendingPaymentCustomerProfile, {
+        name: elements.splitCreditName?.value || pendingFormValues.name,
+        mobile: elements.splitCreditMobile?.value || pendingFormValues.mobile
+      });
+    } catch (error) {
+      showToast(error?.message || "Name and mobile required for udhaar");
+      return;
+    }
   }
 
   elements.paidCashBtn.disabled = true;
@@ -1166,7 +1186,7 @@ async function confirmPaidWithMethod(method) {
         pendingItems,
         method,
         discount,
-        state.pendingPaymentCustomerProfile
+        customerProfile || state.pendingPaymentCustomerProfile
       );
       closePaymentMethodModal();
       showToast(`Order placed for ${formatTableDisplayName(tableId)}`);
@@ -1213,7 +1233,10 @@ function formatDateTime(value) {
 export async function openAdminOrderModal(tableId, options = {}) {
   state.orderModalOptions = {
     deferPayment: Boolean(options.deferPayment),
-    sessionId: options.sessionId || null
+    sessionId: options.sessionId || null,
+    partyId: options.partyId || null,
+    planOnly: Boolean(options.planOnly),
+    onPlanConfirm: typeof options.onPlanConfirm === "function" ? options.onPlanConfirm : null
   };
   state.orderTableId = tableId;
   state.cart.clear();
@@ -1222,9 +1245,13 @@ export async function openAdminOrderModal(tableId, options = {}) {
   const displayName = formatTableDisplayName(tableId);
   const hasOrder = getOrdersForTable(tableId).length > 0;
   if (elements.adminOrderTitle) {
-    elements.adminOrderTitle.textContent = state.orderModalOptions.deferPayment
-      ? `Order Food — ${displayName}`
-      : (hasOrder ? `Add Items — ${displayName}` : `Take Order — ${displayName}`);
+    if (state.orderModalOptions.planOnly) {
+      elements.adminOrderTitle.textContent = "Select Planned Items";
+    } else {
+      elements.adminOrderTitle.textContent = state.orderModalOptions.deferPayment || state.orderModalOptions.partyId
+        ? `Order Food — ${displayName}`
+        : (hasOrder ? `Add Items — ${displayName}` : `Take Order — ${displayName}`);
+    }
   }
   if (!elements.adminOrderModal) return;
   elements.adminOrderModal.classList.add("modal-front");
@@ -1268,7 +1295,7 @@ function closeAdminOrderModal() {
   state.cart.clear();
   state.menuSearchQuery = "";
   if (elements.adminMenuSearch) elements.adminMenuSearch.value = "";
-  state.orderModalOptions = { deferPayment: false, sessionId: null };
+  state.orderModalOptions = { deferPayment: false, sessionId: null, partyId: null, planOnly: false, onPlanConfirm: null };
   if (elements.adminOrderModal) {
     elements.adminOrderModal.classList.remove("modal-front");
     elements.adminOrderModal.hidden = true;
@@ -1352,10 +1379,22 @@ async function placeAdminOrder() {
   if (!items.length) return;
 
   const tableId = state.orderTableId;
-  const { deferPayment, sessionId } = state.orderModalOptions;
+  const { deferPayment, sessionId, partyId, planOnly, onPlanConfirm } = state.orderModalOptions;
   elements.adminPlaceOrderBtn.disabled = true;
 
   try {
+    if (planOnly && onPlanConfirm) {
+      onPlanConfirm(items);
+      closeAdminOrderModal();
+      showToast("Items added to plan");
+      return;
+    }
+    if (partyId) {
+      await placePartyFoodOrder(partyId, items);
+      closeAdminOrderModal();
+      showToast("Party food order sent to kitchen");
+      return;
+    }
     if (deferPayment && sessionId) {
       await placePrivateSittingFoodOrder(tableId, sessionId, items);
       closeAdminOrderModal();

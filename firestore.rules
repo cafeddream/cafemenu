@@ -27,8 +27,10 @@ service cloud.firestore {
       let data = request.resource.data;
       return data.placedBy == 'counter'
         && data.paymentStatus == 'session_hold'
-        && data.privateSessionId is string
-        && data.privateSessionId.size() > 0
+        && (
+          (data.privateSessionId is string && data.privateSessionId.size() > 0)
+          || (data.partySessionId is string && data.partySessionId.size() > 0)
+        )
         && validTable(data.tableId)
         && validOrderItems(data.items)
         && data.status == 'new';
@@ -77,6 +79,10 @@ service cloud.firestore {
     }
 
     match /privateSessions/{sessionId} {
+      allow read, create, update, delete: if isStaff();
+    }
+
+    match /partySessions/{partyId} {
       allow read, create, update, delete: if isStaff();
     }
 

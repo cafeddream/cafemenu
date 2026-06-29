@@ -24,6 +24,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/fireba
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import {
   addDoc,
+  arrayUnion,
   collection,
   deleteDoc,
   deleteField,
@@ -39,6 +40,7 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc,
   where,
   writeBatch
@@ -614,6 +616,16 @@ export function privateSessionRef(sessionId) {
   return doc(db, "privateSessions", sessionId);
 }
 
+export function partySessionRef(partyId) {
+  return doc(db, "partySessions", partyId);
+}
+
+export const PARTY_ORDER_TABLE = "HUT";
+
+function createPartySessionId() {
+  return `party-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function createPrivateSessionId() {
   if (crypto.randomUUID) return crypto.randomUUID();
   return `ps-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -693,28 +705,285 @@ export async function placePrivateSittingFoodOrder(tableId, sessionId, cartItems
   return getDoc(ref);
 }
 
+export function filterPartyFoodOrders(orders = [], partyId) {
+  return orders.filter((order) => (
+    order.paymentStatus === "session_hold"
+    && order.partySessionId === partyId
+  ));
+}
+
+function timestampFromDateInput(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? Timestamp.fromDate(date) : null;
+}
+
+export async function createPartyBooking(payload) {
+  const partyId = createPartySessionId();
+  const ref = partySessionRef(partyId);
+  const scheduledStart = timestampFromDateInput(payload.scheduledStart);
+  const scheduledEnd = timestampFromDateInput(payload.scheduledEnd);
+  if (!scheduledStart || !scheduledEnd) {
+    throw new Error("Valid schedule from/to required");
+  }
+  await setDoc(ref, {
+    partyId,
+    name: String(payload.name || "").trim(),
+    gathering: Math.max(1, Math.round(Number(payload.gathering || 1))),
+    ratePerHour: Math.max(1, Math.round(Number(payload.ratePerHour || 500))),
+    scheduledStart,
+    scheduledEnd,
+    plannedItems: Array.isArray(payload.plannedItems) ? payload.plannedItems : [],
+    notes: String(payload.notes || "").trim(),
+    externalItems: [],
+    otherCharges: [],
+    orderIds: [],
+    status: "booked",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+  return partyId;
+}
+
+export async function startPartySession(partyId, walkInPayload = null) {
+  const ref = partySessionRef(partyId);
+  const snap = await getDoc(ref);
+  if (!snap.exists() && walkInPayload) {
+    await setDoc(ref, {
+      partyId,
+      name: String(walkInPayload.name || "").trim(),
+      gathering: Math.max(1, Math.round(Number(walkInPayload.gathering || 1))),
+      ratePerHour: Math.max(1, Math.round(Number(walkInPayload.ratePerHour || 500))),
+      plannedItems: [],
+      notes: "",
+      externalItems: [],
+      otherCharges: [],
+      orderIds: [],
+      status: "active",
+      actualStart: serverTimestamp(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    return partyId;
+  }
+  if (!snap.exists()) throw new Error("Party booking not found");
+  const data = snap.data();
+  if (data.status === "active") throw new Error("Party already active");
+  if (data.status === "completed") throw new Error("Party already completed");
+  await updateDoc(ref, {
+    status: "active",
+    actualStart: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+  return partyId;
+}
+
+export async function placePartyFoodOrder(partyId, cartItems) {
+  const cleanItems = cleanOrderItems(cartItems);
+  if (!cleanItems.length) return null;
+  const tableId = PARTY_ORDER_TABLE;
+  const newOrderId = createOrderId(tableId);
+  const ref = activeOrderRef(newOrderId);
+  const legacyRef = orderRef(tableId);
+  const data = {
+    orderId: newOrderId,
+    tableId,
+    partySessionId: partyId,
+    items: cleanItems,
+    total: calculateTotal(cleanItems),
+    status: "new",
+    placedBy: "counter",
+    paymentStatus: "session_hold",
+    preferredPaymentMethod: null,
+    timestamp: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  };
+  await runTransaction(db, async (transaction) => {
+    transaction.set(ref, data);
+    transaction.set(legacyRef, data);
+    transaction.update(partySessionRef(partyId), {
+      orderIds: arrayUnion(newOrderId),
+      updatedAt: serverTimestamp()
+    });
+  });
+  return getDoc(ref);
+}
+
+export async function appendPartyExternalItem(partyId, item) {
+  const entry = {
+    name: String(item.name || "").trim(),
+    qty: Math.max(1, Math.round(Number(item.qty || 1))),
+    rate: Math.max(0, Math.round(Number(item.rate || 0)))
+  };
+  if (!entry.name) throw new Error("Item name required");
+  await updateDoc(partySessionRef(partyId), {
+    externalItems: arrayUnion(entry),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function setPartyOtherCharges(partyId, charges = []) {
+  await updateDoc(partySessionRef(partyId), {
+    otherCharges: charges.map((row) => ({
+      label: String(row.label || "").trim(),
+      amount: Math.max(0, Math.round(Number(row.amount || 0)))
+    })).filter((row) => row.label && row.amount > 0),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export function buildPartyBillDraft(party, orders = [], checkOutAt = new Date()) {
+  const hall = calculateSittingBill(party.actualStart, party.ratePerHour, checkOutAt);
+  const cafeOrders = filterPartyFoodOrders(orders, party.partyId);
+  const cafeFoodTotal = cafeOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const externalItems = Array.isArray(party.externalItems) ? party.externalItems : [];
+  const externalFoodTotal = externalItems.reduce(
+    (sum, item) => sum + (Number(item.qty || 0) * Number(item.rate || 0)),
+    0
+  );
+  const otherCharges = Array.isArray(party.otherCharges) ? party.otherCharges : [];
+  const otherChargesTotal = otherCharges.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const grossTotal = hall.billedAmount + cafeFoodTotal + externalFoodTotal + otherChargesTotal;
+  return {
+    hall,
+    hallCharges: hall.billedAmount,
+    cafeFoodTotal,
+    externalFoodTotal,
+    otherChargesTotal,
+    grossTotal,
+    cafeOrders,
+    externalItems,
+    otherCharges
+  };
+}
+
+export async function completePartySession(partyId, checkoutData) {
+  const ref = partySessionRef(partyId);
+  await updateDoc(ref, {
+    ...checkoutData,
+    status: "completed",
+    actualEnd: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export function listenToPartySessions(callback, onError) {
+  const q = query(collection(db, "partySessions"), orderBy("createdAt", "desc"));
+  return onSnapshot(q, (snapshot) => {
+    callback(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })));
+  }, onError || console.error);
+}
+
+export async function fetchActivePartySessionsOnce() {
+  const q = query(collection(db, "partySessions"), where("status", "==", "active"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
+}
+
+export async function recordPartyPayment(partyId, amount, paymentMethod = "cash", discount = null, customerProfile = null) {
+  const paymentDocument = doc(db, "dailySummaries", getTodayKey(), "payments", `party-${partyId}`);
+  const summaryDocument = dailySummaryRef();
+  const discountInfo = computeDiscount(amount, discount);
+  const finalAmount = discountInfo.finalTotal;
+  const payment = normalizePaymentAmounts(finalAmount, paymentMethod);
+  const customerFields = payment.creditAmount > 0 && customerProfile
+    ? normalizeCreditCustomer(customerProfile)
+    : {};
+
+  await runTransaction(db, async (transaction) => {
+    const paymentSnapshot = await transaction.get(paymentDocument);
+    if (paymentSnapshot.exists()) return;
+
+    const summaryPatch = {
+      date: getTodayKey(),
+      updatedAt: serverTimestamp()
+    };
+    const collected = payment.cashAmount + payment.onlineAmount;
+    if (collected > 0) {
+      summaryPatch.total = increment(collected);
+      summaryPatch.grossTotal = increment(discountInfo.grossTotal);
+      summaryPatch.discountTotal = increment(discountInfo.discountAmount);
+      summaryPatch.cash = increment(payment.cashAmount);
+      summaryPatch.online = increment(payment.onlineAmount);
+    }
+    if (payment.creditAmount > 0) {
+      summaryPatch.pendingTotal = increment(payment.creditAmount);
+      summaryPatch.pendingOrders = increment(1);
+    }
+    transaction.set(summaryDocument, summaryPatch, { merge: true });
+
+    transaction.set(paymentDocument, {
+      partyId,
+      amount: finalAmount,
+      grossTotal: discountInfo.grossTotal,
+      discountAmount: discountInfo.discountAmount,
+      paymentMethod: payment.paymentMethod,
+      cashAmount: payment.cashAmount,
+      onlineAmount: payment.onlineAmount,
+      creditAmount: payment.creditAmount || 0,
+      type: "party_session",
+      ...customerFields,
+      paidAt: serverTimestamp()
+    });
+  });
+}
+
+export async function markPartyOrdersSettled(orderIds = []) {
+  await Promise.all(orderIds.filter(Boolean).map(async (orderId) => {
+    const ref = activeOrderRef(orderId);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+    const order = snap.data();
+    await updateDoc(ref, {
+      status: "paid",
+      paymentStatus: "verified_paid",
+      paymentMethod: "party_settle",
+      paidAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    const legacyRef = orderRef(order.tableId);
+    const legacySnap = await getDoc(legacyRef);
+    if (legacySnap.exists() && (legacySnap.data().orderId || "") === orderId) {
+      await updateDoc(legacyRef, {
+        status: "paid",
+        paymentStatus: "verified_paid",
+        updatedAt: serverTimestamp()
+      });
+    }
+  }));
+}
+
 export async function recordSittingPayment(sessionId, amount, paymentMethod = "cash", discount = null) {
   const paymentDocument = doc(db, "dailySummaries", getTodayKey(), "payments", `sitting-${sessionId}`);
   const summaryDocument = dailySummaryRef();
   const discountInfo = computeDiscount(amount, discount);
   const finalAmount = discountInfo.finalTotal;
   const payment = normalizePaymentAmounts(finalAmount, paymentMethod);
+  const collected = payment.cashAmount + payment.onlineAmount;
+  const creditAmount = payment.creditAmount || 0;
 
   await runTransaction(db, async (transaction) => {
     const paymentSnapshot = await transaction.get(paymentDocument);
     if (paymentSnapshot.exists()) return;
 
-    transaction.set(summaryDocument, {
+    const summaryPatch = {
       date: getTodayKey(),
-      total: increment(finalAmount),
       grossTotal: increment(discountInfo.grossTotal),
       discountTotal: increment(discountInfo.discountAmount),
-      cash: increment(payment.cashAmount),
-      online: increment(payment.onlineAmount),
       privateSittings: increment(1),
       privateSittingTotal: increment(finalAmount),
       updatedAt: serverTimestamp()
-    }, { merge: true });
+    };
+    if (collected > 0) {
+      summaryPatch.total = increment(collected);
+      summaryPatch.cash = increment(payment.cashAmount);
+      summaryPatch.online = increment(payment.onlineAmount);
+    }
+    if (creditAmount > 0) {
+      summaryPatch.pendingTotal = increment(creditAmount);
+      summaryPatch.pendingOrders = increment(1);
+    }
+    transaction.set(summaryDocument, summaryPatch, { merge: true });
 
     transaction.set(paymentDocument, {
       sessionId,
@@ -724,6 +993,7 @@ export async function recordSittingPayment(sessionId, amount, paymentMethod = "c
       paymentMethod: payment.paymentMethod,
       cashAmount: payment.cashAmount,
       onlineAmount: payment.onlineAmount,
+      creditAmount: payment.creditAmount || 0,
       type: "private_sitting",
       paidAt: serverTimestamp()
     });
@@ -1189,58 +1459,72 @@ export function computeDiscount(grossTotal, discount = null) {
   };
 }
 
-// Resolves cash/online amounts from stored order/session data (backward compatible).
+// Resolves cash/online/udhaar amounts from stored order/session data (backward compatible).
 export function resolvePaymentAmounts(record = {}) {
   const total = Math.round(Number(record.total ?? record.finalTotal ?? record.grandTotal ?? record.billedAmount ?? 0));
   const cashStored = record.cashAmount;
   const onlineStored = record.onlineAmount;
-  if (Number.isFinite(Number(cashStored)) && Number.isFinite(Number(onlineStored))) {
+  const creditStored = record.creditAmount;
+  if (Number.isFinite(Number(cashStored)) || Number.isFinite(Number(onlineStored)) || Number.isFinite(Number(creditStored))) {
     return {
-      cashAmount: Math.round(Number(cashStored)),
-      onlineAmount: Math.round(Number(onlineStored))
+      cashAmount: Math.round(Number(cashStored || 0)),
+      onlineAmount: Math.round(Number(onlineStored || 0)),
+      creditAmount: Math.round(Number(creditStored || 0))
     };
   }
   if (record.paymentMethod === "online") {
-    return { cashAmount: 0, onlineAmount: total };
+    return { cashAmount: 0, onlineAmount: total, creditAmount: 0 };
   }
   if (record.paymentMethod === "pending" || record.paymentStatus === "credit_pending") {
-    return { cashAmount: 0, onlineAmount: 0 };
+    return { cashAmount: 0, onlineAmount: 0, creditAmount: total };
   }
-  return { cashAmount: total, onlineAmount: 0 };
+  return { cashAmount: total, onlineAmount: 0, creditAmount: 0 };
 }
 
-// Normalizes cash / online / split payment input against a final payable total.
+// Normalizes cash / online / udhaar / split payment input against a final payable total.
 export function normalizePaymentAmounts(finalTotal, paymentInput = "cash") {
   const total = Math.max(0, Math.round(Number(finalTotal || 0)));
+  if (paymentInput === "pending") {
+    return { paymentMethod: "pending", cashAmount: 0, onlineAmount: 0, creditAmount: total };
+  }
   if (paymentInput && typeof paymentInput === "object" && !Array.isArray(paymentInput)) {
     const cash = Math.max(0, Math.round(Number(paymentInput.cash ?? paymentInput.cashAmount ?? 0)));
     const online = Math.max(0, Math.round(Number(paymentInput.online ?? paymentInput.onlineAmount ?? 0)));
-    if (cash + online !== total) {
-      throw new Error(`Split payment must equal ${formatCurrency(total)} (entered ${formatCurrency(cash + online)})`);
+    const credit = Math.max(0, Math.round(Number(paymentInput.credit ?? paymentInput.creditAmount ?? paymentInput.udhaar ?? 0)));
+    if (cash + online + credit !== total) {
+      throw new Error(`Payment must equal ${formatCurrency(total)} (entered ${formatCurrency(cash + online + credit)})`);
     }
-    let paymentMethod = "split";
-    if (online > 0 && cash === 0) paymentMethod = "online";
-    else if (cash > 0 && online === 0) paymentMethod = "cash";
-    return { paymentMethod, cashAmount: cash, onlineAmount: online };
+    if (credit === total && cash === 0 && online === 0) {
+      return { paymentMethod: "pending", cashAmount: 0, onlineAmount: 0, creditAmount: credit };
+    }
+    let paymentMethod = "cash";
+    if (credit > 0) paymentMethod = "mixed";
+    else if (cash > 0 && online > 0) paymentMethod = "split";
+    else if (online > 0) paymentMethod = "online";
+    return { paymentMethod, cashAmount: cash, onlineAmount: online, creditAmount: credit };
   }
   const method = paymentInput === "online" ? "online" : "cash";
   return {
     paymentMethod: method,
     cashAmount: method === "cash" ? total : 0,
-    onlineAmount: method === "online" ? total : 0
+    onlineAmount: method === "online" ? total : 0,
+    creditAmount: 0
   };
 }
 
 export function formatPaymentMethodLabel(record = {}) {
   if (record.paymentMethod === "pending" || record.paymentStatus === "credit_pending") {
-    return "Pending";
+    return "Udhaar";
   }
   const total = Math.round(Number(record.total ?? record.finalTotal ?? record.grandTotal ?? 0));
   const amounts = resolvePaymentAmounts({ ...record, total });
-  if (amounts.cashAmount > 0 && amounts.onlineAmount > 0) {
-    return `Split: Cash ${formatCurrency(amounts.cashAmount)} + Online ${formatCurrency(amounts.onlineAmount)}`;
-  }
-  if (record.paymentMethod === "online" || amounts.onlineAmount > 0) return "Online";
+  const parts = [];
+  if (amounts.cashAmount > 0) parts.push(`Cash ${formatCurrency(amounts.cashAmount)}`);
+  if (amounts.onlineAmount > 0) parts.push(`Online ${formatCurrency(amounts.onlineAmount)}`);
+  if (amounts.creditAmount > 0) parts.push(`Udhaar ${formatCurrency(amounts.creditAmount)}`);
+  if (parts.length > 1) return parts.join(" + ");
+  if (amounts.onlineAmount > 0) return "Online";
+  if (amounts.creditAmount > 0) return "Udhaar";
   return "Cash";
 }
 
@@ -1256,27 +1540,33 @@ export function allocateSplitAcrossPayments(partAmounts, paymentInput, grandTota
   const allocations = [];
   let cashAssigned = 0;
   let onlineAssigned = 0;
+  let creditAssigned = 0;
 
   amounts.forEach((amount, index) => {
     if (index === amounts.length - 1) {
       const cashAmount = payment.cashAmount - cashAssigned;
       const onlineAmount = payment.onlineAmount - onlineAssigned;
+      const creditAmount = (payment.creditAmount || 0) - creditAssigned;
       let paymentMethod = payment.paymentMethod;
-      if (cashAmount > 0 && onlineAmount > 0) paymentMethod = "split";
+      if (creditAmount > 0) paymentMethod = creditAmount === amount ? "pending" : "mixed";
+      else if (cashAmount > 0 && onlineAmount > 0) paymentMethod = "split";
       else if (onlineAmount > 0) paymentMethod = "online";
       else paymentMethod = "cash";
-      allocations.push({ paymentMethod, cashAmount, onlineAmount });
+      allocations.push({ paymentMethod, cashAmount, onlineAmount, creditAmount });
       return;
     }
     const share = total > 0 ? amount / total : 0;
     const cashAmount = Math.round(payment.cashAmount * share);
-    const onlineAmount = amount - cashAmount;
+    const creditAmount = Math.round((payment.creditAmount || 0) * share);
+    const onlineAmount = amount - cashAmount - creditAmount;
     let paymentMethod = "cash";
-    if (cashAmount > 0 && onlineAmount > 0) paymentMethod = "split";
+    if (creditAmount > 0) paymentMethod = creditAmount === amount ? "pending" : "mixed";
+    else if (cashAmount > 0 && onlineAmount > 0) paymentMethod = "split";
     else if (onlineAmount > 0) paymentMethod = "online";
-    allocations.push({ paymentMethod, cashAmount, onlineAmount });
+    allocations.push({ paymentMethod, cashAmount, onlineAmount, creditAmount });
     cashAssigned += cashAmount;
     onlineAssigned += onlineAmount;
+    creditAssigned += creditAmount;
   });
 
   return allocations;
@@ -1380,6 +1670,11 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
     const amountDue = discountInfo.finalTotal;
     const payment = normalizePaymentAmounts(amountDue, paymentMethod);
     paymentForAudit = payment;
+    const creditAmount = payment.creditAmount || 0;
+    const collected = payment.cashAmount + payment.onlineAmount;
+    const paymentStatus = creditAmount === amountDue
+      ? "credit_pending"
+      : (creditAmount > 0 ? "partial_credit" : "verified_paid");
     const paymentDocument = paymentRef(newOrderId);
     const historyDocument = tableHistoryOrderRef(tableId, newOrderId);
     const receiptDocument = receiptRef(newOrderId);
@@ -1398,15 +1693,16 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
       finalTotal: amountDue,
       status: "preparing",
       placedBy: "counter",
-      paymentStatus: "verified_paid",
+      paymentStatus,
       preferredPaymentMethod: payment.paymentMethod,
       paymentMethod: payment.paymentMethod,
       cashAmount: payment.cashAmount,
       onlineAmount: payment.onlineAmount,
+      creditAmount,
       timestamp: serverTimestamp(),
       paidAt: serverTimestamp(),
       kitchenStartedAt: serverTimestamp(),
-      paidTotal: amountDue,
+      paidTotal: collected,
       paidItems: cleanItems,
       updatedAt: serverTimestamp(),
       ...customerFields
@@ -1419,12 +1715,18 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
       const receipt = createReceiptPayload(orderData, paymentMethod, discountInfo);
       transaction.set(summaryDocument, {
         date: getTodayKey(),
-        total: increment(amountDue),
         grossTotal: increment(discountInfo.grossTotal),
         discountTotal: increment(discountInfo.discountAmount),
-        cash: increment(payment.cashAmount),
-        online: increment(payment.onlineAmount),
         foodOrders: increment(1),
+        ...(collected > 0 ? {
+          total: increment(collected),
+          cash: increment(payment.cashAmount),
+          online: increment(payment.onlineAmount)
+        } : {}),
+        ...(creditAmount > 0 ? {
+          pendingTotal: increment(creditAmount),
+          pendingOrders: increment(1)
+        } : {}),
         updatedAt: serverTimestamp()
       }, { merge: true });
 
@@ -1437,6 +1739,7 @@ export async function placeCounterOrderWithPayment(tableId, cartItems, paymentMe
         paymentMethod: payment.paymentMethod,
         cashAmount: payment.cashAmount,
         onlineAmount: payment.onlineAmount,
+        creditAmount,
         type: "food_order",
         paidAt: serverTimestamp()
       });
@@ -2013,6 +2316,11 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
     const amountDue = discountInfo.finalTotal;
     const payment = normalizePaymentAmounts(amountDue, paymentMethod);
     paymentForAudit = payment;
+    const creditAmount = payment.creditAmount || 0;
+    const collected = payment.cashAmount + payment.onlineAmount;
+    const paymentStatus = creditAmount === amountDue
+      ? "credit_pending"
+      : (creditAmount > 0 ? "partial_credit" : "verified_paid");
     const paymentDocument = paymentRef(currentOrderId);
     const historyDocument = tableHistoryOrderRef(tableId, currentOrderId);
     const receiptDocument = receiptRef(currentOrderId);
@@ -2025,10 +2333,11 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
 
     transaction.update(orderDocument, {
       status: nextStatus,
-      paymentStatus: "verified_paid",
+      paymentStatus,
       paymentMethod: payment.paymentMethod,
       cashAmount: payment.cashAmount,
       onlineAmount: payment.onlineAmount,
+      creditAmount,
       paidAt: serverTimestamp(),
       kitchenStartedAt: serverTimestamp(),
       items: payableItems,
@@ -2038,7 +2347,7 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
       discountValue: discountInfo.discountValue,
       discountAmount: discountInfo.discountAmount,
       finalTotal: amountDue,
-      paidTotal: amountDue,
+      paidTotal: collected,
       paidItems: payableItems,
       receiptNumber: receipt.receiptNumber,
       paymentClaimedAt: null,
@@ -2046,16 +2355,23 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
     });
 
     if (!paymentSnapshot.exists()) {
-      transaction.set(summaryDocument, {
+      const summaryPatch = {
         date: getTodayKey(),
-        total: increment(amountDue),
         grossTotal: increment(discountInfo.grossTotal),
         discountTotal: increment(discountInfo.discountAmount),
-        cash: increment(payment.cashAmount),
-        online: increment(payment.onlineAmount),
         foodOrders: increment(1),
         updatedAt: serverTimestamp()
-      }, { merge: true });
+      };
+      if (collected > 0) {
+        summaryPatch.total = increment(collected);
+        summaryPatch.cash = increment(payment.cashAmount);
+        summaryPatch.online = increment(payment.onlineAmount);
+      }
+      if (creditAmount > 0) {
+        summaryPatch.pendingTotal = increment(creditAmount);
+        summaryPatch.pendingOrders = increment(1);
+      }
+      transaction.set(summaryDocument, summaryPatch, { merge: true });
 
       transaction.set(paymentDocument, {
         orderId: currentOrderId,
@@ -2066,6 +2382,7 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
         paymentMethod: payment.paymentMethod,
         cashAmount: payment.cashAmount,
         onlineAmount: payment.onlineAmount,
+        creditAmount,
         type: "food_order",
         paidAt: serverTimestamp()
       });
@@ -2087,10 +2404,11 @@ async function recordOrderPayment(orderId, paymentMethod = "cash", nextStatus = 
         customerName: order.customerName || null,
         customerMobile: order.customerMobile || null,
         customerMobileNormalized: order.customerMobileNormalized || null,
-        paymentStatus: "verified_paid",
+        paymentStatus,
         paymentMethod: payment.paymentMethod,
         cashAmount: payment.cashAmount,
         onlineAmount: payment.onlineAmount,
+        creditAmount,
         orderedAt: order.timestamp || null,
         paidAt: serverTimestamp(),
         receiptNumber: receipt.receiptNumber,

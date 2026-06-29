@@ -1,6 +1,7 @@
 import {
   fetchActiveOrdersOnce,
   fetchActivePrivateSessionsOnce,
+  fetchActivePartySessionsOnce,
   fetchDayWiseReport,
   getTodayKey
 } from "./firebase.js";
@@ -13,6 +14,7 @@ import { getJsPdf } from "./private-sitting-pdf.js";
 export const CLOSE_DAY_ERRORS = {
   unserved: "Please orders unserved, cannot close cafe",
   sitting: "Private sitting Checked In, Cannot close the day",
+  party: "Active party in progress, cannot close the day",
   alreadyClosed: "Day already closed",
   appsScript: "Apps Script URL required to close day"
 };
@@ -36,9 +38,10 @@ export async function closeDayForToday() {
     throw new Error(CLOSE_DAY_ERRORS.alreadyClosed);
   }
 
-  const [orders, sessions] = await Promise.all([
+  const [orders, sessions, parties] = await Promise.all([
     fetchActiveOrdersOnce(),
-    fetchActivePrivateSessionsOnce()
+    fetchActivePrivateSessionsOnce(),
+    fetchActivePartySessionsOnce()
   ]);
 
   if (orders.some(orderHasUnservedItems)) {
@@ -47,6 +50,10 @@ export async function closeDayForToday() {
 
   if (sessions.length > 0) {
     throw new Error(CLOSE_DAY_ERRORS.sitting);
+  }
+
+  if (parties.length > 0) {
+    throw new Error(CLOSE_DAY_ERRORS.party);
   }
 
   await getJsPdf();
