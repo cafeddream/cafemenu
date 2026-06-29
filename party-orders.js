@@ -179,7 +179,7 @@ function renderPartyHome() {
         </div>
       </section>
     ` : ""}
-    ${!active.length && !booked.length && !completed.length ? "<p class=\"subtle\">No parties yet. Book or start one.</p>" : ""}
+    ${!active.length && !booked.length && !completed.length ? "<p class=\"party-empty-hint\">No parties yet. Book or start one.</p>" : ""}
   `;
 
   elements.panel.querySelector("#partyOpenBookBtn")?.addEventListener("click", openBookModal);
