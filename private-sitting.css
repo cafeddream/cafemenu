@@ -178,7 +178,8 @@
   pointer-events: none;
 }
 
-.ps-menu-dropdown-logout {
+.ps-menu-dropdown-logout,
+.ps-menu-dropdown-danger {
   color: #ff8f8f;
 }
 

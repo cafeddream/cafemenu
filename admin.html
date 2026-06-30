@@ -32,6 +32,7 @@
         <a class="ps-menu-dropdown-item" href="./kitchen.html">Kitchen View</a>
         <button class="ps-menu-dropdown-item" id="managerSettingsBtn" type="button">Settings</button>
         <button class="ps-menu-dropdown-item" id="todayCollectionBtn" type="button">Today's Collection</button>
+        <button class="ps-menu-dropdown-item ps-menu-dropdown-danger" id="clearAllOrdersBtn" type="button">Clear All Orders</button>
         <button class="ps-menu-dropdown-item ps-menu-dropdown-logout" id="closeDayBtn" type="button">Close Day</button>
       </nav>
     </div>
@@ -579,6 +580,20 @@
           <button class="ghost-btn" id="partyBillPendingBack" type="button">Back</button>
           <button class="primary-btn" id="partyBillPendingConfirm" type="button">Confirm Udhaar</button>
         </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop modal-front" id="clearAllOrdersModal" hidden>
+    <section class="history-modal ps-close-day-modal" role="dialog" aria-modal="true" aria-labelledby="clearAllOrdersTitle">
+      <div class="modal-head">
+        <h2 id="clearAllOrdersTitle">Clear All Orders</h2>
+      </div>
+      <p class="ps-close-day-prompt">Delete every active order from all tables? This cannot be undone.</p>
+      <p class="ps-close-day-error" id="clearAllOrdersError" hidden></p>
+      <div class="modal-foot ps-close-day-actions">
+        <button class="ghost-btn" id="clearAllOrdersNo" type="button">Cancel</button>
+        <button class="primary-btn danger-btn" id="clearAllOrdersYes" type="button">Clear All</button>
       </div>
     </section>
   </div>

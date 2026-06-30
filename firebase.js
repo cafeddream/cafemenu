@@ -2500,6 +2500,39 @@ export async function clearTable(tableId) {
   await logAuditEntry("table_cleared", tableId);
 }
 
+// Staff emergency: delete every document in activeOrders and clear legacy table order mirrors.
+export async function clearAllActiveOrders() {
+  const snapshot = await getDocs(collection(db, "activeOrders"));
+  const orders = snapshot.docs.map((orderDoc) => ({
+    id: orderDoc.id,
+    ...orderDoc.data()
+  }));
+
+  if (!orders.length) {
+    return { cleared: 0 };
+  }
+
+  const tableIds = new Set(orders.map((order) => order.tableId).filter(Boolean));
+  const chunkSize = 400;
+
+  for (let index = 0; index < orders.length; index += chunkSize) {
+    const batch = writeBatch(db);
+    orders.slice(index, index + chunkSize).forEach((order) => {
+      batch.delete(activeOrderRef(order.orderId || order.id));
+    });
+    await batch.commit();
+  }
+
+  await Promise.all([...tableIds].map((tableId) => deleteDoc(orderRef(tableId)).catch(() => {})));
+
+  await logAuditEntry("all_orders_cleared", null, {
+    cleared: orders.length,
+    tables: [...tableIds]
+  });
+
+  return { cleared: orders.length };
+}
+
 // Subscribes to today's collection summary.
 export function listenToTodaySummary(callback, onError) {
   return onSnapshot(dailySummaryRef(), (snapshot) => {

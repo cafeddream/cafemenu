@@ -153,6 +153,9 @@ function startAdminApp() {
     void preloadMenu();
   });
   window.addEventListener("hashchange", syncDetailFromHash);
+  window.addEventListener("manager-orders-cleared", () => {
+    if (state.detailTableId) closeTableDetail();
+  });
   syncDetailFromHash();
 }
 

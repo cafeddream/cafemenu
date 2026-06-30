@@ -1,4 +1,4 @@
-import { CONFIG, showToast } from "./firebase.js";
+import { CONFIG, clearAllActiveOrders, showToast } from "./firebase.js";
 import { initAdminOrders } from "./admin-orders.js";
 import { initExpenses } from "./expenses.js";
 import { initPartyOrders, refreshPartyView } from "./party-orders.js";
@@ -23,6 +23,11 @@ const elements = {
   closeDayNo: document.querySelector("#closeDayNo"),
   closeDayYes: document.querySelector("#closeDayYes"),
   closeDayError: document.querySelector("#closeDayError"),
+  clearAllOrdersBtn: document.querySelector("#clearAllOrdersBtn"),
+  clearAllOrdersModal: document.querySelector("#clearAllOrdersModal"),
+  clearAllOrdersNo: document.querySelector("#clearAllOrdersNo"),
+  clearAllOrdersYes: document.querySelector("#clearAllOrdersYes"),
+  clearAllOrdersError: document.querySelector("#clearAllOrdersError"),
   menuBtn: document.querySelector("#managerMenuBtn"),
   menuDropdown: document.querySelector("#managerMenuDropdown"),
   headerMenu: document.querySelector(".ps-header-menu"),
@@ -33,6 +38,7 @@ const elements = {
 
 let activeTab = "orders";
 let closeDayRunning = false;
+let clearAllOrdersRunning = false;
 
 export function closeManagerMenu() {
   if (!elements.menuDropdown) return;
@@ -115,6 +121,58 @@ function closeCloseDayModal() {
   if (elements.closeDayModal) elements.closeDayModal.hidden = true;
 }
 
+function setClearAllOrdersError(message = "") {
+  if (!elements.clearAllOrdersError) return;
+  if (message) {
+    elements.clearAllOrdersError.textContent = message;
+    elements.clearAllOrdersError.hidden = false;
+    return;
+  }
+  elements.clearAllOrdersError.textContent = "";
+  elements.clearAllOrdersError.hidden = true;
+}
+
+function setClearAllOrdersBusy(busy) {
+  clearAllOrdersRunning = busy;
+  if (elements.clearAllOrdersYes) {
+    elements.clearAllOrdersYes.disabled = busy;
+    elements.clearAllOrdersYes.textContent = busy ? "Please wait..." : "Clear All";
+  }
+  if (elements.clearAllOrdersNo) elements.clearAllOrdersNo.disabled = busy;
+}
+
+function openClearAllOrdersModal() {
+  setClearAllOrdersError();
+  setClearAllOrdersBusy(false);
+  if (elements.clearAllOrdersModal) elements.clearAllOrdersModal.hidden = false;
+}
+
+function closeClearAllOrdersModal() {
+  if (clearAllOrdersRunning) return;
+  setClearAllOrdersError();
+  if (elements.clearAllOrdersModal) elements.clearAllOrdersModal.hidden = true;
+}
+
+async function confirmClearAllOrders() {
+  if (clearAllOrdersRunning) return;
+  setClearAllOrdersError();
+  setClearAllOrdersBusy(true);
+  try {
+    const result = await clearAllActiveOrders();
+    closeClearAllOrdersModal();
+    closeManagerMenu();
+    showToast(result.cleared ? `Cleared ${result.cleared} order(s).` : "No active orders to clear.");
+    window.dispatchEvent(new CustomEvent("manager-orders-cleared"));
+  } catch (error) {
+    console.error("Clear all orders failed:", error);
+    const message = error?.message || "Could not clear orders. Please try again.";
+    setClearAllOrdersError(message);
+    showToast(message);
+  } finally {
+    setClearAllOrdersBusy(false);
+  }
+}
+
 async function confirmCloseDay() {
   if (closeDayRunning) return;
   setCloseDayError();
@@ -176,6 +234,10 @@ function bindShellUi() {
         closeCloseDayModal();
         return;
       }
+      if (elements.clearAllOrdersModal && !elements.clearAllOrdersModal.hidden) {
+        closeClearAllOrdersModal();
+        return;
+      }
       if (isManagerMenuOpen()) closeManagerMenu();
     }
   });
@@ -196,10 +258,20 @@ function bindShellUi() {
     closeManagerMenu();
     void openCloseDayModal();
   });
+  elements.clearAllOrdersBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeManagerMenu();
+    openClearAllOrdersModal();
+  });
   elements.closeDayNo?.addEventListener("click", closeCloseDayModal);
   elements.closeDayYes?.addEventListener("click", confirmCloseDay);
+  elements.clearAllOrdersNo?.addEventListener("click", closeClearAllOrdersModal);
+  elements.clearAllOrdersYes?.addEventListener("click", () => void confirmClearAllOrders());
   elements.closeDayModal?.addEventListener("click", (event) => {
     if (event.target === elements.closeDayModal) closeCloseDayModal();
+  });
+  elements.clearAllOrdersModal?.addEventListener("click", (event) => {
+    if (event.target === elements.clearAllOrdersModal) closeClearAllOrdersModal();
   });
 }
 
