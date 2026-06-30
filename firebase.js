@@ -934,22 +934,14 @@ export async function markPartyOrdersSettled(orderIds = []) {
     const snap = await getDoc(ref);
     if (!snap.exists()) return;
     const order = snap.data();
-    await updateDoc(ref, {
-      status: "paid",
-      paymentStatus: "verified_paid",
-      paymentMethod: "party_settle",
-      paidAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-    const legacyRef = orderRef(order.tableId);
+    const tableId = order.tableId;
+    await deleteDoc(ref);
+    const legacyRef = orderRef(tableId);
     const legacySnap = await getDoc(legacyRef);
     if (legacySnap.exists() && (legacySnap.data().orderId || "") === orderId) {
-      await updateDoc(legacyRef, {
-        status: "paid",
-        paymentStatus: "verified_paid",
-        updatedAt: serverTimestamp()
-      });
+      await deleteDoc(legacyRef).catch(() => {});
     }
+    await logAuditEntry("party_order_cleared", tableId, { orderId });
   }));
 }
 
@@ -2458,11 +2450,18 @@ export async function clearActiveOrder(orderId) {
   if (!snapshot.exists()) return false;
 
   const order = snapshot.data();
-  if (order.paymentStatus === "session_hold" || order.privateSessionId) {
+  if (order.paymentStatus === "session_hold" && order.privateSessionId) {
     throw new Error("Private sitting orders are cleared at checkout.");
   }
+  if (order.paymentStatus === "session_hold" && order.partySessionId) {
+    throw new Error("Party orders are cleared when the party is closed.");
+  }
 
-  if (getPendingItems(order.items || []).length > 0) {
+  const isSettledPaid = order.status === "paid"
+    || order.paymentMethod === "party_settle"
+    || (order.paymentStatus === "verified_paid" && order.status === "paid");
+
+  if (!isSettledPaid && getPendingItems(order.items || []).length > 0) {
     throw new Error("Serve all items before clearing this order.");
   }
 

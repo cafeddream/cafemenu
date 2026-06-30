@@ -517,7 +517,14 @@ function mobileOrderCardHtml(order) {
   const paymentVerified = order.paymentStatus === "verified_paid";
   const paymentVoided = order.paymentStatus === "voided";
   const paymentCredit = order.paymentStatus === "credit_pending";
-  const isSessionHold = order.paymentStatus === "session_hold" || Boolean(order.privateSessionId);
+  const isSessionHold = order.paymentStatus === "session_hold"
+    && (Boolean(order.privateSessionId) || Boolean(order.partySessionId));
+  const isPartyHold = order.paymentStatus === "session_hold" && Boolean(order.partySessionId);
+  const isSettledPaid = order.status === "paid" || order.paymentMethod === "party_settle";
+  const clearOrderEnabled = isSettledPaid || (!hasPendingItems(order) && !isSessionHold);
+  const clearOrderTitle = clearOrderEnabled
+    ? (isSettledPaid ? "Clear this settled order from the table" : "Clear this order from the table")
+    : "Serve all items before clearing";
   const statusLabel = getOrderStatusLabel(order);
   const statusClass = status === "served" || (paymentVerified && status === "served")
     ? "ps-order-status-served"
@@ -537,7 +544,6 @@ function mobileOrderCardHtml(order) {
       <strong>${formatCurrency(Number(item.price || 0) * Number(item.qty || 0))}</strong>
     </li>
   `).join("");
-  const clearOrderEnabled = !hasPendingItems(order) && !isSessionHold;
 
   return `
     <article class="ps-order-card status-${escapeHtml(status)}" data-order="${escapeHtml(order.orderId || order.id)}">
@@ -551,7 +557,8 @@ function mobileOrderCardHtml(order) {
       ${customerLine}
       ${paymentVoided ? `<div class="payment-alert void-alert">Payment void — ${escapeHtml(order.voidRemarks || "no payment")}</div>` : ""}
       ${paymentCredit ? "<div class=\"payment-alert pending-alert\">Udhaar — payment pending</div>" : ""}
-      ${isSessionHold ? "<div class=\"payment-alert\">Private sitting — settle at checkout or choose payment</div>" : ""}
+      ${isPartyHold ? "<div class=\"payment-alert\">Party order — settle when party is closed</div>" : ""}
+      ${isSessionHold && !isPartyHold ? "<div class=\"payment-alert\">Private sitting — settle at checkout or choose payment</div>" : ""}
       ${paymentClaimed ? "<div class=\"payment-alert\">Customer says payment done - verify UPI</div>" : ""}
       ${cashRequested ? "<div class=\"payment-alert cash-alert\">Customer will pay cash at counter</div>" : ""}
       <ul class="ps-order-lines">${itemLines || "<li class=\"ps-order-line\"><span>No items</span></li>"}</ul>
@@ -566,7 +573,7 @@ function mobileOrderCardHtml(order) {
     ? `<button class="primary-btn" type="button" data-action="paid">${isSessionHold ? "Payment" : "Confirm Payment"}</button>`
     : ""}
         <button class="ghost-btn" type="button" data-action="share">Share Receipt</button>
-        <button class="danger-btn order-clear-btn" type="button" data-action="clear-order" ${clearOrderEnabled ? "" : "disabled"} title="${clearOrderEnabled ? "Clear this order from the table" : "Serve all items before clearing"}">Clear Order</button>
+        <button class="danger-btn order-clear-btn" type="button" data-action="clear-order" ${clearOrderEnabled ? "" : "disabled"} title="${clearOrderTitle}">Clear Order</button>
       </div>
     </article>
   `;

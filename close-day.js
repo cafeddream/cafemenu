@@ -21,6 +21,7 @@ export const CLOSE_DAY_ERRORS = {
 
 function orderHasUnservedItems(order) {
   if (order.paymentStatus === "voided") return false;
+  if (order.status === "paid" || order.paymentMethod === "party_settle") return false;
   return (order.items || []).some((item) => item.status !== "served");
 }
 
