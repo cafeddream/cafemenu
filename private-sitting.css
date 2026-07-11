@@ -2290,6 +2290,58 @@ body[data-active-tab="party"] .ps-manager-header {
   padding: 16px;
 }
 
+.party-start-body .party-form {
+  padding: 0;
+  margin-top: 8px;
+}
+
+.ps-manager-page .history-modal.party-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 560px);
+  max-height: min(90vh, 760px);
+  overflow: hidden;
+  background: var(--ps-panel);
+  color: var(--ps-text);
+}
+
+.ps-manager-page .party-modal .modal-head {
+  flex-shrink: 0;
+  border-bottom-color: var(--ps-line);
+  background: var(--ps-panel);
+  z-index: 2;
+}
+
+.ps-manager-page .party-modal .modal-head h2 {
+  color: var(--ps-text);
+}
+
+.ps-manager-page .party-modal-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ps-manager-page .party-active-modal > .party-active-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ps-manager-page .party-active-modal > .modal-foot {
+  flex-shrink: 0;
+  border-top: 1px solid var(--ps-line);
+  background: var(--ps-panel);
+}
+
+.ps-manager-page .party-bill-modal {
+  max-height: min(92vh, 820px);
+}
+
 .party-datetime-row {
   display: grid;
   gap: 10px;

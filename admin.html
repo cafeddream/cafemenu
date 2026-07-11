@@ -465,19 +465,21 @@
         <h2 id="partyBookTitle">Book Party</h2>
         <button class="ghost-btn" id="closePartyBook" type="button">Close</button>
       </div>
-      <form class="party-form" id="partyBookForm">
-        <label class="ps-field"><span>Name *</span><input type="text" id="partyBookName" maxlength="80" required></label>
-        <div class="party-datetime-row">
-          <label class="ps-field"><span>From *</span><input type="datetime-local" id="partyBookStart" required></label>
-          <label class="ps-field"><span>To *</span><input type="datetime-local" id="partyBookEnd" required></label>
-        </div>
-        <label class="ps-field"><span>Gathering (people) *</span><input type="number" id="partyBookGathering" min="1" step="1" required></label>
-        <label class="ps-field"><span>Rate per hour (₹) *</span><input type="number" id="partyBookRate" min="1" step="1" required placeholder="500"></label>
-        <label class="ps-field"><span>Planned menu items</span><button class="secondary-btn" type="button" id="partyBookAddMenuBtn">Add from Menu</button></label>
-        <div class="party-planned-list" id="partyBookPlannedList"></div>
-        <label class="ps-field"><span>Notes (external food etc.)</span><textarea id="partyBookNotes" rows="2" maxlength="300"></textarea></label>
-        <button class="primary-btn" type="submit">Save Booking</button>
-      </form>
+      <div class="party-modal-scroll">
+        <form class="party-form" id="partyBookForm">
+          <label class="ps-field"><span>Name *</span><input type="text" id="partyBookName" maxlength="80" required></label>
+          <div class="party-datetime-row">
+            <label class="ps-field"><span>From *</span><input type="datetime-local" id="partyBookStart" required></label>
+            <label class="ps-field"><span>To *</span><input type="datetime-local" id="partyBookEnd" required></label>
+          </div>
+          <label class="ps-field"><span>Gathering (people) *</span><input type="number" id="partyBookGathering" min="1" step="1" required></label>
+          <label class="ps-field"><span>Rate per hour (₹) *</span><input type="number" id="partyBookRate" min="1" step="1" required placeholder="500"></label>
+          <label class="ps-field"><span>Planned menu items</span><button class="secondary-btn" type="button" id="partyBookAddMenuBtn">Add from Menu</button></label>
+          <div class="party-planned-list" id="partyBookPlannedList"></div>
+          <label class="ps-field"><span>Notes (external food etc.)</span><textarea id="partyBookNotes" rows="2" maxlength="300"></textarea></label>
+          <button class="primary-btn" type="submit">Save Booking</button>
+        </form>
+      </div>
     </section>
   </div>
 
@@ -487,7 +489,7 @@
         <h2 id="partyStartTitle">Start Party</h2>
         <button class="ghost-btn" id="closePartyStart" type="button">Close</button>
       </div>
-      <div class="party-start-body">
+      <div class="party-modal-scroll party-start-body">
         <h3 class="party-subhead">Scheduled bookings</h3>
         <div id="partyStartBookedList" class="party-booked-list"></div>
         <h3 class="party-subhead">Walk-in (no booking)</h3>
@@ -522,12 +524,14 @@
         <h2 id="partyExternalTitle">External Item</h2>
         <button class="ghost-btn" id="closePartyExternal" type="button">Close</button>
       </div>
-      <form class="party-form" id="partyExternalForm">
-        <label class="ps-field"><span>Item name *</span><input type="text" id="partyExternalName" maxlength="80" required placeholder="Paneer"></label>
-        <label class="ps-field"><span>Qty *</span><input type="number" id="partyExternalQty" min="1" step="1" value="1" required></label>
-        <label class="ps-field"><span>Rate (₹) *</span><input type="number" id="partyExternalRate" min="1" step="1" required placeholder="270"></label>
-        <button class="primary-btn" type="submit">Add Item</button>
-      </form>
+      <div class="party-modal-scroll">
+        <form class="party-form" id="partyExternalForm">
+          <label class="ps-field"><span>Item name *</span><input type="text" id="partyExternalName" maxlength="80" required placeholder="Paneer"></label>
+          <label class="ps-field"><span>Qty *</span><input type="number" id="partyExternalQty" min="1" step="1" value="1" required></label>
+          <label class="ps-field"><span>Rate (₹) *</span><input type="number" id="partyExternalRate" min="1" step="1" required placeholder="270"></label>
+          <button class="primary-btn" type="submit">Add Item</button>
+        </form>
+      </div>
     </section>
   </div>
 
@@ -537,48 +541,50 @@
         <h2 id="partyBillTitle">Close Party — Bill</h2>
         <button class="ghost-btn" id="closePartyBill" type="button">Close</button>
       </div>
-      <div id="partyBillBody" class="party-bill-body"></div>
-      <div class="discount-control" style="padding:0 16px;">
-        <label class="select-label" for="partyBillDiscountValue">Discount (optional)</label>
-        <div class="discount-input-row">
-          <select id="partyBillDiscountType" class="table-select discount-type-select">
-            <option value="amount">₹ Amount</option>
-            <option value="percent">% Percent</option>
-          </select>
-          <input id="partyBillDiscountValue" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
+      <div class="party-modal-scroll">
+        <div id="partyBillBody" class="party-bill-body"></div>
+        <div class="discount-control" style="padding:0 16px;">
+          <label class="select-label" for="partyBillDiscountValue">Discount (optional)</label>
+          <div class="discount-input-row">
+            <select id="partyBillDiscountType" class="table-select discount-type-select">
+              <option value="amount">₹ Amount</option>
+              <option value="percent">% Percent</option>
+            </select>
+            <input id="partyBillDiscountValue" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0">
+          </div>
+          <p class="discount-final" id="partyBillFinalPayable">Final Payable: ₹0</p>
         </div>
-        <p class="discount-final" id="partyBillFinalPayable">Final Payable: ₹0</p>
-      </div>
-      <div class="modal-foot ps-checkout-actions payment-method-actions" style="padding:16px;" id="partyBillPaymentActions">
-        <button class="payment-option-btn payment-option-cash primary-btn" id="partyBillCash" type="button"><span class="payment-option-label">Cash</span></button>
-        <button class="payment-option-btn payment-option-online secondary-btn" id="partyBillOnline" type="button"><span class="payment-option-label">Online</span></button>
-        <button class="payment-option-btn payment-option-split secondary-btn" id="partyBillSplit" type="button"><span class="payment-option-label">Split</span></button>
-        <button class="payment-option-btn payment-option-pending secondary-btn" id="partyBillPending" type="button"><span class="payment-option-label">Udhaar</span></button>
-      </div>
-      <div class="split-payment-panel" id="partyBillSplitPanel" hidden style="padding:0 16px 16px;">
-        <p class="split-payment-help">Enter Cash, Online and Udhaar (must equal final payable).</p>
-        <div class="discount-input-row split-amount-row">
-          <label class="split-amount-field"><span>Cash ₹</span><input id="partyBillSplitCash" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></label>
-          <label class="split-amount-field"><span>Online ₹</span><input id="partyBillSplitOnline" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></label>
-          <label class="split-amount-field"><span>Udhaar ₹</span><input id="partyBillSplitCredit" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></label>
+        <div class="modal-foot ps-checkout-actions payment-method-actions" style="padding:16px;" id="partyBillPaymentActions">
+          <button class="payment-option-btn payment-option-cash primary-btn" id="partyBillCash" type="button"><span class="payment-option-label">Cash</span></button>
+          <button class="payment-option-btn payment-option-online secondary-btn" id="partyBillOnline" type="button"><span class="payment-option-label">Online</span></button>
+          <button class="payment-option-btn payment-option-split secondary-btn" id="partyBillSplit" type="button"><span class="payment-option-label">Split</span></button>
+          <button class="payment-option-btn payment-option-pending secondary-btn" id="partyBillPending" type="button"><span class="payment-option-label">Udhaar</span></button>
         </div>
-        <div class="split-credit-customer" id="partyBillSplitCreditCustomer" hidden>
-          <label class="admin-customer-field"><span>Name</span><input type="text" id="partyBillSplitCreditName" maxlength="60"></label>
-          <label class="admin-customer-field"><span>Mobile</span><input type="tel" id="partyBillSplitCreditMobile" maxlength="10" inputmode="numeric"></label>
+        <div class="split-payment-panel" id="partyBillSplitPanel" hidden style="padding:0 16px 16px;">
+          <p class="split-payment-help">Enter Cash, Online and Udhaar (must equal final payable).</p>
+          <div class="discount-input-row split-amount-row">
+            <label class="split-amount-field"><span>Cash ₹</span><input id="partyBillSplitCash" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></label>
+            <label class="split-amount-field"><span>Online ₹</span><input id="partyBillSplitOnline" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></label>
+            <label class="split-amount-field"><span>Udhaar ₹</span><input id="partyBillSplitCredit" class="table-select discount-value-input" type="number" min="0" step="1" inputmode="numeric" placeholder="0"></label>
+          </div>
+          <div class="split-credit-customer" id="partyBillSplitCreditCustomer" hidden>
+            <label class="admin-customer-field"><span>Name</span><input type="text" id="partyBillSplitCreditName" maxlength="60"></label>
+            <label class="admin-customer-field"><span>Mobile</span><input type="tel" id="partyBillSplitCreditMobile" maxlength="10" inputmode="numeric"></label>
+          </div>
+          <p class="split-payment-hint" id="partyBillSplitHint">Total: ₹0</p>
+          <div class="split-payment-actions">
+            <button class="ghost-btn" id="partyBillSplitBack" type="button">Back</button>
+            <button class="primary-btn" id="partyBillSplitConfirm" type="button" disabled>Confirm Split</button>
+          </div>
         </div>
-        <p class="split-payment-hint" id="partyBillSplitHint">Total: ₹0</p>
-        <div class="split-payment-actions">
-          <button class="ghost-btn" id="partyBillSplitBack" type="button">Back</button>
-          <button class="primary-btn" id="partyBillSplitConfirm" type="button" disabled>Confirm Split</button>
-        </div>
-      </div>
-      <div class="pending-customer-panel" id="partyBillPendingPanel" hidden style="padding:0 16px 16px;">
-        <p class="pending-customer-help">Name and mobile required for udhaar.</p>
-        <label class="admin-customer-field"><span>Name</span><input type="text" id="partyBillPendingName" maxlength="60"></label>
-        <label class="admin-customer-field"><span>Mobile</span><input type="tel" id="partyBillPendingMobile" maxlength="10" inputmode="numeric"></label>
-        <div class="split-payment-actions">
-          <button class="ghost-btn" id="partyBillPendingBack" type="button">Back</button>
-          <button class="primary-btn" id="partyBillPendingConfirm" type="button">Confirm Udhaar</button>
+        <div class="pending-customer-panel" id="partyBillPendingPanel" hidden style="padding:0 16px 16px;">
+          <p class="pending-customer-help">Name and mobile required for udhaar.</p>
+          <label class="admin-customer-field"><span>Name</span><input type="text" id="partyBillPendingName" maxlength="60"></label>
+          <label class="admin-customer-field"><span>Mobile</span><input type="tel" id="partyBillPendingMobile" maxlength="10" inputmode="numeric"></label>
+          <div class="split-payment-actions">
+            <button class="ghost-btn" id="partyBillPendingBack" type="button">Back</button>
+            <button class="primary-btn" id="partyBillPendingConfirm" type="button">Confirm Udhaar</button>
+          </div>
         </div>
       </div>
     </section>
