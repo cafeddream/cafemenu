@@ -70,6 +70,16 @@ const PENDING_COLS = [
   { label: "Net", w: 20, align: "right" }
 ];
 
+const PARTY_COLS = [
+  { label: "Date / Time", w: 28 },
+  { label: "Name", w: 42 },
+  { label: "Guests", w: 18, align: "right" },
+  { label: "Hall", w: 22, align: "right" },
+  { label: "Food", w: 22, align: "right" },
+  { label: "Pay", w: 26 },
+  { label: "Net", w: 24, align: "right" }
+];
+
 let activeTableSection = null;
 
 function formatPaidAt(value) {
@@ -425,15 +435,16 @@ export async function buildSalesReportPdf(report) {
     ["Net Collection (paid)", fmtMoney(report.total || 0)],
     ["Gross Sales (incl. void + cancelled paid)", fmtMoney(report.grossTotal || 0)],
     ["Discount Given", fmtMoney(report.discountTotal || 0)],
-    ["Paid Orders + Sittings", String(report.paidOrderCount ?? report.totalOrders ?? 0)],
+    ["Paid Orders + Sittings + Parties", String(report.paidOrderCount ?? report.totalOrders ?? 0)],
     ["Food Sales (paid)", `${fmtMoney(report.foodSaleTotal || 0)} (${report.foodOrders || 0} orders)`],
     ["Private Sitting Sales", `${fmtMoney(report.privateSittingTotal || 0)} (${report.privateSittings || 0} sessions)`],
+    ["Party Sales", `${fmtMoney(report.partySaleTotal || 0)} (${report.partySessions || 0} parties)`],
     ["Cash Collection", fmtMoney(report.cash || 0)],
     ["Online Collection", fmtMoney(report.online || 0)],
     ["Cancelled Without Payment", `${report.cancelledWithoutPaymentCount || 0} orders · ${fmtMoney(report.cancelledWithoutPaymentAmount || 0)}`],
     ["Cancelled After Payment", `${report.cancelledWithPaymentCount || 0} orders · ${fmtMoney(report.cancelledWithPaymentAmount || 0)}`],
     ["Void Orders (not collected)", `${report.voidOrderCount || 0} orders · ${fmtMoney(report.voidOrderGross ?? report.voidOrderAmount ?? 0)}`],
-    ["Pending / Udhaar (not collected)", `${report.pendingOrderCount || 0} orders · ${fmtMoney(report.pendingOrderGross ?? report.pendingOrderTotal ?? 0)}`]
+    ["Pending / Udhaar (not collected)", `${report.pendingOrderCount || 0} · ${fmtMoney(report.pendingOrderGross ?? report.pendingOrderTotal ?? 0)}`]
   ], y, expenseSectionMin);
 
   y = drawKeyValueSection(
@@ -521,6 +532,31 @@ export async function buildSalesReportPdf(report) {
         fmtDiscount(discount),
         fmtMoney(net)
       ], y, index, { noTruncateIndices: [2], multiLine: true });
+    });
+  }
+  y = endTableSection(doc, y);
+
+  const parties = report.partyDetails || [];
+  y = beginTableSection(doc, "Party Sessions", PARTY_COLS, y, true);
+  if (!parties.length) {
+    y = drawEmptyRow(doc, PARTY_COLS, "No party sessions in this period.", y);
+  } else {
+    parties.forEach((party, index) => {
+      const hall = Number(party.hallCharges || 0);
+      const cafeFood = Number(party.cafeFoodTotal || 0);
+      const externalFood = Number(party.externalFoodTotal || 0);
+      const other = Number(party.otherChargesTotal || 0);
+      const food = cafeFood + externalFood + other;
+      const net = Number(party.finalTotal ?? party.grandTotal ?? 0);
+      y = drawTableRow(doc, PARTY_COLS, [
+        formatPaidAt(party.actualEnd || party.updatedAt),
+        party.name || "-",
+        String(party.gathering || "-"),
+        fmtMoney(hall),
+        fmtMoney(food),
+        formatPaymentMethodLabel(party),
+        fmtMoney(net)
+      ], y, index, { noTruncateIndices: [1, 5], multiLine: true });
     });
   }
   y = endTableSection(doc, y);

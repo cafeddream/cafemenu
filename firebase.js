@@ -2789,6 +2789,25 @@ export async function fetchCompletedSittingsForDateRange(startKey, endKey) {
     .sort((a, b) => (toDate(b.checkOutAt)?.getTime() || 0) - (toDate(a.checkOutAt)?.getTime() || 0));
 }
 
+// Loads completed party sessions ended in a date range.
+export async function fetchCompletedPartiesForDateRange(startKey, endKey) {
+  const snapshot = await getDocs(collection(db, "partySessions"));
+  return snapshot.docs
+    .map((partyDoc) => ({ id: partyDoc.id, partyId: partyDoc.id, ...partyDoc.data() }))
+    .filter((party) => {
+      if (party.status !== "completed") return false;
+      const endedAt = toDate(party.actualEnd) || toDate(party.updatedAt);
+      if (!endedAt) return false;
+      const key = getTodayKey(endedAt);
+      return key >= startKey && key <= endKey;
+    })
+    .sort((a, b) => {
+      const aTime = toDate(a.actualEnd)?.getTime() || toDate(a.updatedAt)?.getTime() || 0;
+      const bTime = toDate(b.actualEnd)?.getTime() || toDate(b.updatedAt)?.getTime() || 0;
+      return bTime - aTime;
+    });
+}
+
 // Reads cancellation audit entries within a date range.
 export async function fetchCancellationsForDateRange(startKey, endKey) {
   const summary = {
@@ -2882,7 +2901,7 @@ export async function fetchVoidedOrdersForDateRange(startKey, endKey) {
   return summary;
 }
 
-// Reads aggregated daily summary docs across a date range.
+// Reads aggregated daily summary docs across a date range (same source as Today's Collection).
 export async function fetchDailySummaries(startKey, endKey) {
   const keys = listDateKeys(startKey, endKey);
   const docs = await Promise.all(keys.map((key) => getDoc(dailySummaryRef(key))));
@@ -2892,6 +2911,8 @@ export async function fetchDailySummaries(startKey, endKey) {
     discountTotal: 0,
     cash: 0,
     online: 0,
+    pendingTotal: 0,
+    pendingOrders: 0,
     privateSittings: 0,
     privateSittingTotal: 0,
     foodOrders: 0
@@ -2904,6 +2925,8 @@ export async function fetchDailySummaries(startKey, endKey) {
     totals.discountTotal += Number(data.discountTotal || 0);
     totals.cash += Number(data.cash || 0);
     totals.online += Number(data.online || 0);
+    totals.pendingTotal += Number(data.pendingTotal || 0);
+    totals.pendingOrders += Number(data.pendingOrders || 0);
     totals.privateSittings += Number(data.privateSittings || 0);
     totals.privateSittingTotal += Number(data.privateSittingTotal || 0);
     totals.foodOrders += Number(data.foodOrders || 0);
@@ -2911,77 +2934,91 @@ export async function fetchDailySummaries(startKey, endKey) {
   return totals;
 }
 
+function sittingFeeAmount(session = {}) {
+  return Number(session.sittingAmount ?? session.billedAmount ?? 0);
+}
+
+function partySaleAmount(party = {}) {
+  return Number(party.finalTotal ?? party.grandTotal ?? 0);
+}
+
 // Builds a complete day-wise business report (no table selection required).
+// Cash / Online / Net Collection come from dailySummaries (matches Today's Collection).
 export async function fetchDayWiseReport(startKey, endKey) {
-  const [foodOrders, sittings, cancellations, voids] = await Promise.all([
+  const [foodOrders, sittings, parties, cancellations, voids, summaries] = await Promise.all([
     fetchFoodOrdersForDateRange(startKey, endKey),
     fetchCompletedSittingsForDateRange(startKey, endKey),
+    fetchCompletedPartiesForDateRange(startKey, endKey),
     fetchCancellationsForDateRange(startKey, endKey),
-    fetchVoidedOrdersForDateRange(startKey, endKey)
+    fetchVoidedOrdersForDateRange(startKey, endKey),
+    fetchDailySummaries(startKey, endKey)
   ]);
 
   const salesFoodOrders = foodOrders.filter((order) => order.paymentStatus !== "voided");
-  const paidFoodOrders = salesFoodOrders.filter((order) => order.paymentStatus === "verified_paid");
+  const paidFoodOrders = salesFoodOrders.filter((order) => (
+    order.paymentStatus === "verified_paid" || order.paymentStatus === "partial_credit"
+  ));
   const creditFoodOrders = salesFoodOrders.filter((order) => order.paymentStatus === "credit_pending");
   const voidOrders = collectVoidOrders(foodOrders, voids.details);
   const voidOrderGross = voidOrders.reduce((sum, order) => sum + voidOrderGrossValue(order), 0);
-  const pendingOrderGross = creditFoodOrders.reduce(
+  const historyPendingGross = creditFoodOrders.reduce(
     (sum, order) => sum + Number(order.grossTotal ?? order.total ?? 0),
     0
   );
-  const pendingOrderTotal = creditFoodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const historyPendingTotal = creditFoodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
   const itemsReport = buildReportFromOrders(
     [...paidFoodOrders, ...creditFoodOrders, ...voidOrders],
     startKey,
     endKey,
     { includeVoidedItems: true }
   );
-  const foodSaleTotal = paidFoodOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const foodSaleTotal = paidFoodOrders.reduce((sum, order) => {
+    if (order.paymentStatus === "partial_credit") {
+      return sum + Number(order.cashAmount || 0) + Number(order.onlineAmount || 0);
+    }
+    return sum + Number(order.total || 0);
+  }, 0);
   const paidFoodGross = paidFoodOrders.reduce(
     (sum, order) => sum + Number(order.grossTotal ?? order.total ?? 0),
     0
   );
   const foodDiscountTotal = paidFoodOrders.reduce((sum, order) => sum + Number(order.discountAmount || 0), 0)
     + creditFoodOrders.reduce((sum, order) => sum + Number(order.discountAmount || 0), 0);
-  const sittingSaleTotal = sittings.reduce((sum, session) => sum + Number(session.grandTotal ?? session.billedAmount ?? 0), 0);
-  const sittingGrossTotal = sittings.reduce((sum, session) => sum + Number(session.grossTotal ?? session.grandTotal ?? session.billedAmount ?? 0), 0);
+
+  // Fee-only sitting totals (exclude food already counted under food sales).
+  const sittingSaleTotal = sittings.reduce((sum, session) => sum + sittingFeeAmount(session), 0);
+  const sittingGrossTotal = sittings.reduce((sum, session) => {
+    const fee = sittingFeeAmount(session);
+    const food = Number(session.foodAmount || 0);
+    const gross = Number(session.grossTotal || 0);
+    if (gross > 0 && food > 0) return sum + Math.max(0, gross - food);
+    return sum + (Number(session.grossTotal ?? session.sittingAmount ?? session.billedAmount ?? 0) || fee);
+  }, 0);
   const sittingDiscountTotal = sittings.reduce((sum, session) => sum + Number(session.discountAmount || 0), 0);
 
-  const foodCash = paidFoodOrders.reduce((sum, order) => {
-    const amounts = resolvePaymentAmounts(order);
-    return sum + amounts.cashAmount;
-  }, 0);
-  const foodOnline = paidFoodOrders.reduce((sum, order) => {
-    const amounts = resolvePaymentAmounts(order);
-    return sum + amounts.onlineAmount;
-  }, 0);
-  const sittingCash = sittings
-    .filter((session) => session.paymentMethod !== "pending" && session.paymentStatus !== "credit_pending")
-    .reduce((sum, session) => {
-    const amounts = resolvePaymentAmounts({
-      ...session,
-      total: session.grandTotal ?? session.billedAmount ?? 0
-    });
-    return sum + amounts.cashAmount;
-  }, 0);
-  const sittingOnline = sittings
-    .filter((session) => session.paymentMethod !== "pending" && session.paymentStatus !== "credit_pending")
-    .reduce((sum, session) => {
-    const amounts = resolvePaymentAmounts({
-      ...session,
-      total: session.grandTotal ?? session.billedAmount ?? 0
-    });
-    return sum + amounts.onlineAmount;
-  }, 0);
+  const partySaleTotal = parties.reduce((sum, party) => sum + partySaleAmount(party), 0);
+  const partyGrossTotal = parties.reduce(
+    (sum, party) => sum + Number(party.grossTotal ?? party.finalTotal ?? party.grandTotal ?? 0),
+    0
+  );
+  const partyDiscountTotal = parties.reduce((sum, party) => sum + Number(party.discountAmount || 0), 0);
+
+  const pendingOrderTotal = summaries.pendingTotal > 0 ? summaries.pendingTotal : historyPendingTotal;
+  const pendingOrderGross = summaries.pendingTotal > 0 ? summaries.pendingTotal : historyPendingGross;
+  const pendingOrderCount = summaries.pendingOrders > 0
+    ? summaries.pendingOrders
+    : creditFoodOrders.length;
 
   const grossTotal = paidFoodGross
-    + pendingOrderGross
+    + historyPendingGross
     + sittingGrossTotal
+    + partyGrossTotal
     + cancellations.cancelledWithPaymentAmount
     + voidOrderGross;
-  const discountTotal = foodDiscountTotal + sittingDiscountTotal;
-  const total = foodSaleTotal + sittingSaleTotal;
-  const paidOrderCount = paidFoodOrders.length + sittings.length;
+  const discountTotal = summaries.discountTotal > 0
+    ? summaries.discountTotal
+    : (foodDiscountTotal + sittingDiscountTotal + partyDiscountTotal);
+  const paidOrderCount = paidFoodOrders.length + sittings.length + parties.length;
 
   const enrichedVoidDetails = voids.details.map((row) => {
     const full = voidOrders.find((order) => order.orderId === row.orderId);
@@ -3007,19 +3044,23 @@ export async function fetchDayWiseReport(startKey, endKey) {
   return {
     startDate: startKey,
     endDate: endKey,
-    total,
+    // Paid collection — same source as Today's Collection (menu).
+    total: summaries.total,
+    cash: summaries.cash,
+    online: summaries.online,
     grossTotal,
     discountTotal,
-    cash: foodCash + sittingCash,
-    online: foodOnline + sittingOnline,
     foodOrders: paidFoodOrders.length,
     foodSaleTotal,
-    pendingOrderCount: creditFoodOrders.length,
+    pendingOrderCount,
     pendingOrderGross,
     pendingOrderTotal,
     pendingOrderDetails: creditFoodOrders,
     privateSittings: sittings.length,
     privateSittingTotal: sittingSaleTotal,
+    partySessions: parties.length,
+    partySaleTotal,
+    partyDetails: parties,
     paidOrderCount,
     totalOrders: paidOrderCount,
     cancelledWithPaymentCount: cancellations.cancelledWithPaymentCount,
