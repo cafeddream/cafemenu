@@ -76,10 +76,11 @@ export const CONFIG = {
     { id: "PS 7", ratePerHour: 300, theme: "ps-purple" },
     { id: "PS 8", ratePerHour: 400, theme: "ps-pink" },
     { id: "PS 9", ratePerHour: 400, theme: "ps-pink" },
-    { id: "PS 10", ratePerHour: 500, theme: "ps-ruby", wide: true }
+    { id: "PS 10", ratePerHour: 500, theme: "ps-ruby", wide: true },
+    { id: "PS 11", ratePerHour: 500, theme: "ps-ruby", wide: true }
   ],
   TABLE_SECTIONS: [
-    { id: "private-sitting", name: "Private Sitting", tables: ["PS 1", "PS 2", "PS 3", "PS 4", "PS 5", "PS 6", "PS 7", "PS 8", "PS 9", "PS 10"] },
+    { id: "private-sitting", name: "Private Sitting", tables: ["PS 1", "PS 2", "PS 3", "PS 4", "PS 5", "PS 6", "PS 7", "PS 8", "PS 9", "PS 10", "PS 11"] },
     { id: "party-hall", name: "Party Hall", tables: ["COUNTER", "H 1", "H 2", "H 3", "H 4", "HUT"] },
     { id: "tatoo-studio", name: "Tatoo Studio", tables: ["T 1", "T 2", "T 3", "T 4"] },
     { id: "hotel", name: "Hotel", tables: ["D 1", "D 2", "D 3", "D 4", "D 5", "D 6", "D 7", "D 8", "D 9", "D 10"] }

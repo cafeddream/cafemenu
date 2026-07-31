@@ -12,7 +12,7 @@ service cloud.firestore {
         && get(runtimePath).data.allowedTables is list
         && tableId in get(runtimePath).data.allowedTables)
         || tableId in [
-        'PS 1', 'PS 2', 'PS 3', 'PS 4', 'PS 5', 'PS 6', 'PS 7', 'PS 8', 'PS 9', 'PS 10',
+        'PS 1', 'PS 2', 'PS 3', 'PS 4', 'PS 5', 'PS 6', 'PS 7', 'PS 8', 'PS 9', 'PS 10', 'PS 11',
         'COUNTER', 'H 1', 'H 2', 'H 3', 'H 4', 'HUT',
         'T 1', 'T 2', 'T 3', 'T 4',
         'D 1', 'D 2', 'D 3', 'D 4', 'D 5', 'D 6', 'D 7', 'D 8', 'D 9', 'D 10'
