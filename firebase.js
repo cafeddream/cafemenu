@@ -67,20 +67,20 @@ export const CONFIG = {
   RECEIPT_LOGO_SRC: "./assets/receipt-logo.png",
   APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxyUGP3kohv-GZH5GDOcmd6vpW-cwW2MmVjqY8F5uUfR3h4szcLpjuC6tDFj8ocdQu2Bw/exec",
   PRIVATE_SITTINGS: [
-    { id: "PS 1", ratePerHour: 150, theme: "ps-green" },
-    { id: "PS 2", ratePerHour: 150, theme: "ps-green" },
-    { id: "PS 3", ratePerHour: 150, theme: "ps-green" },
-    { id: "PS 4", ratePerHour: 200, theme: "ps-gold" },
-    { id: "PS 5", ratePerHour: 200, theme: "ps-gold" },
-    { id: "PS 6", ratePerHour: 200, theme: "ps-gold" },
-    { id: "PS 7", ratePerHour: 300, theme: "ps-purple" },
-    { id: "PS 8", ratePerHour: 400, theme: "ps-pink" },
-    { id: "PS 9", ratePerHour: 400, theme: "ps-pink" },
-    { id: "PS 10", ratePerHour: 500, theme: "ps-ruby", wide: true },
-    { id: "PS 11", ratePerHour: 500, theme: "ps-ruby", wide: true }
+    { id: "P1", ratePerHour: 150, theme: "ps-green" },
+    { id: "P2", ratePerHour: 150, theme: "ps-green" },
+    { id: "P3", ratePerHour: 150, theme: "ps-green" },
+    { id: "P4", ratePerHour: 200, theme: "ps-gold" },
+    { id: "P5", ratePerHour: 200, theme: "ps-gold" },
+    { id: "P6", ratePerHour: 200, theme: "ps-gold" },
+    { id: "P7", ratePerHour: 300, theme: "ps-purple" },
+    { id: "P8", ratePerHour: 400, theme: "ps-pink" },
+    { id: "P9", ratePerHour: 400, theme: "ps-pink" },
+    { id: "P10", ratePerHour: 500, theme: "ps-ruby", wide: true },
+    { id: "Top Hut", ratePerHour: 500, theme: "ps-ruby", wide: true }
   ],
   TABLE_SECTIONS: [
-    { id: "private-sitting", name: "Private Sitting", tables: ["PS 1", "PS 2", "PS 3", "PS 4", "PS 5", "PS 6", "PS 7", "PS 8", "PS 9", "PS 10", "PS 11"] },
+    { id: "private-sitting", name: "Private Sitting", tables: ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "Top Hut"] },
     { id: "party-hall", name: "Party Hall", tables: ["COUNTER", "H 1", "H 2", "H 3", "H 4", "HUT"] },
     { id: "tatoo-studio", name: "Tatoo Studio", tables: ["T 1", "T 2", "T 3", "T 4"] },
     { id: "hotel", name: "Hotel", tables: ["D 1", "D 2", "D 3", "D 4", "D 5", "D 6", "D 7", "D 8", "D 9", "D 10"] }
@@ -102,6 +102,19 @@ CONFIG.ORDER_SECTIONS = CONFIG.TABLE_SECTIONS.filter((section) => section.id !==
 const DEFAULT_PRIVATE_SITTINGS = JSON.parse(JSON.stringify(CONFIG.PRIVATE_SITTINGS));
 const DEFAULT_TABLE_SECTIONS = JSON.parse(JSON.stringify(CONFIG.TABLE_SECTIONS));
 const DEFAULT_ALLOWED_TABLES = CONFIG.TABLES.slice();
+const LEGACY_PRIVATE_SITTING_IDS = {
+  "PS 1": "P1",
+  "PS 2": "P2",
+  "PS 3": "P3",
+  "PS 4": "P4",
+  "PS 5": "P5",
+  "PS 6": "P6",
+  "PS 7": "P7",
+  "PS 8": "P8",
+  "PS 9": "P9",
+  "PS 10": "P10",
+  "PS 11": "Top Hut"
+};
 
 const ADMIN_UNLOCK_KEY = "cafe_admin_unlock_until";
 const ADMIN_UNLOCK_MS = 30 * 60 * 1000;
@@ -134,11 +147,24 @@ function rebuildConfigTables() {
   CONFIG.ORDER_SECTIONS = CONFIG.TABLE_SECTIONS.filter((section) => section.id !== "private-sitting");
 }
 
+function normalizePrivateSittingId(id) {
+  return LEGACY_PRIVATE_SITTING_IDS[id] || id;
+}
+
 export function getPrivateSittings() {
   const saved = runtimeConfigData?.privateSittings?.length
     ? runtimeConfigData.privateSittings
     : [];
-  const merged = saved.map((sitting) => ({ ...sitting }));
+  const merged = [];
+  saved.forEach((sitting) => {
+    const normalized = { ...sitting, id: normalizePrivateSittingId(sitting.id) };
+    const existingIndex = merged.findIndex((entry) => entry.id === normalized.id);
+    if (existingIndex >= 0) {
+      merged[existingIndex] = { ...merged[existingIndex], ...normalized };
+    } else {
+      merged.push(normalized);
+    }
+  });
   DEFAULT_PRIVATE_SITTINGS.forEach((defaultSitting) => {
     if (!merged.some((sitting) => sitting.id === defaultSitting.id)) {
       merged.push({ ...defaultSitting });
@@ -150,7 +176,7 @@ export function getPrivateSittings() {
 function mergeTableSectionsWithDefaults(raw) {
   const sections = (Array.isArray(raw) && raw.length ? raw : DEFAULT_TABLE_SECTIONS).map((section) => ({
     ...section,
-    tables: [...(section.tables || [])]
+    tables: [...new Set((section.tables || []).map(normalizePrivateSittingId))]
   }));
   const privateSection = sections.find((section) => section.id === "private-sitting");
   const defaultPrivateSection = DEFAULT_TABLE_SECTIONS.find((section) => section.id === "private-sitting");
@@ -180,7 +206,7 @@ export function getTableSections() {
 
 export function getAllowedTables() {
   if (Array.isArray(runtimeConfigData?.allowedTables) && runtimeConfigData.allowedTables.length) {
-    return runtimeConfigData.allowedTables;
+    return [...new Set(runtimeConfigData.allowedTables.map(normalizePrivateSittingId))];
   }
   return getTableSections().flatMap((section) => section.tables);
 }

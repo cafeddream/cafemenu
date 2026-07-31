@@ -351,7 +351,7 @@ function sittingsTabHtml() {
         ${getPrivateSittings().map(compactSittingRowHtml).join("")}
       </div>
       <form class="admin-inline-add" id="adminAddSittingForm">
-        <input type="text" name="id" placeholder="PS 11" required maxlength="12">
+        <input type="text" name="id" placeholder="Top Hut" required maxlength="12">
         <input type="number" name="ratePerHour" placeholder="₹/hr" min="0" step="10" required>
         <button class="primary-btn" type="submit">Add</button>
       </form>
