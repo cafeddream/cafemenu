@@ -135,20 +135,38 @@ function rebuildConfigTables() {
 }
 
 export function getPrivateSittings() {
-  return runtimeConfigData?.privateSittings?.length
+  const saved = runtimeConfigData?.privateSittings?.length
     ? runtimeConfigData.privateSittings
-    : DEFAULT_PRIVATE_SITTINGS;
+    : [];
+  const merged = saved.map((sitting) => ({ ...sitting }));
+  DEFAULT_PRIVATE_SITTINGS.forEach((defaultSitting) => {
+    if (!merged.some((sitting) => sitting.id === defaultSitting.id)) {
+      merged.push({ ...defaultSitting });
+    }
+  });
+  return merged.length ? merged : DEFAULT_PRIVATE_SITTINGS;
 }
 
 function mergeTableSectionsWithDefaults(raw) {
-  const sections = Array.isArray(raw) && raw.length ? raw : DEFAULT_TABLE_SECTIONS;
+  const sections = (Array.isArray(raw) && raw.length ? raw : DEFAULT_TABLE_SECTIONS).map((section) => ({
+    ...section,
+    tables: [...(section.tables || [])]
+  }));
+  const privateSection = sections.find((section) => section.id === "private-sitting");
+  const defaultPrivateSection = DEFAULT_TABLE_SECTIONS.find((section) => section.id === "private-sitting");
+  if (privateSection && defaultPrivateSection) {
+    defaultPrivateSection.tables.forEach((tableId) => {
+      if (!privateSection.tables.includes(tableId)) {
+        privateSection.tables.push(tableId);
+      }
+    });
+  }
   const hasDineInSections = sections.some((section) => (
     section.id === "party-hall" || section.id === "tatoo-studio" || section.id === "hotel"
   ));
   if (hasDineInSections) return sections;
 
-  const privateSitting = sections.find((section) => section.id === "private-sitting")
-    || DEFAULT_TABLE_SECTIONS.find((section) => section.id === "private-sitting");
+  const privateSitting = privateSection || defaultPrivateSection;
   const dineInSections = DEFAULT_TABLE_SECTIONS.filter((section) => section.id !== "private-sitting");
   return [privateSitting, ...dineInSections].filter(Boolean);
 }
