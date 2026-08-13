@@ -925,8 +925,8 @@ body[data-active-tab="orders"] .ps-manager-main {
 
 .ps-camera-modal {
   z-index: 1200;
-  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
-    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
 }
 
 .ps-camera-modal.modal-front {
@@ -937,13 +937,18 @@ body[data-active-tab="orders"] .ps-manager-main {
   position: relative;
   z-index: 1;
   width: min(100%, 720px);
-  display: grid;
-  gap: 12px;
-  padding: 16px;
+  max-height: calc(100vh - 20px);
+  max-height: calc(100dvh - 20px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
   border-radius: 16px;
   background: var(--ps-panel-soft);
   border: 1px solid var(--ps-line);
   color: var(--ps-text);
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .ps-camera-title {
@@ -953,19 +958,25 @@ body[data-active-tab="orders"] .ps-manager-main {
 
 .ps-camera-guide {
   margin: 0;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: 10px;
   background: rgba(255, 193, 7, 0.14);
   color: #b45309;
+  font-size: 0.92rem;
   font-weight: 600;
   text-align: center;
 }
 
 .ps-camera-viewport {
+  --ps-camera-crop-max-h: calc(min(48vh, 500px) - 24px);
+  --ps-camera-crop-max-h: calc(min(48dvh, 500px) - 24px);
   position: relative;
   width: 100%;
-  min-height: 52vh;
-  max-height: 70vh;
+  flex: 1 1 clamp(220px, 48vh, 500px);
+  flex-basis: clamp(220px, 48dvh, 500px);
+  height: clamp(220px, 48vh, 500px);
+  height: clamp(220px, 48dvh, 500px);
+  min-height: 0;
   border-radius: 12px;
   overflow: hidden;
   border: 2px solid rgba(255, 255, 255, 0.2);
@@ -976,12 +987,17 @@ body[data-active-tab="orders"] .ps-manager-main {
   display: block;
   width: 100%;
   height: 100%;
-  min-height: 52vh;
-  max-height: 70vh;
+  min-height: 0;
   object-fit: cover;
 }
 
 .ps-camera-gallery-mode .ps-camera-viewport {
+  --ps-camera-crop-max-h: calc(min(40vh, 430px) - 22px);
+  --ps-camera-crop-max-h: calc(min(40dvh, 430px) - 22px);
+  flex-basis: clamp(190px, 40vh, 430px);
+  flex-basis: clamp(190px, 40dvh, 430px);
+  height: clamp(190px, 40vh, 430px);
+  height: clamp(190px, 40dvh, 430px);
   touch-action: none;
   user-select: none;
 }
@@ -1014,7 +1030,7 @@ body[data-active-tab="orders"] .ps-manager-main {
 
 .ps-camera-crop {
   position: relative;
-  width: min(92%, calc((70vh - 32px) * 1.586));
+  width: min(92%, calc(var(--ps-camera-crop-max-h) * 1.586));
   max-width: 100%;
   aspect-ratio: 1.586 / 1;
   border: 2px solid rgba(255, 255, 255, 0.95);
@@ -1078,6 +1094,63 @@ body[data-active-tab="orders"] .ps-manager-main {
 .ps-camera-zoom input {
   width: 100%;
   accent-color: var(--ps-orange);
+}
+
+@media (max-height: 700px) {
+  .ps-camera-modal {
+    padding: max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right))
+      max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+  }
+
+  .ps-camera-panel {
+    gap: 7px;
+    padding: 9px;
+    border-radius: 12px;
+  }
+
+  .ps-camera-title {
+    font-size: 1rem;
+    line-height: 1.1;
+  }
+
+  .ps-camera-guide {
+    padding: 6px 8px;
+    font-size: 0.82rem;
+    line-height: 1.2;
+  }
+
+  .ps-camera-viewport {
+    --ps-camera-crop-max-h: calc(38vh - 28px);
+    --ps-camera-crop-max-h: calc(38dvh - 28px);
+    flex-basis: clamp(170px, 38vh, 320px);
+    flex-basis: clamp(170px, 38dvh, 320px);
+    height: clamp(170px, 38vh, 320px);
+    height: clamp(170px, 38dvh, 320px);
+  }
+
+  .ps-camera-gallery-mode .ps-camera-viewport {
+    --ps-camera-crop-max-h: calc(34vh - 28px);
+    --ps-camera-crop-max-h: calc(34dvh - 28px);
+    flex-basis: clamp(150px, 34vh, 280px);
+    flex-basis: clamp(150px, 34dvh, 280px);
+    height: clamp(150px, 34vh, 280px);
+    height: clamp(150px, 34dvh, 280px);
+  }
+
+  .ps-camera-zoom {
+    gap: 6px;
+  }
+
+  .ps-camera-actions {
+    gap: 6px;
+  }
+
+  .ps-camera-actions button,
+  .ps-camera-rotate-controls button {
+    min-height: 34px;
+    padding-block: 6px;
+    font-size: 0.86rem;
+  }
 }
 
 .ps-pdf-preview {
