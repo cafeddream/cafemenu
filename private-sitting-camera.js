@@ -15,6 +15,8 @@ const elements = {
   zoomSlider: null,
   zoomInBtn: null,
   zoomOutBtn: null,
+  rotateLeftBtn: null,
+  rotateRightBtn: null,
   title: null,
   guide: null,
   viewport: null
@@ -23,6 +25,7 @@ const elements = {
 let activeStream = null;
 let pendingResolve = null;
 let capturing = false;
+let rotatingGallery = false;
 let uiBound = false;
 let mode = "camera";
 const pointers = new Map();
@@ -54,6 +57,8 @@ function bindElements() {
   elements.zoomSlider = document.querySelector("#psCameraZoomSlider");
   elements.zoomInBtn = document.querySelector("#psCameraZoomIn");
   elements.zoomOutBtn = document.querySelector("#psCameraZoomOut");
+  elements.rotateLeftBtn = document.querySelector("#psCameraRotateLeft");
+  elements.rotateRightBtn = document.querySelector("#psCameraRotateRight");
   elements.title = document.querySelector("#psCameraTitle");
   elements.guide = document.querySelector(".ps-camera-guide");
   elements.viewport = document.querySelector(".ps-camera-viewport");
@@ -77,6 +82,12 @@ function setCaptureReady(ready) {
     : (mode === "gallery" ? "Photo loading..." : "Camera loading...");
 }
 
+function setRotateReady(ready) {
+  [elements.rotateLeftBtn, elements.rotateRightBtn].forEach((button) => {
+    if (button) button.disabled = !ready;
+  });
+}
+
 function resetGalleryCrop() {
   pointers.clear();
   galleryCrop.image = null;
@@ -85,6 +96,7 @@ function resetGalleryCrop() {
   galleryCrop.maxScale = 4;
   galleryCrop.offsetX = 0;
   galleryCrop.offsetY = 0;
+  setRotateReady(false);
   if (elements.galleryImage) {
     elements.galleryImage.hidden = true;
     elements.galleryImage.removeAttribute("src");
@@ -108,6 +120,7 @@ function setMode(nextMode) {
   }
   if (elements.galleryBtn) elements.galleryBtn.textContent = isGallery ? "Retake" : "Use gallery";
   if (elements.cancelBtn) elements.cancelBtn.textContent = "Cancel";
+  setRotateReady(false);
   setCaptureReady(false);
 }
 
@@ -268,6 +281,51 @@ function setGalleryScale(nextScale) {
   renderGalleryCrop();
 }
 
+function buildRotatedGalleryDataUrl(image, direction) {
+  const width = image.naturalWidth;
+  const height = image.naturalHeight;
+  if (!width || !height) return "";
+
+  const canvas = document.createElement("canvas");
+  canvas.width = height;
+  canvas.height = width;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate((direction === "left" ? -90 : 90) * Math.PI / 180);
+  ctx.drawImage(image, -width / 2, -height / 2);
+  return canvas.toDataURL("image/jpeg", 0.92);
+}
+
+async function rotateGalleryImage(direction) {
+  if (mode !== "gallery" || rotatingGallery || !galleryCrop.image || !pendingResolve) return;
+
+  rotatingGallery = true;
+  setCaptureReady(false);
+  setRotateReady(false);
+
+  try {
+    const rotatedDataUrl = buildRotatedGalleryDataUrl(galleryCrop.image, direction);
+    const img = await loadGalleryImage(rotatedDataUrl);
+    if (!img?.naturalWidth || !img?.naturalHeight) {
+      throw new Error("Could not rotate photo");
+    }
+    setupGalleryCropImage(img);
+  } catch (error) {
+    console.warn("Gallery rotate failed:", error);
+    showToast("Could not rotate photo. Try again.");
+  } finally {
+    rotatingGallery = false;
+    if (mode === "gallery" && galleryCrop.image && pendingResolve) {
+      setCaptureReady(true);
+      setRotateReady(true);
+    }
+  }
+}
+
 function setupGalleryCropImage(img) {
   const crop = getCropRectOnScreen();
   galleryCrop.image = img;
@@ -285,6 +343,7 @@ function setupGalleryCropImage(img) {
     elements.zoomSlider.step = String((galleryCrop.maxScale - galleryCrop.minScale) / 100 || 0.01);
   }
   renderGalleryCrop();
+  setRotateReady(true);
 }
 
 function captureGalleryCropFrame() {
@@ -389,6 +448,7 @@ function finishCapture(dataUrl) {
   const resolve = pendingResolve;
   pendingResolve = null;
   capturing = false;
+  rotatingGallery = false;
   stopCameraStream();
   resetGalleryCrop();
   setCaptureReady(true);
@@ -408,6 +468,10 @@ async function handleCaptureClick(event) {
   event?.preventDefault?.();
   event?.stopPropagation?.();
   if (!pendingResolve || capturing) return;
+  if (rotatingGallery) {
+    showToast("Photo rotate ho raha hai, ek second ruko");
+    return;
+  }
   if (elements.captureBtn?.disabled) {
     showToast("Camera abhi load ho raha hai — thodi der ruko");
     return;
@@ -595,6 +659,16 @@ export function initIdCropCamera() {
   elements.zoomSlider?.addEventListener("input", () => setGalleryScale(Number(elements.zoomSlider.value)));
   elements.zoomInBtn?.addEventListener("click", () => setGalleryScale(galleryCrop.scale + (galleryCrop.maxScale - galleryCrop.minScale) / 12));
   elements.zoomOutBtn?.addEventListener("click", () => setGalleryScale(galleryCrop.scale - (galleryCrop.maxScale - galleryCrop.minScale) / 12));
+  elements.rotateLeftBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void rotateGalleryImage("left");
+  });
+  elements.rotateRightBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void rotateGalleryImage("right");
+  });
   window.addEventListener("resize", () => {
     if (mode === "gallery" && galleryCrop.image) setupGalleryCropImage(galleryCrop.image);
   });

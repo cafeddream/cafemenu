@@ -152,9 +152,15 @@
         </div>
       </div>
       <div class="ps-camera-zoom" id="psCameraZoomControls" hidden>
-        <button class="ghost-btn" type="button" id="psCameraZoomOut" aria-label="Zoom out">-</button>
-        <input type="range" id="psCameraZoomSlider" min="1" max="4" step="0.01" value="1" aria-label="Zoom">
-        <button class="ghost-btn" type="button" id="psCameraZoomIn" aria-label="Zoom in">+</button>
+        <div class="ps-camera-rotate-controls">
+          <button class="ghost-btn" type="button" id="psCameraRotateLeft" aria-label="Rotate left">Rotate Left</button>
+          <button class="ghost-btn" type="button" id="psCameraRotateRight" aria-label="Rotate right">Rotate Right</button>
+        </div>
+        <div class="ps-camera-zoom-controls">
+          <button class="ghost-btn" type="button" id="psCameraZoomOut" aria-label="Zoom out">-</button>
+          <input type="range" id="psCameraZoomSlider" min="1" max="4" step="0.01" value="1" aria-label="Zoom">
+          <button class="ghost-btn" type="button" id="psCameraZoomIn" aria-label="Zoom in">+</button>
+        </div>
       </div>
       <div class="ps-camera-actions">
         <button class="secondary-btn" type="button" id="psCameraGallery">Use gallery</button>
