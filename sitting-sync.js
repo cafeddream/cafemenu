@@ -70,6 +70,20 @@ export async function syncSittingCheckout(payload) {
   return postAppsScript({ action: "checkout", ...payload });
 }
 
+export async function fetchPrivateCustomerProfile(mobile) {
+  if (!isAppsScriptConfigured()) {
+    return { skipped: true, reason: "Apps Script URL not configured" };
+  }
+  return postAppsScript({ action: "fetchCustomerProfile", mobile }, 45000);
+}
+
+export async function savePrivateCustomerProfile(payload) {
+  if (!isAppsScriptConfigured()) {
+    return { skipped: true, reason: "Apps Script URL not configured" };
+  }
+  return postAppsScript({ action: "saveCustomerProfile", ...payload }, 90000);
+}
+
 export function isSittingSyncConfigured() {
   return isAppsScriptConfigured();
 }

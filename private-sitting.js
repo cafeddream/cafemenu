@@ -17,6 +17,7 @@ import {
   loadRuntimeConfig,
   markOrderCreditPending,
   maskMobile,
+  normalizeIndianMobile,
   normalizeCreditCustomer,
   normalizePaymentAmounts,
   recordSittingCreditPending,
@@ -31,7 +32,7 @@ import {
 import { openAdminOrderModal } from "./admin-orders.js";
 import { buildSittingEntryHtmlPreview, buildSittingPdfFileName, buildSittingSessionPdf, compressPhotoDataUrl, formatCheckInLabel, isValidPdfBase64, mergeCustomersWithPhotos, preloadJsPdf, withTimeout } from "./private-sitting-pdf.js";
 import { initIdCropCamera, openGalleryPhotoPicker, openIdCropCamera } from "./private-sitting-camera.js";
-import { fetchSessionPhotos, syncSittingCheckIn, syncSittingCheckout, uploadSittingPhotos } from "./sitting-sync.js";
+import { fetchPrivateCustomerProfile, fetchSessionPhotos, savePrivateCustomerProfile, syncSittingCheckIn, syncSittingCheckout, uploadSittingPhotos } from "./sitting-sync.js";
 import { syncPendingOrderToSheet } from "./report-sync.js";
 import { renderAdminSettings } from "./admin-settings.js";
 
@@ -45,6 +46,12 @@ const state = {
   selectedSittingId: null,
   selectedSessionId: null,
   checkInDraft: null,
+  checkInLookupTimer: null,
+  checkInLookupRequestId: 0,
+  checkInTouchedFields: new Set(),
+  checkInAutofilledFields: new Set(),
+  checkInProfileMobile: "",
+  checkInProfileStatus: { message: "", tone: "" },
   checkInSubmitting: false,
   checkoutDraft: null,
   checkoutSubmitting: false,
@@ -101,6 +108,13 @@ const CHECKOUT_CASH_LABEL = "Cash";
 const CHECKOUT_ONLINE_LABEL = "Online";
 const CHECKOUT_SPLIT_LABEL = "Split";
 const CHECKOUT_PENDING_LABEL = "Udhaar";
+const CHECK_IN_PROFILE_LOOKUP_DELAY_MS = 650;
+const CUSTOMER_PROFILE_FIELDS = [
+  { key: "name", prop: "name" },
+  { key: "dob", prop: "dob" },
+  { key: "front", prop: "photoFrontDataUrl" },
+  { key: "back", prop: "photoBackDataUrl" }
+];
 
 const SESSION_PEOPLE_ICON = "<svg class=\"ps-session-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path fill=\"currentColor\" d=\"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S7.66 5 6 5C4.34 5 3 6.34 3 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-4.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-4.5c0-2.33-4.67-3.5-7-3.5z\"/></svg>";
 
@@ -217,6 +231,172 @@ function clearCheckInError() {
   elements.checkInError.hidden = true;
 }
 
+function setCheckInProfileStatus(message = "", tone = "") {
+  state.checkInProfileStatus = { message, tone };
+  const status = elements.checkInForm?.querySelector("#psProfileLookupStatus");
+  if (!status) return;
+  status.textContent = message;
+  status.hidden = !message;
+  status.dataset.tone = tone;
+}
+
+function clearCheckInLookup() {
+  if (state.checkInLookupTimer) {
+    window.clearTimeout(state.checkInLookupTimer);
+    state.checkInLookupTimer = null;
+  }
+  state.checkInLookupRequestId += 1;
+}
+
+function customerProfileFieldKey(index, field) {
+  return `${index}:${field}`;
+}
+
+function markCheckInInputTouched(name = "") {
+  const nameMatch = /^name-(\d+)$/.exec(name);
+  if (nameMatch) {
+    state.checkInTouchedFields.add(customerProfileFieldKey(Number(nameMatch[1]), "name"));
+    return;
+  }
+  const dobMatch = /^dob-(\d+)$/.exec(name);
+  if (dobMatch) {
+    state.checkInTouchedFields.add(customerProfileFieldKey(Number(dobMatch[1]), "dob"));
+  }
+}
+
+function markCheckInPhotoTouched(side, index) {
+  const field = side === "front" ? "front" : "back";
+  state.checkInTouchedFields.add(customerProfileFieldKey(Number(index), field));
+}
+
+function clearAutofilledProfileFields() {
+  const draft = state.checkInDraft;
+  if (!draft) return false;
+
+  let changed = false;
+  state.checkInAutofilledFields.forEach((fieldKey) => {
+    const [indexText, field] = fieldKey.split(":");
+    const customer = draft.customers[Number(indexText)];
+    const definition = CUSTOMER_PROFILE_FIELDS.find((entry) => entry.key === field);
+    if (!customer || !definition || state.checkInTouchedFields.has(fieldKey)) return;
+    if (customer[definition.prop]) {
+      customer[definition.prop] = "";
+      changed = true;
+    }
+  });
+  state.checkInAutofilledFields.clear();
+  state.checkInProfileMobile = "";
+  return changed;
+}
+
+function applyProfileValue(customer, index, definition, value) {
+  const fieldKey = customerProfileFieldKey(index, definition.key);
+  if (state.checkInTouchedFields.has(fieldKey)) return false;
+
+  const nextValue = String(value || "");
+  if (customer[definition.prop] === nextValue) {
+    if (nextValue) state.checkInAutofilledFields.add(fieldKey);
+    else state.checkInAutofilledFields.delete(fieldKey);
+    return false;
+  }
+
+  customer[definition.prop] = nextValue;
+  if (nextValue) state.checkInAutofilledFields.add(fieldKey);
+  else state.checkInAutofilledFields.delete(fieldKey);
+  return true;
+}
+
+function applyFetchedCustomerProfile(profile, mobile) {
+  const draft = state.checkInDraft;
+  if (!draft) return false;
+
+  const profileCustomers = Array.isArray(profile?.customers) ? profile.customers : [];
+  let changed = false;
+  draft.customers.forEach((customer, index) => {
+    const profileCustomer = profileCustomers[index] || {};
+    CUSTOMER_PROFILE_FIELDS.forEach((definition) => {
+      changed = applyProfileValue(customer, index, definition, profileCustomer[definition.prop]) || changed;
+    });
+  });
+  state.checkInProfileMobile = mobile;
+  return changed;
+}
+
+function isCurrentProfileLookup(mobile, requestId) {
+  return Boolean(
+    state.checkInDraft
+    && requestId === state.checkInLookupRequestId
+    && normalizeIndianMobile(state.checkInDraft.mobile) === mobile
+  );
+}
+
+async function runCheckInProfileLookup(mobile, requestId) {
+  try {
+    const result = await fetchPrivateCustomerProfile(mobile);
+    if (!isCurrentProfileLookup(mobile, requestId)) return;
+
+    if (result?.skipped) {
+      setCheckInProfileStatus("Profile lookup skipped", "muted");
+      return;
+    }
+    if (!result?.ok) {
+      throw new Error(result?.error || "Profile lookup failed");
+    }
+    if (!result.found || !result.profile) {
+      const changed = clearAutofilledProfileFields();
+      if (changed) {
+        renderCheckInForm();
+        updateCheckInPreview();
+      }
+      setCheckInProfileStatus("No previous customer", "muted");
+      return;
+    }
+
+    applyFetchedCustomerProfile(result.profile, mobile);
+    renderCheckInForm();
+    updateCheckInPreview();
+    setCheckInProfileStatus("Previous customer loaded", "success");
+    showToast("Previous customer loaded");
+  } catch (error) {
+    console.warn("Customer profile lookup failed:", error);
+    if (isCurrentProfileLookup(mobile, requestId)) {
+      setCheckInProfileStatus("Could not load previous customer", "error");
+    }
+  }
+}
+
+function scheduleCheckInProfileLookup() {
+  const draft = state.checkInDraft;
+  if (!draft) return;
+
+  if (state.checkInLookupTimer) {
+    window.clearTimeout(state.checkInLookupTimer);
+    state.checkInLookupTimer = null;
+  }
+  state.checkInLookupRequestId += 1;
+
+  const mobile = normalizeIndianMobile(draft.mobile);
+  if (!mobile) {
+    setCheckInProfileStatus("");
+    return;
+  }
+
+  if (state.checkInProfileMobile && state.checkInProfileMobile !== mobile) {
+    const changed = clearAutofilledProfileFields();
+    if (changed) {
+      renderCheckInForm();
+      updateCheckInPreview();
+    }
+  }
+
+  const requestId = state.checkInLookupRequestId;
+  setCheckInProfileStatus("Checking previous customer...", "loading");
+  state.checkInLookupTimer = window.setTimeout(() => {
+    state.checkInLookupTimer = null;
+    void runCheckInProfileLookup(mobile, requestId);
+  }, CHECK_IN_PROFILE_LOOKUP_DELAY_MS);
+}
+
 function buildRawCustomerPhotos(customers = []) {
   return customers.map((customer) => ({
     photoFrontDataUrl: customer.photoFrontDataUrl || "",
@@ -236,6 +416,20 @@ function buildPhotosUploadPayload(customerPhotos = []) {
     frontBase64: stripPhotoBase64(photo.photoFrontDataUrl),
     backBase64: stripPhotoBase64(photo.photoBackDataUrl)
   }));
+}
+
+function buildCustomerProfilePayload(sessionId, draft, customers, customerPhotos) {
+  return {
+    sessionId,
+    sittingId: draft.sittingId,
+    mobile: draft.mobile,
+    customers: customers.map((customer, index) => ({
+      name: customer.name,
+      dob: customer.dob,
+      photoFrontDataUrl: customerPhotos[index]?.photoFrontDataUrl || "",
+      photoBackDataUrl: customerPhotos[index]?.photoBackDataUrl || ""
+    }))
+  };
 }
 
 function collectPhotoFileIds(photoDriveIds = []) {
@@ -259,6 +453,19 @@ function formatCheckInError(error) {
     return "Permission denied. Sign in again as staff.";
   }
   return message || "Check-in failed. Please try again.";
+}
+
+async function saveCustomerProfileForCheckIn(sessionId, draft, customers, customerPhotos) {
+  try {
+    const profileResult = await savePrivateCustomerProfile(
+      buildCustomerProfilePayload(sessionId, draft, customers, customerPhotos)
+    );
+    if (profileResult?.ok) {
+      showToast("Customer profile saved.");
+    }
+  } catch (error) {
+    console.warn("Customer profile save failed:", error);
+  }
 }
 
 async function runCheckInBackground(sessionId, draft, customers, checkInLabel, customerPhotos) {
@@ -684,6 +891,7 @@ async function captureIdPhotoForCustomer(side, index) {
       return;
     }
 
+    markCheckInPhotoTouched(side, idx);
     if (side === "front") draft.customers[idx].photoFrontDataUrl = compressed;
     else draft.customers[idx].photoBackDataUrl = compressed;
     renderCheckInForm();
@@ -699,17 +907,21 @@ function renderCheckInForm() {
   if (!elements.checkInForm || !state.checkInDraft) return;
   const draft = state.checkInDraft;
   elements.checkInForm.innerHTML = `
-    ${checkInInputHtml({
-      name: "mobile",
-      type: "tel",
-      value: draft.mobile,
-      placeholder: "Enter mob. no. here",
-      iconKey: "mobile",
-      ariaLabel: "Mobile number",
-      attrs: 'inputmode="numeric" maxlength="10" required'
-    })}
+    <div class="ps-mobile-lookup">
+      ${checkInInputHtml({
+        name: "mobile",
+        type: "tel",
+        value: draft.mobile,
+        placeholder: "Enter mob. no. here",
+        iconKey: "mobile",
+        ariaLabel: "Mobile number",
+        attrs: 'inputmode="numeric" maxlength="10" required'
+      })}
+      <p class="ps-profile-lookup-status" id="psProfileLookupStatus" hidden aria-live="polite"></p>
+    </div>
     ${draft.customers.map((customer, index) => customerBlockHtml(customer, index)).join("")}
   `;
+  setCheckInProfileStatus(state.checkInProfileStatus.message, state.checkInProfileStatus.tone);
 
   elements.checkInForm.querySelectorAll("[data-photo-side]").forEach((button) => {
     const side = button.dataset.photoSide;
@@ -717,8 +929,15 @@ function renderCheckInForm() {
     button.onclick = () => captureIdPhotoForCustomer(side, index);
   });
 
-  const handleFormChange = () => {
+  const handleFormChange = (event) => {
+    const inputName = event.target?.name || "";
+    if (inputName !== "mobile") {
+      markCheckInInputTouched(inputName);
+    }
     syncDraftFromForm();
+    if (event.type === "input" && inputName === "mobile") {
+      scheduleCheckInProfileLookup();
+    }
     updateCheckInPreview();
   };
   elements.checkInForm.oninput = handleFormChange;
@@ -736,6 +955,11 @@ async function updateCheckInPreview() {
 }
 
 function openCheckInModal(sittingId) {
+  clearCheckInLookup();
+  state.checkInTouchedFields = new Set();
+  state.checkInAutofilledFields = new Set();
+  state.checkInProfileMobile = "";
+  state.checkInProfileStatus = { message: "", tone: "" };
   state.checkInDraft = createCheckInDraft(sittingId);
   state.checkInSubmitting = false;
   state.selectedSittingId = sittingId;
@@ -749,15 +973,22 @@ function openCheckInModal(sittingId) {
 }
 
 function closeCheckInModal() {
+  clearCheckInLookup();
   if (elements.checkInModal) elements.checkInModal.hidden = true;
   state.checkInDraft = null;
+  state.checkInTouchedFields = new Set();
+  state.checkInAutofilledFields = new Set();
+  state.checkInProfileMobile = "";
+  setCheckInProfileStatus("");
 }
 
 function validateCheckInDraft(draft) {
-  if (!/^[6-9][0-9]{9}$/.test(String(draft.mobile || ""))) {
+  const mobile = normalizeIndianMobile(draft.mobile);
+  if (!mobile) {
     showToast("Enter a valid 10-digit mobile number");
     return false;
   }
+  draft.mobile = mobile;
   for (let i = 0; i < draft.customers.length; i += 1) {
     const customer = draft.customers[i];
     if (!customer.name?.trim() || !customer.dob?.trim()) {
@@ -820,7 +1051,8 @@ async function submitCheckIn() {
 
     closeCheckInModal();
     showToast(`${draft.sittingId} checked in`);
-    runCheckInBackground(sessionId, backgroundDraft, customers, checkInLabel, customerPhotos);
+    void runCheckInBackground(sessionId, backgroundDraft, customers, checkInLabel, customerPhotos);
+    void saveCustomerProfileForCheckIn(sessionId, backgroundDraft, customers, customerPhotos);
   } catch (error) {
     console.error("Check-in failed:", error);
     const message = formatCheckInError(error);
