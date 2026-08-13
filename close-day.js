@@ -3,6 +3,7 @@ import {
   fetchActivePrivateSessionsOnce,
   fetchActivePartySessionsOnce,
   fetchDayWiseReport,
+  getPrivateSittings,
   getTodayKey
 } from "./firebase.js";
 import { attachExpensesToReport } from "./expense-sync.js";
@@ -23,6 +24,12 @@ function orderHasUnservedItems(order) {
   if (order.paymentStatus === "voided") return false;
   if (order.status === "paid" || order.paymentMethod === "party_settle") return false;
   return (order.items || []).some((item) => item.status !== "served");
+}
+
+function getConfiguredActivePrivateSessions(sessions) {
+  const configuredSittings = new Set(getPrivateSittings().map((sitting) => sitting.id));
+  if (!configuredSittings.size) return sessions;
+  return sessions.filter((session) => configuredSittings.has(session.sittingId));
 }
 
 export async function isTodayDayClosed() {
@@ -49,7 +56,7 @@ export async function closeDayForToday() {
     throw new Error(CLOSE_DAY_ERRORS.unserved);
   }
 
-  if (sessions.length > 0) {
+  if (getConfiguredActivePrivateSessions(sessions).length > 0) {
     throw new Error(CLOSE_DAY_ERRORS.sitting);
   }
 
