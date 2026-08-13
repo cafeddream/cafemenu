@@ -956,6 +956,29 @@ body[data-active-tab="orders"] .ps-manager-main {
   object-fit: cover;
 }
 
+.ps-camera-gallery-mode .ps-camera-viewport {
+  touch-action: none;
+  user-select: none;
+}
+
+.ps-camera-gallery-image {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  max-height: none;
+  transform-origin: top left;
+  will-change: transform;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.ps-camera-gallery-image[hidden] {
+  display: none;
+}
+
 .ps-camera-mask {
   position: absolute;
   inset: 0;
@@ -1007,6 +1030,18 @@ body[data-active-tab="orders"] .ps-manager-main {
 
 .ps-camera-actions button {
   touch-action: manipulation;
+}
+
+.ps-camera-zoom {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.ps-camera-zoom input {
+  width: 100%;
+  accent-color: var(--ps-orange);
 }
 
 .ps-pdf-preview {
